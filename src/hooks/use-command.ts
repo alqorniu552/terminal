@@ -40,6 +40,7 @@ Available commands:
   cat [file]    - Display file content.
   neofetch      - Display system information.
   db "[query]"  - Query the database using natural language.
+  createfile [filename] "[content]" - Create a new file.
   clear         - Clear the terminal screen.
   logout        - Log out from the application.
 `;
@@ -47,7 +48,6 @@ Available commands:
             output += `
 Root-only commands:
   list-users    - List all registered users.
-  createfile [filename] "[content]" - Create a new file.
 `;
         }
         output += `
@@ -174,6 +174,7 @@ export const useCommand = (user: User | null | undefined) => {
                         await setDoc(doc(db, "users", userCredential.user.uid), {
                             email: userCredential.user.email,
                             createdAt: new Date(),
+                            uid: userCredential.user.uid
                         });
                     }
 
@@ -292,9 +293,6 @@ export const useCommand = (user: User | null | undefined) => {
       }
 
       case 'createfile': {
-        if (!isRoot) {
-          return `createfile: command not found`;
-        }
         const match = argString.match(/^(\S+)\s+"(.*)"$/);
         if (!match) {
           return 'Usage: createfile [filename] "[content]"';
@@ -302,6 +300,11 @@ export const useCommand = (user: User | null | undefined) => {
         const [, filename, content] = match;
 
         const targetPath = resolvePath(cwd, '');
+        
+        if (!isRoot && targetPath.startsWith('/root')) {
+            return `createfile: cannot create file in '/root': Permission denied`;
+        }
+
         const node = getNodeFromPath(targetPath);
 
         if (node && node.type === 'directory') {
