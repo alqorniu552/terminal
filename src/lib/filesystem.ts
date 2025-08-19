@@ -38,6 +38,15 @@ export const filesystem: Directory = {
         },
       },
     },
+    'root': {
+      type: 'directory',
+      children: {
+        'secret.txt': {
+            type: 'file',
+            content: 'This file is only accessible to the root user.'
+        }
+      }
+    },
     'contact.txt': {
       type: 'file',
       content: `

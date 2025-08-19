@@ -11,15 +11,15 @@ import { User, signInWithEmailAndPassword, createUserWithEmailAndPassword } from
 
 export type AuthStep = 'none' | 'login_email' | 'login_password' | 'register_email' | 'register_password';
 
-const getNeofetchOutput = (user: User | null | undefined) => {
+const getNeofetchOutput = (user: User | null | undefined, isRoot: boolean) => {
     let uptime = 0;
     if (typeof window !== 'undefined') {
         uptime = Math.floor(performance.now() / 1000);
     }
-    const email = user?.email || 'guest';
+    const username = isRoot ? 'root' : user?.email?.split('@')[0] || 'guest';
 
 return `
-${email}@hacker
+${username}@hacker
 --------------------
 OS: Web Browser
 Host: Hacker v1.0
@@ -93,13 +93,16 @@ export const useCommand = (user: User | null | undefined) => {
   const [cwd, setCwd] = useState('/');
   const [authStep, setAuthStep] = useState<AuthStep>('none');
   const [authCredentials, setAuthCredentials] = useState({ email: '', password: '' });
+  const isRoot = user?.email === 'alqorniu552@gmail.com';
 
   const getInitialPrompt = useCallback(() => {
     if (user) {
-        return `${user.email?.split('@')[0]}@hacker:~$`;
+        const username = isRoot ? 'root' : user.email?.split('@')[0];
+        const promptSymbol = isRoot ? '#' : '$';
+        return `${username}@hacker:~$${promptSymbol}`;
     }
     return 'guest@hacker:~$';
-  }, [user]);
+  }, [user, isRoot]);
 
   const [prompt, setPrompt] = useState(getInitialPrompt());
   const { toast } = useToast();
@@ -108,6 +111,9 @@ export const useCommand = (user: User | null | undefined) => {
     setPrompt(getInitialPrompt());
     if (!user) {
         setAuthStep('none');
+        setCwd('/');
+    } else {
+        setCwd('/'); // Reset to home dir on login/logout
     }
   }, [user, getInitialPrompt]);
 
@@ -120,10 +126,13 @@ export const useCommand = (user: User | null | undefined) => {
 
   const getWelcomeMessage = useCallback(() => {
     if (user) {
+        if (isRoot) {
+            return `Welcome, root! You have superuser privileges. Type 'help' for commands.`;
+        }
         return `Welcome, ${user.email}! Type 'help' for a list of commands.`;
     }
     return `Welcome to Hacker Terminal! Please 'login' or 'register' to continue.`;
-  }, [user]);
+  }, [user, isRoot]);
 
   const processCommand = useCallback(async (command: string): Promise<string> => {
     const [cmd, ...args] = command.trim().split(/\s+/);
@@ -181,12 +190,15 @@ export const useCommand = (user: User | null | undefined) => {
       case 'help':
         return getHelpOutput(true);
       case 'neofetch':
-        return getNeofetchOutput(user);
+        return getNeofetchOutput(user, isRoot);
       
       case 'ls': {
         const targetPath = arg ? resolvePath(cwd, arg) : cwd;
         const node = getNodeFromPath(targetPath);
         if (node && node.type === 'directory') {
+          if (targetPath.startsWith('/root') && !isRoot) {
+            return `ls: cannot open directory '/root': Permission denied`;
+          }
           return Object.keys(node.children).map(key => {
             return node.children[key].type === 'directory' ? `\x1b[1;34m${key}/\x1b[0m` : key;
           }).join('\n');
@@ -197,15 +209,22 @@ export const useCommand = (user: User | null | undefined) => {
       case 'cd': {
         if (!arg || arg === '~') {
           setCwd('/');
-          setPrompt(`${user.email?.split('@')[0]}@hacker:~$`);
+          const username = isRoot ? 'root' : user.email?.split('@')[0];
+          const promptSymbol = isRoot ? '#' : '$';
+          setPrompt(`${username}@hacker:~$${promptSymbol}`);
           return '';
         }
         const newPath = resolvePath(cwd, arg);
+        if (newPath.startsWith('/root') && !isRoot) {
+            return `cd: permission denied: /root`
+        }
         const node = getNodeFromPath(newPath);
         if (node && node.type === 'directory') {
           setCwd(newPath);
+          const username = isRoot ? 'root' : user.email?.split('@')[0];
+          const promptSymbol = isRoot ? '#' : '$';
           const newPromptPath = newPath === '/' ? '~' : `~${newPath}`;
-          setPrompt(`${user.email?.split('@')[0]}@hacker:${newPromptPath}$`);
+          setPrompt(`${username}@hacker:${newPromptPath}${promptSymbol}`);
           return '';
         }
         return `cd: no such file or directory: ${arg}`;
@@ -216,6 +235,9 @@ export const useCommand = (user: User | null | undefined) => {
           return 'cat: missing operand';
         }
         const targetPath = resolvePath(cwd, arg);
+         if (targetPath.startsWith('/root') && !isRoot) {
+            return `cat: ${arg}: Permission denied`;
+        }
         const node = getNodeFromPath(targetPath);
         if (node && node.type === 'file') {
             if (typeof node.content === 'function') {
@@ -278,7 +300,7 @@ export const useCommand = (user: User | null | undefined) => {
         }
       }
     }
-  }, [cwd, toast, user, prompt, authStep, authCredentials, getInitialPrompt, resetAuth]);
+  }, [cwd, toast, user, prompt, authStep, authCredentials, getInitialPrompt, resetAuth, isRoot]);
 
   return { prompt, processCommand, getWelcomeMessage, authStep, resetAuth };
 };
