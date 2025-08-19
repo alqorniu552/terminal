@@ -899,3 +899,5 @@ Comment                         : Find the flag here: FLAG{F4k3_Ex1f_D4t4}
 
   return { prompt, processCommand, getWelcomeMessage, authStep, resetAuth, osSelectionStep, setOsSelectionStep, editingFile, saveFile, exitEditor };
 };
+
+    

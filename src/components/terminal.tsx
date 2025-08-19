@@ -292,3 +292,5 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     </div>
   );
 }
+
+    
