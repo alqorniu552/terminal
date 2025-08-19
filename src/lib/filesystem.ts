@@ -18,11 +18,7 @@ export const filesystem: Directory = {
   children: {
     'welcome.txt': {
       type: 'file',
-      content: `Welcome to Command Center!
-
-This is a simulated terminal interface.
-Type 'help' to see a list of available commands.
-`,
+      content: ``,
     },
     'about': {
       type: 'directory',
