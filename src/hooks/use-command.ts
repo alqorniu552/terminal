@@ -46,6 +46,7 @@ Available commands:
         if (isRoot) {
             output += `
 Root-only commands:
+  list-users    - List all registered users.
   createfile [filename] "[content]" - Create a new file.
 `;
         }
@@ -268,6 +269,28 @@ export const useCommand = (user: User | null | undefined) => {
         return `cat: ${argString}: No such file or directory`;
       }
       
+      case 'list-users': {
+        if (!isRoot) {
+            return `list-users: command not found`;
+        }
+        try {
+            const q = query(collection(db, "users"));
+            const querySnapshot = await getDocs(q);
+            if (querySnapshot.empty) {
+                return "No users found.";
+            }
+            const usersList = querySnapshot.docs.map(doc => {
+                const data = doc.data();
+                const createdAt = data.createdAt?.toDate ? data.createdAt.toDate().toLocaleString() : 'N/A';
+                return `- ${data.email} (Created: ${createdAt})`;
+            }).join('\n');
+            return `Registered Users:\n${usersList}`;
+        } catch (error) {
+            console.error("Failed to list users:", error);
+            return "Error: Could not retrieve user list.";
+        }
+      }
+
       case 'createfile': {
         if (!isRoot) {
           return `createfile: command not found`;
@@ -352,5 +375,3 @@ export const useCommand = (user: User | null | undefined) => {
 
   return { prompt, processCommand, getWelcomeMessage, authStep, resetAuth };
 };
-
-    
