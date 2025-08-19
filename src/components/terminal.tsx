@@ -1,9 +1,13 @@
 "use client";
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { useCommand, AuthStep } from '@/hooks/use-command';
+import { useCommand, OSSelectionStep } from '@/hooks/use-command';
 import Typewriter from './typewriter';
 import { User } from 'firebase/auth';
+import { Progress } from "@/components/ui/progress"
+import { db } from '@/lib/firebase';
+import { doc, updateDoc } from 'firebase/firestore';
+
 
 interface HistoryItem {
   id: number;
@@ -16,6 +20,36 @@ const BlinkingCursor = () => (
   <span className="w-2.5 h-5 bg-accent inline-block animate-blink ml-1" />
 );
 
+const OSInstaller = ({ os, onFinished }: { os: string, onFinished: () => void }) => {
+    const [progress, setProgress] = useState(0);
+
+    useEffect(() => {
+        const interval = setInterval(() => {
+            setProgress(prev => {
+                if (prev >= 100) {
+                    clearInterval(interval);
+                    onFinished();
+                    return 100;
+                }
+                return prev + 1;
+            });
+        }, 45); // Adjust for a ~5 second install time
+
+        return () => clearInterval(interval);
+    }, [onFinished]);
+
+    return (
+        <div className='p-2'>
+            <p>Installing {os}...</p>
+            <div className="flex items-center gap-2">
+              <Progress value={progress} className="w-[60%]" />
+              <p>{progress}%</p>
+            </div>
+            {progress === 100 && <p className='pt-2'>Installation complete! You can now use the terminal.</p>}
+        </div>
+    )
+}
+
 export default function Terminal({ user }: { user: User | null | undefined }) {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [command, setCommand] = useState('');
@@ -26,37 +60,47 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     getWelcomeMessage,
     authStep,
     resetAuth,
+    osSelectionStep,
+    setOsSelectionStep
   } = useCommand(user);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const endOfHistoryRef = useRef<HTMLDivElement>(null);
   
   const focusInput = useCallback(() => {
-    if (typeof window !== 'undefined' && window.innerWidth > 768) {
+    if (typeof window !== 'undefined' && window.innerWidth > 768 && !isTyping) {
       inputRef.current?.focus();
     }
-  }, []);
+  }, [isTyping]);
 
   useEffect(() => {
     focusInput();
   }, [focusInput]);
   
   useEffect(() => {
-    const loadWelcomeMessage = async () => {
-        setIsTyping(true);
-        const output = getWelcomeMessage();
-        const welcomeHistory: HistoryItem = {
-            id: 0,
-            command: '',
-            output: <Typewriter text={output as string} onFinished={() => setIsTyping(false)} />,
-            prompt: '',
+    if(osSelectionStep === 'none' && !user) {
+        setHistory([]);
+    }
+
+    if (osSelectionStep !== 'installing') {
+        const loadWelcomeMessage = async () => {
+            setIsTyping(true);
+            const output = getWelcomeMessage();
+            const welcomeHistory: HistoryItem = {
+                id: 0,
+                command: '',
+                output: <Typewriter text={output as string} onFinished={() => setIsTyping(false)} />,
+                prompt: '',
+            };
+            setHistory([welcomeHistory]);
+            if (!user) {
+                resetAuth();
+            }
         };
-        setHistory([welcomeHistory]);
-        resetAuth();
-    };
-    loadWelcomeMessage();
+        loadWelcomeMessage();
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]);
+  }, [user, osSelectionStep]);
 
   useEffect(() => {
     endOfHistoryRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -64,7 +108,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
 
   const handleCommand = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (isTyping) return;
+    if (isTyping || osSelectionStep === 'installing') return;
 
     const currentCommand = command;
     const currentPrompt = prompt;
@@ -80,21 +124,39 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
         setHistory([]);
         setCommand('');
         setIsTyping(false);
-        resetAuth();
+        if(!user) resetAuth();
         return;
     }
 
     setHistory(prev => [...prev, newHistoryItem]);
     setCommand('');
-    setIsTyping(true);
     
-    const output = await processCommand(currentCommand);
-    const updatedHistoryItem = { ...newHistoryItem, output: <Typewriter text={output as string} onFinished={() => setIsTyping(false)} /> };
+    const result = await processCommand(currentCommand);
+    
+    let output;
+
+    if (typeof result === 'object' && result.type === 'install') {
+        setIsTyping(true);
+        output = <OSInstaller os={result.os} onFinished={async () => {
+            if (user) {
+                await updateDoc(doc(db, 'users', user.uid), { osInstalled: true });
+            }
+            setIsTyping(false);
+            setOsSelectionStep('done');
+        }} />;
+    } else {
+        setIsTyping(true);
+        output = <Typewriter text={result as string} onFinished={() => setIsTyping(false)} />;
+    }
+    
+    const updatedHistoryItem = { ...newHistoryItem, output };
 
     setHistory(prev => prev.map(h => h.id === updatedHistoryItem.id ? updatedHistoryItem : h));
   };
   
   const isPasswordInput = authStep.includes('password');
+  const showInput = !isTyping && (authStep !== 'none' || (!!user && osSelectionStep === 'done') || osSelectionStep === 'prompt');
+
 
   return (
     <div className="h-screen w-full p-2 md:p-4 font-code text-base md:text-lg text-primary overflow-y-auto" onClick={focusInput}>
@@ -112,7 +174,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
         ))}
       </div>
 
-      {!isTyping && (
+      {showInput && (
         <form onSubmit={handleCommand} className="flex items-center">
           <label htmlFor="command-input" className="flex-shrink-0 text-accent">{prompt}&nbsp;</label>
           <div className="flex-grow relative">
@@ -121,7 +183,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
             <input
               ref={inputRef}
               id="command-input"
-              type="text"
+              type={isPasswordInput ? 'password' : 'text'}
               value={command}
               onChange={(e) => setCommand(e.target.value)}
               autoComplete="off"
@@ -129,6 +191,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
               autoCorrect="off"
               className="absolute top-0 left-0 w-full h-full bg-transparent border-none outline-none text-transparent caret-transparent"
               aria-label="command input"
+              disabled={isTyping}
             />
           </div>
         </form>

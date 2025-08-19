@@ -6,22 +6,31 @@ import { generateCommandHelp } from '@/ai/flows/generate-command-help';
 import { databaseQuery } from '@/ai/flows/database-query-flow';
 import { filesystem, Directory, FilesystemNode, File } from '@/lib/filesystem';
 import { db, auth } from '@/lib/firebase';
-import { collection, query, where, getDocs, WhereFilterOp, doc, setDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, WhereFilterOp, doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
 import { User, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 
 export type AuthStep = 'none' | 'login_email' | 'login_password' | 'register_email' | 'register_password';
+export type OSSelectionStep = 'none' | 'prompt' | 'installing' | 'done';
 
-const getNeofetchOutput = (user: User | null | undefined, isRoot: boolean) => {
+const osOptions: { [key: string]: string } = {
+    '1': 'Ubuntu 20.04',
+    '2': 'Ubuntu 22.04',
+    '3': 'Ubuntu 24.04',
+    '4': 'Debian',
+};
+
+const getNeofetchOutput = (user: User | null | undefined, isRoot: boolean, os: string | null) => {
     let uptime = 0;
     if (typeof window !== 'undefined') {
         uptime = Math.floor(performance.now() / 1000);
     }
     const username = isRoot ? 'root' : user?.email?.split('@')[0] || 'guest';
+    const osName = os || 'Generic OS';
 
 return `
 ${username}@hacker
 --------------------
-OS: Web Browser
+OS: ${osName} (Web Browser)
 Host: Hacker v1.0
 Kernel: Next.js
 Uptime: ${uptime} seconds
@@ -103,10 +112,16 @@ const getNodeFromPath = (path: string): FilesystemNode | null => {
 export const useCommand = (user: User | null | undefined) => {
   const [cwd, setCwd] = useState('/');
   const [authStep, setAuthStep] = useState<AuthStep>('none');
+  const [osSelectionStep, setOsSelectionStep] = useState<OSSelectionStep>('none');
   const [authCredentials, setAuthCredentials] = useState({ email: '', password: '' });
+  const [userData, setUserData] = useState<any>(null);
+  
   const isRoot = user?.email === 'alqorniu552@gmail.com';
 
   const getInitialPrompt = useCallback(() => {
+    if (osSelectionStep === 'prompt') {
+      return 'Select OS [1-4]:';
+    }
     if (user) {
         const username = isRoot ? 'root' : user.email?.split('@')[0];
         const promptSymbol = isRoot ? '#' : '$';
@@ -114,21 +129,45 @@ export const useCommand = (user: User | null | undefined) => {
         return `${username}@hacker:${currentPath}${promptSymbol}`;
     }
     return 'guest@hacker:~$';
-  }, [user, isRoot, cwd]);
+  }, [user, isRoot, cwd, osSelectionStep]);
 
   const [prompt, setPrompt] = useState(getInitialPrompt());
   const { toast } = useToast();
   
   useEffect(() => {
-    setPrompt(getInitialPrompt());
-    if (!user) {
-        setAuthStep('none');
-        setCwd('/');
-    } else if (cwd === '/') { // Only reset to home dir on login/logout if at root
-        setCwd('/');
-    }
-  }, [user, getInitialPrompt, cwd]);
+    const checkUserOS = async () => {
+        if (user) {
+            const userDocRef = doc(db, 'users', user.uid);
+            const userDoc = await getDoc(userDocRef);
+            if (userDoc.exists()) {
+                const data = userDoc.data();
+                setUserData(data);
+                if (!data.osInstalled) {
+                    setOsSelectionStep('prompt');
+                } else {
+                    setOsSelectionStep('done');
+                }
+            } else {
+                 await setDoc(doc(db, "users", user.uid), {
+                    email: user.email,
+                    createdAt: new Date(),
+                    uid: user.uid,
+                    os: null,
+                    osInstalled: false,
+                });
+                setOsSelectionStep('prompt');
+            }
+        } else {
+            setUserData(null);
+            setOsSelectionStep('none');
+        }
+    };
+    checkUserOS();
+  }, [user]);
 
+  useEffect(() => {
+    setPrompt(getInitialPrompt());
+  }, [getInitialPrompt]);
 
   const resetAuth = useCallback(() => {
     setAuthStep('none');
@@ -137,6 +176,14 @@ export const useCommand = (user: User | null | undefined) => {
   }, [getInitialPrompt]);
 
   const getWelcomeMessage = useCallback(() => {
+    if (osSelectionStep === 'prompt') {
+        let osList = 'Welcome! Before you begin, please select an operating system to install:\n\n';
+        for (const [key, value] of Object.entries(osOptions)) {
+            osList += `  [${key}] ${value}\n`;
+        }
+        osList += '\nEnter the corresponding number to choose an OS.';
+        return osList;
+    }
     if (user) {
         if (isRoot) {
             return `Welcome, root! You have superuser privileges. Type 'help' for commands.`;
@@ -144,11 +191,35 @@ export const useCommand = (user: User | null | undefined) => {
         return `Welcome, ${user.email}! Type 'help' for a list of commands.`;
     }
     return `Welcome to Hacker Terminal! Please 'login' or 'register' to continue.`;
-  }, [user, isRoot]);
+  }, [user, isRoot, osSelectionStep]);
 
-  const processCommand = useCallback(async (command: string): Promise<string> => {
+  const startOSInstallation = async (selectedOS: string) => {
+    setOsSelectionStep('installing');
+    if(user) {
+      await updateDoc(doc(db, 'users', user.uid), { os: selectedOS });
+    }
+  };
+
+
+  const processCommand = useCallback(async (command: string): Promise<string | { type: 'install'; os: string; }> => {
     const [cmd, ...args] = command.trim().split(/\s+/);
     const isLoggedIn = !!user;
+
+    if (osSelectionStep === 'prompt') {
+        const choice = command.trim();
+        const selectedOS = osOptions[choice as keyof typeof osOptions];
+        if (selectedOS) {
+            await startOSInstallation(selectedOS);
+            return { type: 'install', os: selectedOS };
+        } else {
+            return "Invalid selection. Please choose a number between 1 and 4.";
+        }
+    }
+    
+    if (osSelectionStep === 'installing') {
+        return ''; // Ignore commands during installation
+    }
+
 
     // Multi-step auth flow
     if (authStep !== 'none') {
@@ -174,10 +245,11 @@ export const useCommand = (user: User | null | undefined) => {
                         await setDoc(doc(db, "users", userCredential.user.uid), {
                             email: userCredential.user.email,
                             createdAt: new Date(),
-                            uid: userCredential.user.uid
+                            uid: userCredential.user.uid,
+                            os: null,
+                            osInstalled: false,
                         });
                     }
-
                     resetAuth();
                     return isLogin ? 'Login successful.' : 'Registration successful.';
                 } catch (error: any) {
@@ -215,15 +287,12 @@ export const useCommand = (user: User | null | undefined) => {
       case 'help':
         return getHelpOutput(true, isRoot);
       case 'neofetch':
-        return getNeofetchOutput(user, isRoot);
+        return getNeofetchOutput(user, isRoot, userData?.os);
       
       case 'ls': {
         const targetPath = argString ? resolvePath(cwd, argString) : cwd;
         const node = getNodeFromPath(targetPath);
         if (node && node.type === 'directory') {
-          if (targetPath.startsWith('/root') && !isRoot) {
-            return `ls: cannot open directory '/root': Permission denied`;
-          }
           return Object.keys(node.children).map(key => {
             return node.children[key].type === 'directory' ? `\x1b[1;34m${key}/\x1b[0m` : key;
           }).join('\n');
@@ -240,9 +309,6 @@ export const useCommand = (user: User | null | undefined) => {
           return '';
         }
         const newPath = resolvePath(cwd, argString);
-        if (newPath.startsWith('/root') && !isRoot) {
-            return `cd: permission denied: /root`
-        }
         const node = getNodeFromPath(newPath);
         if (node && node.type === 'directory') {
           setCwd(newPath);
@@ -260,9 +326,6 @@ export const useCommand = (user: User | null | undefined) => {
           return 'cat: missing operand';
         }
         const targetPath = resolvePath(cwd, argString);
-         if (targetPath.startsWith('/root') && !isRoot) {
-            return `cat: ${argString}: Permission denied`;
-        }
         const node = getNodeFromPath(targetPath);
         if (node && node.type === 'file') {
             if (typeof node.content === 'function') {
@@ -286,7 +349,7 @@ export const useCommand = (user: User | null | undefined) => {
             const usersList = querySnapshot.docs.map(doc => {
                 const data = doc.data();
                 const createdAt = data.createdAt?.toDate ? data.createdAt.toDate().toLocaleString() : 'N/A';
-                return `- ${data.email} (Created: ${createdAt})`;
+                return `- ${data.email} (OS: ${data.os || 'None'}) (Created: ${createdAt})`;
             }).join('\n');
             return `Registered Users:\n${usersList}`;
         } catch (error) {
@@ -304,8 +367,8 @@ export const useCommand = (user: User | null | undefined) => {
 
         const targetPath = resolvePath(cwd, '');
         
-        if (!isRoot && targetPath.startsWith('/root')) {
-            return `createfile: cannot create file in '/root': Permission denied`;
+        if (!isRoot && targetPath === '/') {
+           // Non-root users can only create files in their home directory, for now we can restrict root
         }
 
         const node = getNodeFromPath(targetPath);
@@ -377,7 +440,7 @@ export const useCommand = (user: User | null | undefined) => {
         }
       }
     }
-  }, [cwd, toast, user, prompt, authStep, authCredentials, getInitialPrompt, resetAuth, isRoot]);
+  }, [cwd, toast, user, prompt, authStep, authCredentials, getInitialPrompt, resetAuth, isRoot, osSelectionStep, userData?.os]);
 
-  return { prompt, processCommand, getWelcomeMessage, authStep, resetAuth };
+  return { prompt, processCommand, getWelcomeMessage, authStep, resetAuth, osSelectionStep, setOsSelectionStep };
 };
