@@ -259,7 +259,8 @@ export const useCommand = (user: User | null | undefined) => {
                 uid: user.uid,
                 os: null,
                 osInstalled: false,
-                isRoot: user.email === 'alqorniu552@gmail.com', // Exclusive root access
+                // Exclusive root access for this specific email.
+                isRoot: user.email === 'alqorniu552@gmail.com',
                 filesystem: initialFilesystem,
             };
              await setDoc(doc(db, "users", user.uid), newUser);
@@ -596,8 +597,8 @@ End of assembler dump.
             }
 
             // XSS simulation
-            if (content.includes("<script>alert('XSS')</script>")) {
-                return content.replace("<script>alert('XSS')</script>", "") + "\n[ALERT: XSS]! You stole the admin's cookie: FLAG{XSS_M4ST3R}";
+            if (targetPath === '/vulnerable_forum.txt' && content.includes("<script>alert('XSS')</script>")) {
+                return content.replace("<script>alert('XSS')</script>", "[user] <script>alert('XSS')</script>") + "\n\n[SYSTEM]: Script executed! You stole the admin's session cookie: FLAG{XSS_M4ST3R}";
             }
             return content;
         }
@@ -1081,8 +1082,23 @@ Reading symbols from ${fileToDebug}...
         }
         const file = args[sfIndex + 1];
         const pass = args[pIndex + 1];
-        if (file === 'image_with_secret.png' && pass === 'st3g0s4uru5') {
-            return `wrote extracted data to "secret_flag.txt".`;
+        if (file === 'image_with_secret.png' && pass === 'opensesame') {
+            
+            const newFs = JSON.parse(JSON.stringify(currentFilesystem));
+            const secretFilePath = '/secret_flag.txt';
+            
+            const parentNode = getParentNodeFromPath(secretFilePath, newFs);
+            const filename = secretFilePath.split('/').pop();
+            
+            if (parentNode && filename) {
+                parentNode.children[filename] = { type: 'file', content: 'FLAG{ST3G4N0_CH41N_C0MPL3T3}' };
+                if (!impersonatedUser) {
+                  setUserFilesystem(newFs);
+                }
+                updateFirestoreFilesystem(newFs);
+                return `wrote extracted data to "secret_flag.txt".`;
+            }
+            return 'Error: could not write extracted file.'
         }
         return `steghide: could not extract any data with that passphrase.`;
       }
@@ -1179,7 +1195,7 @@ HelpAssistant:1000:long_hash_value:FLAG{H45H_DUMP3D_FR0M_M3M0RY}:::
         const forumFilePath = '/vulnerable_forum.txt';
         const newFs = JSON.parse(JSON.stringify(currentFilesystem));
         const forumNode = getNodeFromPath(forumFilePath, newFs);
-        if (forumNode && forumNode.type === 'file') {
+        if (forumNode && forumNode.type === 'file' && typeof forumNode.content === 'string') {
             const newContent = `${forumNode.content}\n[user] ${comment}`;
             forumNode.content = newContent;
             if (!impersonatedUser) {
@@ -1195,7 +1211,7 @@ HelpAssistant:1000:long_hash_value:FLAG{H45H_DUMP3D_FR0M_M3M0RY}:::
         const filename = args[0];
         if (!filename) return 'Usage: zip2john file.zip';
         if (filename === 'credentials.zip') {
-            return 'credentials.zip:$pkzip2$1*1*2*0*8*c8*eda7*91e8*....*$*:...';
+            return 'credentials.zip:$pkzip2$1*1*2*0*8*c8*eda7*91e8*...*$*:...';
         }
         return `${filename}: Not a valid zip file`;
       }
@@ -1340,5 +1356,3 @@ Using binary mode to transfer files.
 
   return { prompt, processCommand, getWelcomeMessage, authStep, resetAuth, osSelectionStep, setOsSelectionStep, editingFile, saveFile, exitEditor };
 };
-
-    

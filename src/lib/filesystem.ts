@@ -77,7 +77,7 @@ export const initialFilesystem: Directory = {
     },
     'image_with_secret.png': {
         type: 'file',
-        content: 'A PNG image that might contain hidden data. The password is a type of dinosaur.'
+        content: 'A PNG image that might contain hidden data. The password is a magic word.'
     },
     'memdump.raw': {
         type: 'file',
