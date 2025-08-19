@@ -9,6 +9,8 @@ import { db, auth } from '@/lib/firebase';
 import { collection, query, where, getDocs, WhereFilterOp } from 'firebase/firestore';
 import { User, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 
+export type AuthStep = 'none' | 'login_email' | 'login_password' | 'register_email' | 'register_password';
+
 const getNeofetchOutput = (user: User | null | undefined) => {
     let uptime = 0;
     if (typeof window !== 'undefined') {
@@ -36,7 +38,6 @@ Available commands:
   cd [path]     - Change directory.
   cat [file]    - Display file content.
   neofetch      - Display system information.
-  prompt [value]- Set a new prompt.
   db "[query]"  - Query the database using natural language.
   clear         - Clear the terminal screen.
   logout        - Log out from the application.
@@ -47,8 +48,8 @@ For unrecognized commands, AI will try to provide assistance.
     return `
 Available commands:
   help          - Show this help message.
-  login [email] [password] - Log in to your account.
-  register [email] [password] - Create a new account.
+  login         - Log in to your account.
+  register      - Create a new account.
   clear         - Clear the terminal screen.
 `;
 }
@@ -90,6 +91,9 @@ const getNodeFromPath = (path: string): FilesystemNode | null => {
 
 export const useCommand = (user: User | null | undefined) => {
   const [cwd, setCwd] = useState('/');
+  const [authStep, setAuthStep] = useState<AuthStep>('none');
+  const [authCredentials, setAuthCredentials] = useState({ email: '', password: '' });
+
   const getInitialPrompt = useCallback(() => {
     if (user) {
         return `${user.email?.split('@')[0]}@command-center:~$`;
@@ -102,10 +106,16 @@ export const useCommand = (user: User | null | undefined) => {
   
   useEffect(() => {
     setPrompt(getInitialPrompt());
+    if (!user) {
+        setAuthStep('none');
+    }
   }, [user, getInitialPrompt]);
 
-  const resetPrompt = useCallback(() => {
-      setPrompt(getInitialPrompt());
+
+  const resetAuth = useCallback(() => {
+    setAuthStep('none');
+    setAuthCredentials({ email: '', password: '' });
+    setPrompt(getInitialPrompt());
   }, [getInitialPrompt]);
 
   const getWelcomeMessage = useCallback(() => {
@@ -119,25 +129,43 @@ export const useCommand = (user: User | null | undefined) => {
     const [cmd, ...args] = command.trim().split(/\s+/);
     const isLoggedIn = !!user;
 
-    const handleAuth = async (authFn: typeof signInWithEmailAndPassword | typeof createUserWithEmailAndPassword) => {
-        const [email, password] = args;
-        if (!email || !password) {
-            return `Usage: ${cmd} [email] [password]`;
-        }
-        try {
-            await authFn(auth, email, password);
-            return authFn === signInWithEmailAndPassword ? 'Login successful.' : 'Registration successful.';
-        } catch (error: any) {
-            return `Error: ${error.message}`;
+    // Multi-step auth flow
+    if (authStep !== 'none') {
+        switch (authStep) {
+            case 'login_email':
+            case 'register_email':
+                setAuthCredentials({ email: command, password: '' });
+                setAuthStep(authStep === 'login_email' ? 'login_password' : 'register_password');
+                setPrompt('Password:');
+                return '';
+            case 'login_password':
+            case 'register_password':
+                const { email } = authCredentials;
+                const password = command;
+                setAuthCredentials({ email, password });
+                const isLogin = authStep === 'login_password';
+                try {
+                    const authFn = isLogin ? signInWithEmailAndPassword : createUserWithEmailAndPassword;
+                    await authFn(auth, email, password);
+                    resetAuth();
+                    return isLogin ? 'Login successful.' : 'Registration successful.';
+                } catch (error: any) {
+                    resetAuth();
+                    return `Error: ${error.message}`;
+                }
         }
     }
 
     if (!isLoggedIn) {
         switch (cmd.toLowerCase()) {
             case 'login':
-                return handleAuth(signInWithEmailAndPassword);
+                setAuthStep('login_email');
+                setPrompt('Email:');
+                return '';
             case 'register':
-                return handleAuth(createUserWithEmailAndPassword);
+                setAuthStep('register_email');
+                setPrompt('Email:');
+                return '';
             case 'help':
                 return getHelpOutput(false);
             case '':
@@ -197,16 +225,6 @@ export const useCommand = (user: User | null | undefined) => {
         }
         return `cat: ${arg}: No such file or directory`;
       }
-      
-      case 'prompt': {
-        const newPrompt = args.join(' ');
-        if (newPrompt) {
-          setPrompt(newPrompt);
-          return `Prompt set to: ${newPrompt}`;
-        }
-        resetPrompt();
-        return 'Prompt reset to default.';
-      }
 
       case 'db': {
         if (!arg) {
@@ -260,7 +278,7 @@ export const useCommand = (user: User | null | undefined) => {
         }
       }
     }
-  }, [cwd, toast, user, getInitialPrompt, resetPrompt, setPrompt]);
+  }, [cwd, toast, user, prompt, authStep, authCredentials, getInitialPrompt, resetAuth]);
 
-  return { prompt, processCommand, getWelcomeMessage };
+  return { prompt, processCommand, getWelcomeMessage, authStep, resetAuth };
 };

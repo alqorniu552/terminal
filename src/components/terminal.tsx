@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { useCommand } from '@/hooks/use-command';
+import { useCommand, AuthStep } from '@/hooks/use-command';
 import Typewriter from './typewriter';
 import { User } from 'firebase/auth';
 
@@ -20,7 +20,14 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [command, setCommand] = useState('');
   const [isTyping, setIsTyping] = useState(false);
-  const { prompt, setPrompt, processCommand, resetPrompt, getWelcomeMessage } = useCommand(user);
+  const { 
+    prompt, 
+    processCommand, 
+    getWelcomeMessage,
+    authStep,
+    resetAuth,
+  } = useCommand(user);
+
   const inputRef = useRef<HTMLInputElement>(null);
   const endOfHistoryRef = useRef<HTMLDivElement>(null);
   
@@ -45,7 +52,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
             prompt: '',
         };
         setHistory([welcomeHistory]);
-        resetPrompt();
+        resetAuth();
     };
     loadWelcomeMessage();
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -60,29 +67,34 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     if (isTyping) return;
 
     const currentCommand = command;
-    
+    const currentPrompt = prompt;
+
     let newHistoryItem: HistoryItem = { 
         id: history.length + 1,
-        command: currentCommand, 
+        command: authStep.includes('password') ? '********' : currentCommand, 
         output: '', 
-        prompt: `${prompt} ` 
+        prompt: `${currentPrompt} ` 
     };
+
+    if (currentCommand.toLowerCase() === 'clear') {
+        setHistory([]);
+        setCommand('');
+        setIsTyping(false);
+        resetAuth();
+        return;
+    }
 
     setHistory(prev => [...prev, newHistoryItem]);
     setCommand('');
     setIsTyping(true);
-
-    if (currentCommand.trim().toLowerCase() === 'clear') {
-      setHistory([]);
-      setIsTyping(false);
-      return;
-    }
     
     const output = await processCommand(currentCommand);
     const updatedHistoryItem = { ...newHistoryItem, output: <Typewriter text={output as string} onFinished={() => setIsTyping(false)} /> };
 
     setHistory(prev => prev.map(h => h.id === updatedHistoryItem.id ? updatedHistoryItem : h));
   };
+  
+  const isPasswordInput = authStep.includes('password');
 
   return (
     <div className="h-screen w-full p-2 md:p-4 font-code text-base md:text-lg text-primary overflow-y-auto" onClick={focusInput}>
@@ -104,7 +116,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
         <form onSubmit={handleCommand} className="flex items-center">
           <label htmlFor="command-input" className="flex-shrink-0 text-accent">{prompt}&nbsp;</label>
           <div className="flex-grow relative">
-            <span className="text-shadow-glow">{command}</span>
+            <span className="text-shadow-glow">{isPasswordInput ? '*'.repeat(command.length) : command}</span>
             <BlinkingCursor />
             <input
               ref={inputRef}
