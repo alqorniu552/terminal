@@ -11,6 +11,8 @@ import { User, signInWithEmailAndPassword, createUserWithEmailAndPassword } from
 
 export type AuthStep = 'none' | 'login_email' | 'login_password' | 'register_email' | 'register_password';
 export type OSSelectionStep = 'none' | 'prompt' | 'installing' | 'done';
+type EditingFile = { path: string; content: string } | null;
+
 
 const osOptions: { [key: string]: string } = {
     '1': 'Ubuntu 20.04',
@@ -72,9 +74,9 @@ Available commands:
   ls [path]     - List directory contents.
   cd [path]     - Change directory.
   cat [file]    - Display file content.
+  nano [file]   - Edit a file.
   neofetch      - Display system information.
   db "[query]"  - Query the database using natural language.
-  createfile [filename] "[content]" - Create a new file with content.
   touch [filename] - Create an empty file.
   mkdir [dirname] - Create a new directory.
   rm [file/dir] - Remove a file or directory.
@@ -129,6 +131,7 @@ export const useCommand = (user: User | null | undefined) => {
   const [authCredentials, setAuthCredentials] = useState({ email: '', password: '' });
   const [userData, setUserData] = useState<any>(null);
   const [userFilesystem, setUserFilesystem] = useState<Directory>(initialFilesystem);
+  const [editingFile, setEditingFile] = useState<EditingFile>(null);
   
   const isRoot = user?.email === 'alqorniu552@gmail.com';
 
@@ -284,9 +287,45 @@ export const useCommand = (user: User | null | undefined) => {
       setUserData((prev: any) => ({ ...prev, os: selectedOS }));
     }
   };
+  
+    const saveFile = async (path: string, content: string) => {
+        const newFs = JSON.parse(JSON.stringify(userFilesystem));
+        const targetPath = resolvePath(path);
+        const parentNode = getParentNodeFromPath(targetPath, newFs);
+        const filename = targetPath.split('/').pop();
+
+        if (parentNode && filename) {
+            const existingNode = parentNode.children[filename];
+            if (existingNode && existingNode.type === 'directory') {
+                toast({
+                    variant: "destructive",
+                    title: "Save Error",
+                    description: `Cannot save file, '${filename}' is a directory.`,
+                });
+                return;
+            }
+            parentNode.children[filename] = { type: 'file', content: content };
+            setUserFilesystem(newFs);
+            await updateFirestoreFilesystem(newFs);
+            toast({
+                title: "File Saved",
+                description: `Saved ${path}`,
+            });
+        } else {
+             toast({
+                variant: "destructive",
+                title: "Save Error",
+                description: "Could not save file to the specified path.",
+            });
+        }
+    };
+
+    const exitEditor = () => {
+        setEditingFile(null);
+    };
 
 
-  const processCommand = useCallback(async (command: string): Promise<string | { type: 'install'; os: string; }> => {
+  const processCommand = useCallback(async (command: string): Promise<string | { type: 'install'; os: string; } | undefined> => {
     const [cmd, ...args] = command.trim().split(/\s+/);
     const isLoggedIn = !!user;
 
@@ -456,6 +495,21 @@ export const useCommand = (user: User | null | undefined) => {
         }
         return `cat: ${argString}: No such file or directory`;
       }
+      
+      case 'nano': {
+        if (!argString) {
+            return 'Usage: nano [filename]';
+        }
+        const targetPath = resolvePath(argString);
+        const node = getNodeFromPath(targetPath, userFilesystem);
+        if (node && node.type === 'directory') {
+            return `nano: ${argString}: Is a directory`;
+        }
+        const content = (node && node.type === 'file') ? node.content as string : '';
+        setEditingFile({ path: targetPath, content: content });
+        return;
+      }
+
 
       case 'pwd':
         return cwd;
@@ -480,7 +534,7 @@ export const useCommand = (user: User | null | undefined) => {
         const filename = targetPath.split('/').pop();
         if (parentNode && filename) {
             if (parentNode.children[filename]) {
-                return '';
+                return ''; // File exists, do nothing which is the behavior of touch
             }
             parentNode.children[filename] = { type: 'file', content: '' };
             setUserFilesystem(newFs);
@@ -601,29 +655,6 @@ ${isRoot ? 'root' : user?.email?.split('@')[0]}     1337  0.5  0.2 222333  4321 
         }
       }
 
-      case 'createfile': {
-        const match = argString.match(/^(\S+)\s+"(.*)"$/);
-        if (!match) {
-          return 'Usage: createfile [filename] "[content]"';
-        }
-        const [, filename, content] = match;
-        const newFs = JSON.parse(JSON.stringify(userFilesystem));
-        const targetPath = resolvePath(cwd);
-        const node = getNodeFromPath(targetPath, newFs);
-
-        if (node && node.type === 'directory') {
-          if (node.children[filename]) {
-            return `createfile: cannot create file '${filename}': File exists`;
-          }
-          const newFile: File = { type: 'file', content: content };
-          node.children[filename] = newFile;
-          setUserFilesystem(newFs);
-          await updateFirestoreFilesystem(newFs);
-          return `File created: ${filename}`;
-        }
-        return `createfile: cannot create file in '${targetPath}': No such directory`;
-      }
-
       case 'db': {
         if (!argString) {
           return 'db: missing query. Usage: db "your natural language query"';
@@ -682,5 +713,5 @@ ${isRoot ? 'root' : user?.email?.split('@')[0]}     1337  0.5  0.2 222333  4321 
     }
   }, [cwd, toast, user, authStep, authCredentials, getInitialPrompt, resetAuth, isRoot, osSelectionStep, userData, fetchUserData, userFilesystem]);
 
-  return { prompt, processCommand, getWelcomeMessage, authStep, resetAuth, osSelectionStep, setOsSelectionStep };
+  return { prompt, processCommand, getWelcomeMessage, authStep, resetAuth, osSelectionStep, setOsSelectionStep, editingFile, saveFile, exitEditor };
 };

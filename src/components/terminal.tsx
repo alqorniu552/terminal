@@ -7,6 +7,7 @@ import { User } from 'firebase/auth';
 import { Progress } from "@/components/ui/progress"
 import { db } from '@/lib/firebase';
 import { doc, updateDoc } from 'firebase/firestore';
+import NanoEditor from './nano-editor';
 
 
 interface HistoryItem {
@@ -110,17 +111,20 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     authStep,
     resetAuth,
     osSelectionStep,
-    setOsSelectionStep
+    setOsSelectionStep,
+    editingFile,
+    saveFile,
+    exitEditor,
   } = useCommand(user);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const endOfHistoryRef = useRef<HTMLDivElement>(null);
   
   const focusInput = useCallback(() => {
-    if (typeof window !== 'undefined' && window.innerWidth > 768 && !isTyping) {
+    if (typeof window !== 'undefined' && window.innerWidth > 768 && !isTyping && !editingFile) {
       inputRef.current?.focus();
     }
-  }, [isTyping]);
+  }, [isTyping, editingFile]);
 
   useEffect(() => {
     focusInput();
@@ -170,7 +174,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
 
   const handleCommand = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (isTyping || osSelectionStep === 'installing') return;
+    if (isTyping || osSelectionStep === 'installing' || editingFile) return;
 
     const currentCommand = command;
     const currentPrompt = prompt;
@@ -226,7 +230,29 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
   };
   
   const isPasswordInput = authStep.includes('password');
-  const showInput = !isTyping && osSelectionStep !== 'installing';
+  const showInput = !isTyping && osSelectionStep !== 'installing' && !editingFile;
+
+  if (editingFile) {
+    return (
+      <NanoEditor
+        filename={editingFile.path}
+        initialContent={editingFile.content}
+        onSave={async (newContent) => {
+            await saveFile(editingFile.path, newContent);
+            // Optionally add a history item for saving
+            const saveMessage = `File saved: ${editingFile.path}`;
+            const newHistoryItem: HistoryItem = { 
+                id: history.length + 1,
+                command: '', 
+                output: saveMessage, 
+                prompt: '' 
+            };
+            setHistory(prev => [...prev, newHistoryItem]);
+        }}
+        onExit={exitEditor}
+      />
+    );
+  }
 
 
   return (
