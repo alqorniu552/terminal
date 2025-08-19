@@ -53,6 +53,8 @@ General Commands:
   ls path     - List directory contents.
   cd path     - Change directory.
   cat file    - Display file content.
+  grep "pattern" file - Search for a pattern in a file.
+  post-comment "comment" - Post a comment to the forum.
   nano file   - Edit a file.
   createfile filename "[content]" - Create a file with content.
   touch filename - Create an empty file.
@@ -83,16 +85,11 @@ CTF & Security Tools:
   ./linpeas.sh     - Run PEASS-NG enumeration script.
   tshark -r file   - Read a .pcap file.
   steghide extract -sf file -p pass - Extract steganographic data.
+  zip2john file    - Extract hash from a zip file.
+  john hash        - Crack a password hash.
   ./vulnerable_login - Run a program with a buffer overflow flaw.
   volatility -f dump plugin - Analyze a memory dump.
-
-System & Process:
-  ping host   - Send ICMP ECHO_REQUEST to network hosts.
-  free          - Display amount of free and used memory.
-  df -h         - Report file system disk space usage.
-  ps aux        - Report a snapshot of the current processes.
-  top           - Display Linux processes.
-  db "[query]"  - Query the database using natural language.
+  aws s3 ls [bucket] - List S3 buckets or objects.
 `;
         if (osInstalled) {
             output += `
@@ -252,7 +249,6 @@ export const useCommand = (user: User | null | undefined) => {
                 uid: user.uid,
                 os: null,
                 osInstalled: false,
-                // Ensure only the specific email gets root access. This is permanent.
                 isRoot: user.email === 'alqorniu552@gmail.com',
                 filesystem: initialFilesystem,
             };
@@ -559,25 +555,33 @@ End of assembler dump.
         const targetPath = resolvePath(argString);
         const node = getNodeFromPath(targetPath, currentFilesystem);
         if (node && node.type === 'file') {
+            let content;
             if (typeof node.content === 'function') {
-                return node.content();
+                content = node.content();
+            } else {
+                content = node.content;
             }
-          return node.content;
+
+            // XSS simulation
+            if (content.includes("<script>alert('XSS')</script>")) {
+                return content.replace("<script>alert('XSS')</script>", "") + "\\n[ALERT: XSS]! You stole the admin's cookie: FLAG{XSS_M4ST3R}";
+            }
+            return content;
         }
         return `cat: ${argString}: No such file or directory`;
       }
       
       case 'nano': {
         if (!argString) {
-            return 'Usage: nano [filename]';
+            return 'Usage: nano <filename>';
         }
         const targetPath = resolvePath(argString);
         const node = getNodeFromPath(targetPath, currentFilesystem);
         if (node && node.type === 'directory') {
             return `nano: ${argString}: Is a directory`;
         }
-        const content = (node && node.type === 'file') ? node.content as string : '';
-        setEditingFile({ path: targetPath, content: content });
+        const content = (node && node.type === 'file') ? (typeof node.content === 'function' ? node.content() : node.content) : '';
+        setEditingFile({ path: targetPath, content: content as string });
         return;
       }
       
@@ -1111,6 +1115,95 @@ HelpAssistant:1000:long_hash_value:FLAG{H45H_DUMP3D_FR0M_M3M0RY}:::
         if (cmd === 'r2') return `[0x00400490]> aaaa\\n[x] Analyze all flags starting with sym. and entry0 (aa)\\n[x] Analyze function calls (aac)\\n[0x00400490]> afl\\n0x00400490    1 41           entry0\\n0x004004b0    4 55   sym.main\\n[0x00400490]> pdf @ sym.main\\n... assembly code ...\\n;-- check_password:"FLAG{R4D4R3_TW0_FTW}"`;
         return '';
       }
+
+      case 'grep': {
+        const pattern = extractQuotedArg(command);
+        const filename = args[args.length - 1];
+        if (!pattern || !filename) {
+          return 'Usage: grep "pattern" <filename>';
+        }
+        const node = getNodeFromPath(resolvePath(filename), currentFilesystem);
+        if (node && node.type === 'file') {
+            const content = typeof node.content === 'function' ? node.content() : node.content;
+            const lines = content.split('\\n');
+            const matchedLines = lines.filter(line => line.includes(pattern));
+            if (matchedLines.length > 0) {
+                return matchedLines.join('\\n');
+            }
+            return '';
+        }
+        return `grep: ${filename}: No such file or directory`;
+      }
+
+      case 'post-comment': {
+        const comment = extractQuotedArg(command);
+        if (!comment) {
+            return 'Usage: post-comment "your comment"';
+        }
+        const forumFilePath = '/vulnerable_forum.txt';
+        const newFs = JSON.parse(JSON.stringify(currentFilesystem));
+        const forumNode = getNodeFromPath(forumFilePath, newFs);
+        if (forumNode && forumNode.type === 'file') {
+            const newContent = `${forumNode.content}\\n[user] ${comment}`;
+            forumNode.content = newContent;
+            if (!impersonatedUser) {
+              setUserFilesystem(newFs);
+            }
+            await updateFirestoreFilesystem(newFs);
+            return 'Comment posted.';
+        }
+        return 'Error: Forum file not found.';
+      }
+
+      case 'zip2john': {
+        const filename = args[0];
+        if (!filename) return 'Usage: zip2john <file.zip>';
+        if (filename === 'credentials.zip') {
+            return 'credentials.zip:$pkzip2$1*1*2*0*8*c8*eda7*91e8*....*$*:...';
+        }
+        return `${filename}: Not a valid zip file`;
+      }
+      
+      case 'john': {
+        const hash = args[0];
+        if (!hash) return 'Usage: john <hash_string>';
+        if (hash.startsWith('credentials.zip:$pkzip2')) {
+            return `
+Loaded 1 password hash (PKZIP)
+Will run 4 OpenMP threads
+Press 'q' or Ctrl-C to abort, almost any other key for status
+opensesame       (credentials.zip)
+1g 0:00:00:02 DONE (2024-06-03 10:30) 0.4545g/s ...
+Session completed
+FLAG{J0HN_TH3_CR4CK3R}
+`;
+        }
+        return 'No password hashes loaded (see FAQ)';
+      }
+
+      case 'aws': {
+          if (args[0] !== 's3' || args[1] !== 'ls') return "Usage: aws s3 ls [s3://bucket-name]";
+          const bucket = args[2];
+          if (!bucket) {
+              return `
+2024-05-10 15:00:00 company-website-assets
+2024-05-11 12:30:00 company-private-backups
+2024-05-12 09:00:00 company-public-data-lake
+`;
+          }
+          if (bucket === 's3://company-public-data-lake') {
+              return `
+                           PRE secret-project-files/
+2024-05-12 10:00:00    12345678 annual-report-2023.pdf
+2024-05-13 11:00:00        4321 FLAG{S3_BUCK3T_M1SC0NF1GUR4T10N}.txt
+`;
+          }
+          if (bucket === 's3://company-private-backups') {
+              return 'An error occurred (AccessDenied) when calling the ListObjectsV2 operation: Access Denied';
+          }
+          return `An error occurred (NoSuchBucket) when calling the ListObjectsV2 operation: The specified bucket does not exist`;
+      }
+
 
       case 'logout': {
         await auth.signOut();
