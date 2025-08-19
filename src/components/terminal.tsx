@@ -48,7 +48,8 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
         resetPrompt();
     };
     loadWelcomeMessage();
-  }, [user, getWelcomeMessage, resetPrompt]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
 
   useEffect(() => {
     endOfHistoryRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -59,13 +60,14 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     if (isTyping) return;
 
     const currentCommand = command;
+    
     let newHistoryItem: HistoryItem = { 
-        id: history.length, 
+        id: history.length + 1,
         command: currentCommand, 
         output: '', 
         prompt: `${prompt} ` 
     };
-    
+
     setHistory(prev => [...prev, newHistoryItem]);
     setCommand('');
     setIsTyping(true);
@@ -76,20 +78,10 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
       return;
     }
     
-    if (currentCommand.trim().toLowerCase().startsWith('prompt ')) {
-      const newPrompt = currentCommand.trim().substring(7);
-      if (newPrompt) {
-        setPrompt(newPrompt);
-        newHistoryItem.output = <Typewriter text={`Prompt set to: ${newPrompt}`} onFinished={() => setIsTyping(false)} />;
-      } else {
-        newHistoryItem.output = <Typewriter text="Usage: prompt [new_prompt_value]" onFinished={() => setIsTyping(false)} />;
-      }
-    } else {
-        const output = await processCommand(currentCommand);
-        newHistoryItem.output = <Typewriter text={output as string} onFinished={() => setIsTyping(false)} />;
-    }
+    const output = await processCommand(currentCommand);
+    const updatedHistoryItem = { ...newHistoryItem, output: <Typewriter text={output as string} onFinished={() => setIsTyping(false)} /> };
 
-    setHistory(prev => prev.map(h => h.id === newHistoryItem.id ? newHistoryItem : h));
+    setHistory(prev => prev.map(h => h.id === updatedHistoryItem.id ? updatedHistoryItem : h));
   };
 
   return (
@@ -97,12 +89,12 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
       <div className="text-shadow-glow">
         {history.map((item) => (
           <div key={item.id}>
-            {item.prompt && (
+            {item.command || item.prompt ? (
               <div className="flex items-center">
                 <span className="text-accent">{item.prompt}</span>
                 <span>{item.command}</span>
               </div>
-            )}
+            ) : null}
             <div className="whitespace-pre-wrap">{item.output}</div>
           </div>
         ))}
