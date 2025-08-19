@@ -38,7 +38,7 @@ Shell: term-sim
 `;
 };
 
-const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean) => {
+const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean, osInstalled: boolean) => {
     let output = '';
     if (isLoggedIn) {
         output = `
@@ -53,6 +53,16 @@ Available commands:
   clear         - Clear the terminal screen.
   logout        - Log out from the application.
 `;
+        if (osInstalled) {
+            output += `
+OS Commands:
+  sudo [command]  - Execute a command as the superuser.
+  apt/apt-get update - Update package lists.
+  apt/apt-get install [pkg] - Install a package.
+  dpkg -i [file]  - Install a .deb package file.
+`;
+        }
+
         if (isRoot) {
             output += `
 Root-only commands:
@@ -280,7 +290,7 @@ export const useCommand = (user: User | null | undefined) => {
                 setAuthStep('register_email');
                 return '';
             case 'help':
-                return getHelpOutput(false, false);
+                return getHelpOutput(false, false, false);
             case '':
                 return '';
             default:
@@ -294,10 +304,48 @@ export const useCommand = (user: User | null | undefined) => {
 
 
     const argString = args.join(' ');
+    const fullCommand = [cmd.toLowerCase(), ...args].join(' ');
+
+    const osCommands: { [key: string]: () => string } = {
+        'sudo': () => {
+            if (isRoot) return `root already has superuser privileges.`;
+            const sudoArg = args.join(' ');
+            return sudoArg ? processCommand(sudoArg).then(output => `[sudo] password for ${user?.email?.split('@')[0]}:\n${typeof output === 'string' ? output : 'OK'}`) as unknown as string : 'usage: sudo <command>';
+        },
+        'apt update': () => 'Hit:1 http://archive.ubuntu.com/ubuntu focal InRelease\nGet:2 http://security.ubuntu.com/ubuntu focal-security InRelease [114 kB]\nReading package lists... Done',
+        'apt-get update': () => osCommands['apt update'](),
+        'apt install': () => {
+            const pkg = args[1];
+            if (!pkg) return 'Usage: apt install [package-name]';
+            return `Reading package lists... Done\nBuilding dependency tree... Done\n0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.\nSimulating installation of ${pkg}... Done.`;
+        },
+        'apt-get install': () => osCommands['apt install'](),
+        'dpkg -i': () => {
+            const file = args[1];
+            if (!file) return 'Usage: dpkg -i [package-file.deb]';
+            if (!file.endsWith('.deb')) return `dpkg: error: '${file}' is not a Debian format archive`;
+            return `(Reading database ... 12345 files and directories currently installed.)\nPreparing to unpack ${file} ...\nUnpacking ...\nSetting up ...`;
+        }
+    };
+
+    if (osCommands[fullCommand]) return osCommands[fullCommand]();
+    if (osCommands[cmd.toLowerCase()]) return osCommands[cmd.toLowerCase()]();
+    const aptInstallMatch = fullCommand.match(/^(apt|apt-get) install (.+)/);
+    if(aptInstallMatch) {
+      const pkg = aptInstallMatch[2];
+      return `Reading package lists... Done\nBuilding dependency tree... Done\n0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.\nSimulating installation of ${pkg}... Done.`;
+    }
+    const dpkgMatch = fullCommand.match(/^dpkg -i (.+)/);
+    if(dpkgMatch) {
+      const file = dpkgMatch[1];
+      if (!file.endsWith('.deb')) return `dpkg: error: '${file}' is not a Debian format archive`;
+      return `(Reading database ... 12345 files and directories currently installed.)\nPreparing to unpack ${file} ...\nUnpacking ...\nSetting up ...`;
+    }
+
 
     switch (cmd.toLowerCase()) {
       case 'help':
-        return getHelpOutput(true, isRoot);
+        return getHelpOutput(true, isRoot, userData?.osInstalled);
       case 'neofetch':
         return getNeofetchOutput(user, isRoot, userData?.os);
       
@@ -440,7 +488,7 @@ export const useCommand = (user: User | null | undefined) => {
         }
       }
     }
-  }, [cwd, toast, user, authStep, authCredentials, getInitialPrompt, resetAuth, isRoot, osSelectionStep, userData?.os, fetchUserData]);
+  }, [cwd, toast, user, authStep, authCredentials, getInitialPrompt, resetAuth, isRoot, osSelectionStep, userData, fetchUserData]);
 
   return { prompt, processCommand, getWelcomeMessage, authStep, resetAuth, osSelectionStep, setOsSelectionStep };
 };
