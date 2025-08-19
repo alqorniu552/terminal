@@ -127,7 +127,6 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
   }, [focusInput]);
   
   const loadWelcomeMessage = useCallback(() => {
-    setIsTyping(true);
     const output = getWelcomeMessage();
     if (!output) {
         setIsTyping(false);
@@ -139,6 +138,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
         output: <Typewriter text={output as string} onFinished={() => setIsTyping(false)} />,
         prompt: '',
     };
+    setIsTyping(true);
     setHistory([welcomeHistory]);
   }, [getWelcomeMessage]);
   
@@ -156,12 +156,12 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     const shouldShowWelcome = 
       osSelectionStep === 'prompt' || 
       (user && osSelectionStep === 'done') ||
-      (!user && osSelectionStep === 'none');
+      (!user && osSelectionStep === 'none' && authStep === 'none');
 
-    if (shouldShowWelcome) {
+    if (shouldShowWelcome && history.length === 0) {
       loadWelcomeMessage();
     }
-  }, [user, osSelectionStep, loadWelcomeMessage]);
+  }, [user, osSelectionStep, authStep, history.length, loadWelcomeMessage]);
 
 
   useEffect(() => {
@@ -204,7 +204,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     
     let output;
 
-    if (typeof result === 'object' && result.type === 'install') {
+    if (typeof result === 'object' && result !== null && 'type' in result && result.type === 'install') {
         setIsTyping(true);
         output = <OSInstaller os={result.os} onFinished={async () => {
             if (user) {
@@ -213,9 +213,11 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
             setIsTyping(false);
             setOsSelectionStep('done');
         }} />;
-    } else {
+    } else if (typeof result === 'string') {
         setIsTyping(true);
-        output = <Typewriter text={result as string} onFinished={() => setIsTyping(false)} />;
+        output = <Typewriter text={result} onFinished={() => setIsTyping(false)} />;
+    } else {
+        output = '';
     }
     
     const updatedHistoryItem = { ...newHistoryItem, output };

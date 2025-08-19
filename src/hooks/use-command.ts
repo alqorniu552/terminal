@@ -19,6 +19,31 @@ const osOptions: { [key: string]: string } = {
     '4': 'Debian',
 };
 
+const installationFeatures = [
+    "Probing hardware devices...",
+    "Loading kernel modules...",
+    "Setting up disk partitions...",
+    "Formatting /dev/sda1 as ext4...",
+    "Mounting filesystems...",
+    "Unpacking base system image... (0%)",
+    "Unpacking base system image... (50%)",
+    "Unpacking base system image... (100%)",
+    "Installing kernel: linux-image-generic...",
+    "Configuring APT package manager...",
+    "Fetching package lists from repositories...",
+    "Installing core utilities (coreutils, findutils, grep)...",
+    "Setting up networking with netplan...",
+    "Configuring system clock (chrony)...",
+    "Creating user account...",
+    "Setting up user environment and home directory...",
+    "Installing desktop environment (GNOME)...",
+    "Configuring display manager (GDM3)...",
+    "Running post-installation triggers...",
+    "Cleaning up temporary files...",
+    "Finalizing installation...",
+    "System will restart shortly...",
+];
+
 const getNeofetchOutput = (user: User | null | undefined, isRoot: boolean, os: string | null) => {
     let uptime = 0;
     if (typeof window !== 'undefined') {
@@ -235,11 +260,11 @@ export const useCommand = (user: User | null | undefined) => {
 
   const getWelcomeMessage = useCallback(() => {
     if (osSelectionStep === 'prompt') {
-        let osList = 'Welcome! Before you begin, please select an operating system to install:\\n\\n';
+        let osList = 'Welcome! Before you begin, please select an operating system to install:\n\n';
         for (const [key, value] of Object.entries(osOptions)) {
-            osList += `  [${key}] ${value}\\n`;
+            osList += `  [${key}] ${value}\n`;
         }
-        osList += '\\nEnter the corresponding number to choose an OS.';
+        osList += '\nEnter the corresponding number to choose an OS.';
         return osList;
     }
     if (user) {
@@ -351,21 +376,21 @@ export const useCommand = (user: User | null | undefined) => {
         'sudo': () => {
             if (isRoot) return `root already has superuser privileges.`;
             const sudoArg = args.join(' ');
-            return sudoArg ? processCommand(sudoArg).then(output => `[sudo] password for ${user?.email?.split('@')[0]}:\\n${typeof output === 'string' ? output : 'OK'}`) as unknown as string : 'usage: sudo <command>';
+            return sudoArg ? processCommand(sudoArg).then(output => `[sudo] password for ${user?.email?.split('@')[0]}:\n${typeof output === 'string' ? output : 'OK'}`) as unknown as string : 'usage: sudo <command>';
         },
-        'apt update': () => 'Hit:1 http://archive.ubuntu.com/ubuntu focal InRelease\\nGet:2 http://security.ubuntu.com/ubuntu focal-security InRelease [114 kB]\\nReading package lists... Done',
+        'apt update': () => 'Hit:1 http://archive.ubuntu.com/ubuntu focal InRelease\nGet:2 http://security.ubuntu.com/ubuntu focal-security InRelease [114 kB]\nReading package lists... Done',
         'apt-get update': () => osCommands['apt update'](),
         'apt install': () => {
             const pkg = args[1];
             if (!pkg) return 'Usage: apt install [package-name]';
-            return `Reading package lists... Done\\nBuilding dependency tree... Done\\n0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.\\nSimulating installation of ${pkg}... Done.`;
+            return `Reading package lists... Done\nBuilding dependency tree... Done\n0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.\nSimulating installation of ${pkg}... Done.`;
         },
         'apt-get install': () => osCommands['apt install'](),
         'dpkg -i': () => {
             const file = args[1];
             if (!file) return 'Usage: dpkg -i [package-file.deb]';
             if (!file.endsWith('.deb')) return `dpkg: error: '${file}' is not a Debian format archive`;
-            return `(Reading database ... 12345 files and directories currently installed.)\\nPreparing to unpack ${file} ...\\nUnpacking ...\\nSetting up ...`;
+            return `(Reading database ... 12345 files and directories currently installed.)\nPreparing to unpack ${file} ...\nUnpacking ...\nSetting up ...`;
         }
     };
 
@@ -374,13 +399,13 @@ export const useCommand = (user: User | null | undefined) => {
     const aptInstallMatch = fullCommand.match(/^(apt|apt-get) install (.+)/);
     if(aptInstallMatch) {
       const pkg = aptInstallMatch[2];
-      return `Reading package lists... Done\\nBuilding dependency tree... Done\\n0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.\\nSimulating installation of ${pkg}... Done.`;
+      return `Reading package lists... Done\nBuilding dependency tree... Done\n0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.\nSimulating installation of ${pkg}... Done.`;
     }
     const dpkgMatch = fullCommand.match(/^dpkg -i (.+)/);
     if(dpkgMatch) {
       const file = dpkgMatch[1];
       if (!file.endsWith('.deb')) return `dpkg: error: '${file}' is not a Debian format archive`;
-      return `(Reading database ... 12345 files and directories currently installed.)\\nPreparing to unpack ${file} ...\\nUnpacking ...\\nSetting up ...`;
+      return `(Reading database ... 12345 files and directories currently installed.)\nPreparing to unpack ${file} ...\nUnpacking ...\nSetting up ...`;
     }
 
 
@@ -398,7 +423,7 @@ export const useCommand = (user: User | null | undefined) => {
           if (content.length === 0) return '';
           return content.map(key => {
             return node.children[key].type === 'directory' ? `${key}/` : key;
-          }).join('\\n');
+          }).join('\n');
         }
         return `ls: cannot access '${argString || '.'}': No such file or directory`;
       }
@@ -568,8 +593,8 @@ ${isRoot ? 'root' : user?.email?.split('@')[0]}     1337  0.5  0.2 222333  4321 
                 const data = doc.data();
                 const createdAt = data.createdAt?.toDate ? data.createdAt.toDate().toLocaleString() : 'N/A';
                 return `- ${data.email} (OS: ${data.os || 'None'}) (Created: ${createdAt})`;
-            }).join('\\n');
-            return `Registered Users:\\n${usersList}`;
+            }).join('\n');
+            return `Registered Users:\n${usersList}`;
         } catch (error) {
             console.error("Failed to list users:", error);
             return "Error: Could not retrieve user list.";
@@ -583,7 +608,7 @@ ${isRoot ? 'root' : user?.email?.split('@')[0]}     1337  0.5  0.2 222333  4321 
         }
         const [, filename, content] = match;
         const newFs = JSON.parse(JSON.stringify(userFilesystem));
-        const targetPath = resolvePath('');
+        const targetPath = resolvePath(cwd);
         const node = getNodeFromPath(targetPath, newFs);
 
         if (node && node.type === 'directory') {
@@ -659,5 +684,3 @@ ${isRoot ? 'root' : user?.email?.split('@')[0]}     1337  0.5  0.2 222333  4321 
 
   return { prompt, processCommand, getWelcomeMessage, authStep, resetAuth, osSelectionStep, setOsSelectionStep };
 };
-
-    
