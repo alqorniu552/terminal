@@ -35,7 +35,8 @@ const ImageDisplay = ({ prompt, onFinished }: ImageDisplayProps) => {
       }
     };
     generate();
-  }, [prompt, onFinished, toast]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prompt, toast]);
 
   if (error) {
     return <div className="text-destructive">Error: {error}</div>;
