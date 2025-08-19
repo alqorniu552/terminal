@@ -117,6 +117,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     editingFile,
     saveFile,
     exitEditor,
+    resetAuth,
   } = useCommand(user);
 
   const inputRef = useRef<HTMLInputElement>(null);
@@ -151,13 +152,14 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
   useEffect(() => {
     if (!user) {
         setHistory([]);
+        resetAuth();
     } else {
       const welcomeMessage = getWelcomeMessage();
       if(welcomeMessage && history.length === 0) {
         loadWelcomeMessage();
       }
     }
-  }, [user, getWelcomeMessage, history.length, loadWelcomeMessage]);
+  }, [user, getWelcomeMessage, history.length, loadWelcomeMessage, resetAuth]);
 
   useEffect(() => {
     const welcomeMessage = getWelcomeMessage();
@@ -172,7 +174,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
         setHistory([welcomeHistory]);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [osSelectionStep]);
+  }, [osSelectionStep === 'prompt']);
 
 
   useEffect(() => {
@@ -300,5 +302,3 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     </div>
   );
 }
-
-    
