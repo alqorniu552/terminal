@@ -21,17 +21,28 @@ const BlinkingCursor = () => (
 );
 
 const installationFeatures = [
-    "Initializing hardware...",
-    "Partitioning disk...",
-    "Formatting filesystem...",
-    "Copying OS files...",
-    "Installing kernel...",
-    "Configuring network settings...",
-    "Installing graphics drivers...",
-    "Setting up package manager...",
-    "Installing core utilities...",
-    "Configuring user environment...",
+    "Probing hardware devices...",
+    "Loading kernel modules...",
+    "Setting up disk partitions...",
+    "Formatting /dev/sda1 as ext4...",
+    "Mounting filesystems...",
+    "Unpacking base system image... (0%)",
+    "Unpacking base system image... (50%)",
+    "Unpacking base system image... (100%)",
+    "Installing kernel: linux-image-generic...",
+    "Configuring APT package manager...",
+    "Fetching package lists from repositories...",
+    "Installing core utilities (coreutils, findutils, grep)...",
+    "Setting up networking with netplan...",
+    "Configuring system clock (chrony)...",
+    "Creating user account...",
+    "Setting up user environment and home directory...",
+    "Installing desktop environment (GNOME)...",
+    "Configuring display manager (GDM3)...",
+    "Running post-installation triggers...",
+    "Cleaning up temporary files...",
     "Finalizing installation...",
+    "System will restart shortly...",
 ];
 
 
@@ -124,6 +135,10 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
         const loadWelcomeMessage = () => {
             setIsTyping(true);
             const output = getWelcomeMessage();
+            if (!output) {
+                setIsTyping(false);
+                return;
+            };
             const welcomeHistory: HistoryItem = {
                 id: 0,
                 command: '',
@@ -138,7 +153,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
         loadWelcomeMessage();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, osSelectionStep]);
+  }, [user, osSelectionStep, getWelcomeMessage]);
 
 
   useEffect(() => {
@@ -158,7 +173,8 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
         output: '', 
         prompt: `${currentPrompt} ` 
     };
-
+    
+    // This needs to be before setHistory to avoid showing the prompt in the history
     if (currentCommand.toLowerCase() === 'clear') {
         setHistory([]);
         setCommand('');
@@ -175,13 +191,15 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
              setHistory([welcomeHistory]);
         } else if (osSelectionStep === 'done' || osSelectionStep === 'prompt') {
             const output = getWelcomeMessage();
-            const welcomeHistory: HistoryItem = {
-                id: 0,
-                command: '',
-                output: <Typewriter text={output as string} onFinished={() => setIsTyping(false)} />,
-                prompt: '',
-            };
-            setHistory([welcomeHistory]);
+             if (output) {
+                const welcomeHistory: HistoryItem = {
+                    id: 0,
+                    command: '',
+                    output: <Typewriter text={output as string} onFinished={() => setIsTyping(false)} />,
+                    prompt: '',
+                };
+                setHistory([welcomeHistory]);
+             }
         }
         return;
     }
