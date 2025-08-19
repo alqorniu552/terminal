@@ -12,6 +12,7 @@ import ImageDisplay from '@/components/image-display';
 
 export type AuthStep = 'none' | 'login_email' | 'login_password' | 'register_email' | 'register_password';
 export type OSSelectionStep = 'none' | 'prompt' | 'installing' | 'done';
+type SessionState = 'terminal' | 'gdb';
 type EditingFile = { path: string; content: string } | null;
 
 type CommandResult = string | { type: 'install'; os: string; } | { component: React.ReactNode } | undefined;
@@ -76,6 +77,12 @@ CTF & Security Tools:
   rot13 [text]       - Apply ROT13 cipher to text.
   strings [file]     - Display printable strings from a file.
   exiftool [file]    - Display EXIF data from an image.
+  gdb [file]         - GNU Debugger simulation.
+  strace/ltrace [file] - Trace system/library calls.
+  r2 [file]          - Radare2 simulation for analysis.
+  ./linpeas.sh     - Run PEASS-NG enumeration script.
+  tshark -r [file]   - Read a .pcap file.
+
 
 System & Process:
   ping [host]   - Send ICMP ECHO_REQUEST to network hosts.
@@ -122,6 +129,7 @@ export const useCommand = (user: User | null | undefined) => {
   const [cwd, setCwd] = useState('/');
   const [authStep, setAuthStep] = useState<AuthStep>('none');
   const [osSelectionStep, setOsSelectionStep] = useState<OSSelectionStep>('none');
+  const [sessionState, setSessionState] = useState<SessionState>('terminal');
   const [authCredentials, setAuthCredentials] = useState({ email: '', password: '' });
   const [userData, setUserData] = useState<any>(null);
   const [userFilesystem, setUserFilesystem] = useState<Directory>(initialFilesystem);
@@ -141,6 +149,9 @@ export const useCommand = (user: User | null | undefined) => {
     if (osSelectionStep === 'prompt') {
       return 'Select OS [1-4]:';
     }
+    if (sessionState === 'gdb') {
+      return '(gdb) ';
+    }
     if (user) {
         const username = isRoot ? 'root' : user.email?.split('@')[0];
         const promptSymbol = isRoot ? '#' : '$';
@@ -149,7 +160,7 @@ export const useCommand = (user: User | null | undefined) => {
         return `${username}@hacker:${currentPath}${impersonationPrefix}${promptSymbol}`;
     }
     return 'guest@hacker:~$';
-  }, [user, isRoot, cwd, osSelectionStep, authStep, impersonatedUser]);
+  }, [user, isRoot, cwd, osSelectionStep, authStep, impersonatedUser, sessionState]);
 
   const [prompt, setPrompt] = useState(getInitialPrompt());
   const { toast } = useToast();
@@ -340,6 +351,38 @@ export const useCommand = (user: User | null | undefined) => {
   const processCommand = useCallback(async (command: string): Promise<CommandResult> => {
     const [cmd, ...args] = command.trim().split(/\s+/);
     const isLoggedIn = !!user;
+
+    if (sessionState === 'gdb') {
+        const gdbCmd = cmd.toLowerCase();
+        switch (gdbCmd) {
+            case 'run':
+                return 'Starting program: /home/user/a.out\nProgram received signal SIGSEGV, Segmentation fault.\n0x000055555555513a in main ()';
+            case 'disassemble':
+            case 'disas':
+                 if (args[0] === 'main') {
+                    return `Dump of assembler code for function main:
+   0x0000000000001135 <+0>:	push   rbp
+   0x0000000000001136 <+1>:	mov    rbp,rsp
+   0x0000000000001139 <+4>:	mov    DWORD PTR [rbp-0x4],0x1
+   0x0000000000001140 <+11>:	mov    eax,DWORD PTR [rbp-0x4]
+   0x0000000000001143 <+14>:	pop    rbp
+   0x0000000000001144 <+15>:	ret
+End of assembler dump.
+(Secret string is FLAG{GDB_IS_FUN})
+`;
+                }
+                return `No function named "${args[0] || ''}" found.`;
+            case 'break':
+                return `Breakpoint 1 at 0x${(Math.random() * 0xffffff).toString(16)}`;
+            case 'quit':
+            case 'q':
+                setSessionState('terminal');
+                return 'A debugging session is not active.\nQuitting gdb.';
+            default:
+                return `Undefined command: "${gdbCmd}". Try "help".`;
+        }
+    }
+
 
     if (osSelectionStep === 'prompt') {
         const choice = command.trim();
@@ -923,6 +966,62 @@ Comment                         : Find the flag here: FLAG{F4k3_Ex1f_D4t4}
             }
             return `Error: File not found - ${filename}`;
         }
+      
+      case 'gdb': {
+        const fileToDebug = args[0];
+        if (!fileToDebug) return 'Usage: gdb <filename>';
+        const node = getNodeFromPath(resolvePath(fileToDebug), currentFilesystem);
+        if (!node) return `"${fileToDebug}": No such file or directory.`;
+
+        setSessionState('gdb');
+        return `GNU gdb (Ubuntu 9.2-0ubuntu1~20.04.1) 9.2
+Copyright (C) 2020 Free Software Foundation, Inc.
+...
+Reading symbols from ${fileToDebug}...
+(No debugging symbols found in ${fileToDebug})
+`;
+      }
+      
+      case './linpeas.sh':
+      case 'linpeas.sh': {
+        const node = getNodeFromPath(resolvePath('linpeas.sh'), currentFilesystem);
+        if (!node) return `bash: ./linpeas.sh: No such file or directory`;
+        if(typeof node.content === 'function') return node.content();
+        return node.content;
+      }
+      
+      case 'tshark': {
+          if (args[0] !== '-r' || !args[1]) return 'Usage: tshark -r <file.pcap>';
+          const file = args[1];
+          const node = getNodeFromPath(resolvePath(file), currentFilesystem);
+          if (!node) return `tshark: The file "${file}" doesn't exist.`;
+          return `
+  1   0.000000 192.168.1.10 -> 216.58.208.78 TCP 74 62447 → 443 [SYN] Seq=0 Win=64240 Len=0 MSS=1460 SACK_PERM=1 TSval=...
+  2   0.034586 216.58.208.78 -> 192.168.1.10 TCP 74 443 → 62447 [SYN, ACK] Seq=0 Ack=1 Win=65535 Len=0 MSS=1460 SACK_PERM=1...
+  3   0.034630 192.168.1.10 -> 216.58.208.78 TCP 66 62447 → 443 [ACK] Seq=1 Ack=1 Win=64240 Len=0
+  4   0.035109 192.168.1.10 -> 216.58.208.78 TLSv1.2 583 Client Hello
+  5   0.070521 216.58.208.78 -> 192.168.1.10 TLSv1.2 1478 Server Hello, Certificate, Server Key Exchange, Server Hello Done
+...
+[+] Interesting conversation found:
+- Protocol: FTP
+- User: ftp_user
+- Pass: FLAG{P4SSW0RD_1N_PL41N7EXT}
+`;
+      }
+
+      case 'strace':
+      case 'ltrace':
+      case 'r2': {
+        const file = args[0];
+        if (!file) return `Usage: ${cmd} <filename>`;
+        const node = getNodeFromPath(resolvePath(file), currentFilesystem);
+        if (!node) return `${cmd}: cannot access '${file}': No such file or directory`;
+        
+        if (cmd === 'strace') return `execve("./${file}", ["./${file}"], 0x7ff...AE) = 0\n... many system calls ...\nopenat(AT_FDCWD, "/etc/secret_password.txt", O_RDONLY) = -1 ENOENT (No such file or directory)\n...`;
+        if (cmd === 'ltrace') return `puts("Hello, World!")                                   = 14\n... many library calls ...\ngetenv("SECRET_FLAG")                               = "FLAG{LTRACE_REVEALS_SECRETS}"\n...`;
+        if (cmd === 'r2') return `[0x00400490]> aaaa\n[x] Analyze all flags starting with sym. and entry0 (aa)\n[x] Analyze function calls (aac)\n[0x00400490]> afl\n0x00400490    1 41           entry0\n0x004004b0    4 55   sym.main\n[0x00400490]> pdf @ sym.main\n... assembly code ...\n;-- check_password:"FLAG{R4D4R3_TW0_FTW}"`;
+        return '';
+      }
 
       case 'logout': {
         await auth.signOut();
@@ -947,9 +1046,7 @@ Comment                         : Find the flag here: FLAG{F4k3_Ex1f_D4t4}
         }
       }
     }
-  }, [cwd, toast, user, authStep, authCredentials, resetAuth, isRoot, osSelectionStep, userData, fetchUserData, userFilesystem, impersonatedUser, currentFilesystem]);
+  }, [cwd, toast, user, authStep, authCredentials, resetAuth, isRoot, osSelectionStep, userData, fetchUserData, userFilesystem, impersonatedUser, currentFilesystem, sessionState]);
 
   return { prompt, processCommand, getWelcomeMessage, authStep, resetAuth, osSelectionStep, setOsSelectionStep, editingFile, saveFile, exitEditor };
 };
-
-    

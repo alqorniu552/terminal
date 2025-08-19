@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { useCommand } from '@/hooks/use-command';
+import { useCommand } from '@/hooks/use-command.tsx';
 import Typewriter from './typewriter';
 import { User } from 'firebase/auth';
 import { Progress } from "@/components/ui/progress"
@@ -145,27 +145,20 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
       output: <Typewriter text={output} onFinished={() => setIsTyping(false)} />,
       prompt: '',
     };
+    setHistory(h => (h.length === 0 ? [welcomeHistory] : h));
     setIsTyping(true);
-    setHistory([welcomeHistory]);
   }, [getWelcomeMessage]);
+
+  useEffect(() => {
+      loadWelcomeMessage();
+  }, [loadWelcomeMessage]);
   
   useEffect(() => {
     if (!user) {
         setHistory([]);
         resetAuth();
-    } else {
-      if(history.length === 0) {
-        loadWelcomeMessage();
-      }
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, resetAuth]);
-
-  useEffect(() => {
-    loadWelcomeMessage();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [osSelectionStep]);
-
 
   useEffect(() => {
     endOfHistoryRef.current?.scrollIntoView({ behavior: 'smooth' });
