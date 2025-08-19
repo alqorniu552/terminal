@@ -131,18 +131,18 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
   useEffect(() => {
     focusInput();
   }, [focusInput]);
-  
+
   const loadWelcomeMessage = useCallback(() => {
     const output = getWelcomeMessage();
     if (!output) {
-        setIsTyping(false);
-        return;
-    };
+      setIsTyping(false);
+      return;
+    }
     const welcomeHistory: HistoryItem = {
-        id: 0,
-        command: '',
-        output: <Typewriter text={output as string} onFinished={() => setIsTyping(false)} />,
-        prompt: '',
+      id: 0,
+      command: '',
+      output: <Typewriter text={output} onFinished={() => setIsTyping(false)} />,
+      prompt: '',
     };
     setIsTyping(true);
     setHistory([welcomeHistory]);
@@ -151,18 +151,28 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
   useEffect(() => {
     if (!user) {
         setHistory([]);
+    } else {
+      const welcomeMessage = getWelcomeMessage();
+      if(welcomeMessage && history.length === 0) {
+        loadWelcomeMessage();
+      }
     }
-  }, [user]);
-
+  }, [user, getWelcomeMessage, history.length, loadWelcomeMessage]);
 
   useEffect(() => {
-      if(history.length === 0) {
-        const welcomeMessage = getWelcomeMessage();
-        if(welcomeMessage) {
-          loadWelcomeMessage();
-        }
-      }
-  }, [getWelcomeMessage, history.length, loadWelcomeMessage]);
+    const welcomeMessage = getWelcomeMessage();
+    if (welcomeMessage) {
+        const welcomeHistory: HistoryItem = {
+            id: Date.now(),
+            command: '',
+            output: <Typewriter text={welcomeMessage} onFinished={() => setIsTyping(false)} />,
+            prompt: '',
+        };
+        setIsTyping(true);
+        setHistory([welcomeHistory]);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [osSelectionStep]);
 
 
   useEffect(() => {
@@ -205,8 +215,6 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
                     await updateDoc(doc(db, 'users', user.uid), { osInstalled: true });
                 }
                 setOsSelectionStep('done');
-                setHistory([]); 
-                loadWelcomeMessage();
                 setIsTyping(false);
             }} />;
         } else if ('component' in result && React.isValidElement(result.component)) {

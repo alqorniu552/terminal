@@ -100,6 +100,8 @@ OS Commands:
             output += `
 Root-only commands:
   list-users    - List all registered users.
+  chuser <email> - Switch to another user's filesystem to manage it.
+  chuser        - Return to your own filesystem.
 `;
         }
         output += `
@@ -125,8 +127,10 @@ export const useCommand = (user: User | null | undefined) => {
   const [userData, setUserData] = useState<any>(null);
   const [userFilesystem, setUserFilesystem] = useState<Directory>(initialFilesystem);
   const [editingFile, setEditingFile] = useState<EditingFile>(null);
+  const [impersonatedUser, setImpersonatedUser] = useState<any>(null);
   
   const isRoot = userData?.isRoot;
+  const currentFilesystem = impersonatedUser ? impersonatedUser.filesystem : userFilesystem;
 
   const getInitialPrompt = useCallback(() => {
     if (authStep === 'login_email' || authStep === 'register_email') {
@@ -142,10 +146,11 @@ export const useCommand = (user: User | null | undefined) => {
         const username = isRoot ? 'root' : user.email?.split('@')[0];
         const promptSymbol = isRoot ? '#' : '$';
         const currentPath = cwd === '/' ? '~' : `~${cwd}`;
-        return `${username}@hacker:${currentPath}${promptSymbol}`;
+        const impersonationPrefix = impersonatedUser ? `(${impersonatedUser.email})` : '';
+        return `${username}@hacker:${currentPath}${impersonationPrefix}${promptSymbol}`;
     }
     return 'guest@hacker:~$';
-  }, [user, isRoot, cwd, osSelectionStep, authStep]);
+  }, [user, isRoot, cwd, osSelectionStep, authStep, impersonatedUser]);
 
   const [prompt, setPrompt] = useState(getInitialPrompt());
   const { toast } = useToast();
@@ -193,10 +198,14 @@ export const useCommand = (user: User | null | undefined) => {
   }
   
   const updateFirestoreFilesystem = async (newFilesystem: Directory) => {
-    if (user) {
+    const targetUser = impersonatedUser || user;
+    if (targetUser) {
         try {
-            const userDocRef = doc(db, 'users', user.uid);
+            const userDocRef = doc(db, 'users', targetUser.uid);
             await updateDoc(userDocRef, { filesystem: newFilesystem });
+            if (impersonatedUser) {
+              setImpersonatedUser((prev: any) => ({...prev, filesystem: newFilesystem}));
+            }
         } catch (error) {
             console.error("Error updating filesystem in Firestore:", error);
             toast({
@@ -243,6 +252,7 @@ export const useCommand = (user: User | null | undefined) => {
         setOsSelectionStep('none');
         setAuthStep('none');
         setAuthCredentials({ email: '', password: '' });
+        setImpersonatedUser(null);
     }
   }, [user]);
 
@@ -261,11 +271,11 @@ export const useCommand = (user: User | null | undefined) => {
 
   const getWelcomeMessage = useCallback(() => {
     if (osSelectionStep === 'prompt') {
-        let osList = 'Welcome! Before you begin, please select an operating system to install:\n\n';
+        let osList = 'Welcome! Before you begin, please select an operating system to install:\\n\\n';
         for (const [key, value] of Object.entries(osOptions)) {
-            osList += `  [${key}] ${value}\n`;
+            osList += `  [${key}] ${value}\\n`;
         }
-        osList += '\nEnter the corresponding number to choose an OS.';
+        osList += '\\nEnter the corresponding number to choose an OS.';
         return osList;
     }
     if (user && osSelectionStep === 'done') {
@@ -289,7 +299,7 @@ export const useCommand = (user: User | null | undefined) => {
   };
   
     const saveFile = async (path: string, content: string) => {
-        const newFs = JSON.parse(JSON.stringify(userFilesystem));
+        const newFs = JSON.parse(JSON.stringify(currentFilesystem));
         const targetPath = resolvePath(path);
         const parentNode = getParentNodeFromPath(targetPath, newFs);
         const filename = targetPath.split('/').pop();
@@ -305,7 +315,9 @@ export const useCommand = (user: User | null | undefined) => {
                 return;
             }
             parentNode.children[filename] = { type: 'file', content: content };
-            setUserFilesystem(newFs);
+            if (!impersonatedUser) {
+              setUserFilesystem(newFs);
+            }
             await updateFirestoreFilesystem(newFs);
             toast({
                 title: "File Saved",
@@ -407,7 +419,7 @@ export const useCommand = (user: User | null | undefined) => {
         if (isRoot) return `root already has superuser privileges.`;
         if (!sudoCommand) return 'usage: sudo <command>';
         const output = await processCommand(sudoCommand);
-        return `[sudo] password for ${user?.email?.split('@')[0]}:\n${typeof output === 'string' ? output : 'Command executed.'}`;
+        return `[sudo] password for ${user?.email?.split('@')[0]}:\\n${typeof output === 'string' ? output : 'Command executed.'}`;
     };
 
     if (cmd.toLowerCase() === 'sudo') {
@@ -416,19 +428,19 @@ export const useCommand = (user: User | null | undefined) => {
 
 
     const osCommands: { [key: string]: () => string } = {
-        'apt update': () => 'Hit:1 http://archive.ubuntu.com/ubuntu focal InRelease\nGet:2 http://security.ubuntu.com/ubuntu focal-security InRelease [114 kB]\nReading package lists... Done',
+        'apt update': () => 'Hit:1 http://archive.ubuntu.com/ubuntu focal InRelease\\nGet:2 http://security.ubuntu.com/ubuntu focal-security InRelease [114 kB]\\nReading package lists... Done',
         'apt-get update': () => osCommands['apt update'](),
         'apt install': () => {
             const pkg = args[1];
             if (!pkg) return 'Usage: apt install [package-name]';
-            return `Reading package lists... Done\nBuilding dependency tree... Done\n0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.\nSimulating installation of ${pkg}... Done.`;
+            return `Reading package lists... Done\\nBuilding dependency tree... Done\\n0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.\\nSimulating installation of ${pkg}... Done.`;
         },
         'apt-get install': () => osCommands['apt install'](),
         'dpkg -i': () => {
             const file = args[1];
             if (!file) return 'Usage: dpkg -i [package-file.deb]';
             if (!file.endsWith('.deb')) return `dpkg: error: '${file}' is not a Debian format archive`;
-            return `(Reading database ... 12345 files and directories currently installed.)\nPreparing to unpack ${file} ...\nUnpacking ...\nSetting up ...`;
+            return `(Reading database ... 12345 files and directories currently installed.)\\nPreparing to unpack ${file} ...\\nUnpacking ...\\nSetting up ...`;
         }
     };
 
@@ -437,13 +449,13 @@ export const useCommand = (user: User | null | undefined) => {
     const aptInstallMatch = fullCommand.match(/^(apt|apt-get) install (.+)/);
     if(aptInstallMatch) {
       const pkg = aptInstallMatch[2];
-      return `Reading package lists... Done\nBuilding dependency tree... Done\n0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.\nSimulating installation of ${pkg}... Done.`;
+      return `Reading package lists... Done\\nBuilding dependency tree... Done\\n0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.\\nSimulating installation of ${pkg}... Done.`;
     }
     const dpkgMatch = fullCommand.match(/^dpkg -i (.+)/);
     if(dpkgMatch) {
       const file = dpkgMatch[1];
       if (!file.endsWith('.deb')) return `dpkg: error: '${file}' is not a Debian format archive`;
-      return `(Reading database ... 12345 files and directories currently installed.)\nPreparing to unpack ${file} ...\nUnpacking ...\nSetting up ...`;
+      return `(Reading database ... 12345 files and directories currently installed.)\\nPreparing to unpack ${file} ...\\nUnpacking ...\\nSetting up ...`;
     }
 
 
@@ -455,13 +467,13 @@ export const useCommand = (user: User | null | undefined) => {
       
       case 'ls': {
         const targetPath = resolvePath(argString);
-        const node = getNodeFromPath(targetPath, userFilesystem);
+        const node = getNodeFromPath(targetPath, currentFilesystem);
         if (node && node.type === 'directory') {
           const content = Object.keys(node.children);
           if (content.length === 0) return '';
           return content.map(key => {
             return node.children[key].type === 'directory' ? `${key}/` : key;
-          }).join('\n');
+          }).join('\\n');
         }
         return `ls: cannot access '${argString || '.'}': No such file or directory`;
       }
@@ -472,7 +484,7 @@ export const useCommand = (user: User | null | undefined) => {
           return '';
         }
         const newPath = resolvePath(argString);
-        const node = getNodeFromPath(newPath, userFilesystem);
+        const node = getNodeFromPath(newPath, currentFilesystem);
         if (node && node.type === 'directory') {
           setCwd(newPath);
           return '';
@@ -485,7 +497,7 @@ export const useCommand = (user: User | null | undefined) => {
           return 'cat: missing operand';
         }
         const targetPath = resolvePath(argString);
-        const node = getNodeFromPath(targetPath, userFilesystem);
+        const node = getNodeFromPath(targetPath, currentFilesystem);
         if (node && node.type === 'file') {
             if (typeof node.content === 'function') {
                 return node.content();
@@ -500,7 +512,7 @@ export const useCommand = (user: User | null | undefined) => {
             return 'Usage: nano [filename]';
         }
         const targetPath = resolvePath(argString);
-        const node = getNodeFromPath(targetPath, userFilesystem);
+        const node = getNodeFromPath(targetPath, currentFilesystem);
         if (node && node.type === 'directory') {
             return `nano: ${argString}: Is a directory`;
         }
@@ -521,7 +533,7 @@ export const useCommand = (user: User | null | undefined) => {
         const content = contentMatch[1];
         const targetPath = resolvePath(filename);
 
-        const newFs = JSON.parse(JSON.stringify(userFilesystem));
+        const newFs = JSON.parse(JSON.stringify(currentFilesystem));
         const parentNode = getParentNodeFromPath(targetPath, newFs);
         const newFilename = targetPath.split('/').pop();
 
@@ -530,7 +542,9 @@ export const useCommand = (user: User | null | undefined) => {
                 return `createfile: cannot create file '${filename}': File exists`;
             }
             parentNode.children[newFilename] = { type: 'file', content: content };
-            setUserFilesystem(newFs);
+            if (!impersonatedUser) {
+              setUserFilesystem(newFs);
+            }
             await updateFirestoreFilesystem(newFs);
             return `File created: ${filename}`;
         }
@@ -555,7 +569,7 @@ export const useCommand = (user: User | null | undefined) => {
       
       case 'touch': {
         if (!argString) return 'touch: missing file operand';
-        const newFs = JSON.parse(JSON.stringify(userFilesystem));
+        const newFs = JSON.parse(JSON.stringify(currentFilesystem));
         const targetPath = resolvePath(argString);
         const parentNode = getParentNodeFromPath(targetPath, newFs);
         const filename = targetPath.split('/').pop();
@@ -564,7 +578,9 @@ export const useCommand = (user: User | null | undefined) => {
                 return ''; 
             }
             parentNode.children[filename] = { type: 'file', content: '' };
-            setUserFilesystem(newFs);
+            if (!impersonatedUser) {
+              setUserFilesystem(newFs);
+            }
             await updateFirestoreFilesystem(newFs);
             return '';
         }
@@ -573,7 +589,7 @@ export const useCommand = (user: User | null | undefined) => {
       
       case 'mkdir': {
         if (!argString) return 'mkdir: missing operand';
-        const newFs = JSON.parse(JSON.stringify(userFilesystem));
+        const newFs = JSON.parse(JSON.stringify(currentFilesystem));
         const targetPath = resolvePath(argString);
         const parentNode = getParentNodeFromPath(targetPath, newFs);
         const dirname = targetPath.split('/').pop();
@@ -582,7 +598,9 @@ export const useCommand = (user: User | null | undefined) => {
                 return `mkdir: cannot create directory ‘${argString}’: File exists`;
             }
             parentNode.children[dirname] = { type: 'directory', children: {} };
-            setUserFilesystem(newFs);
+            if (!impersonatedUser) {
+              setUserFilesystem(newFs);
+            }
             await updateFirestoreFilesystem(newFs);
             return '';
         }
@@ -591,7 +609,7 @@ export const useCommand = (user: User | null | undefined) => {
 
       case 'rm': {
         if (!argString) return 'rm: missing operand';
-        const newFs = JSON.parse(JSON.stringify(userFilesystem));
+        const newFs = JSON.parse(JSON.stringify(currentFilesystem));
         const targetPath = resolvePath(argString);
         const parentNode = getParentNodeFromPath(targetPath, newFs);
         const nodeName = targetPath.split('/').pop();
@@ -601,7 +619,9 @@ export const useCommand = (user: User | null | undefined) => {
                 return `rm: cannot remove '${argString}': Directory not empty`;
             }
             delete parentNode.children[nodeName];
-            setUserFilesystem(newFs);
+            if (!impersonatedUser) {
+              setUserFilesystem(newFs);
+            }
             await updateFirestoreFilesystem(newFs);
             return '';
         }
@@ -683,11 +703,43 @@ ${username.padEnd(8)}     1337  0.5  0.2 222333  4321 pts/0    Rs+  14:15   0:02
                 const data = doc.data();
                 const createdAt = data.createdAt?.toDate ? data.createdAt.toDate().toLocaleString() : 'N/A';
                 return `- ${data.email} (OS: ${data.os || 'None'}) (Created: ${createdAt})`;
-            }).join('\n');
-            return `Registered Users:\n${usersList}`;
+            }).join('\\n');
+            return `Registered Users:\\n${usersList}`;
         } catch (error) {
             console.error("Failed to list users:", error);
             return "Error: Could not retrieve user list.";
+        }
+      }
+
+      case 'chuser': {
+        if (!isRoot) {
+            return `chuser: command not found`;
+        }
+        const targetEmail = args[0];
+        if (!targetEmail) {
+            setImpersonatedUser(null);
+            setCwd('/');
+            return 'Returned to root filesystem.';
+        }
+        if (targetEmail === user?.email) {
+            setImpersonatedUser(null);
+            setCwd('/');
+            return 'Returned to root filesystem.';
+        }
+        try {
+            const q = query(collection(db, "users"), where("email", "==", targetEmail));
+            const querySnapshot = await getDocs(q);
+            if (querySnapshot.empty) {
+                return `chuser: user '${targetEmail}' not found.`;
+            }
+            const targetUserData = querySnapshot.docs[0].data();
+            targetUserData.uid = querySnapshot.docs[0].id;
+            setImpersonatedUser(targetUserData);
+            setCwd('/');
+            return `Switched to filesystem of ${targetEmail}. Use 'chuser' to return.`;
+        } catch (error) {
+            console.error("Failed to switch user:", error);
+            return `Error: Could not access filesystem for ${targetEmail}.`;
         }
       }
 
@@ -845,10 +897,10 @@ available databases [5]:
         case 'strings': {
              if (!argString) return 'Usage: strings <filename>';
              const targetPath = resolvePath(argString);
-             const node = getNodeFromPath(targetPath, userFilesystem);
+             const node = getNodeFromPath(targetPath, currentFilesystem);
              if (node && node.type === 'file' && typeof node.content === 'string') {
                  const printableChars = node.content.match(/[\x20-\x7E]{4,}/g);
-                 return printableChars ? printableChars.join('\n') : '';
+                 return printableChars ? printableChars.join('\\n') : '';
              }
              return `strings: '${argString}': No such file`;
         }
@@ -857,7 +909,7 @@ available databases [5]:
             const filename = args[0];
             if (!filename) return 'Usage: exiftool <filename>';
             if (!/\.(jpg|jpeg|png)$/i.test(filename)) return `Error: File '${filename}' is not a supported image type.`;
-            const node = getNodeFromPath(resolvePath(filename), userFilesystem);
+            const node = getNodeFromPath(resolvePath(filename), currentFilesystem);
             if (node && node.type === 'file') {
                 return `
 ExifTool Version Number         : 12.40
@@ -895,7 +947,7 @@ Comment                         : Find the flag here: FLAG{F4k3_Ex1f_D4t4}
         }
       }
     }
-  }, [cwd, toast, user, authStep, authCredentials, resetAuth, isRoot, osSelectionStep, userData, fetchUserData, userFilesystem]);
+  }, [cwd, toast, user, authStep, authCredentials, resetAuth, isRoot, osSelectionStep, userData, fetchUserData, userFilesystem, impersonatedUser, currentFilesystem]);
 
   return { prompt, processCommand, getWelcomeMessage, authStep, resetAuth, osSelectionStep, setOsSelectionStep, editingFile, saveFile, exitEditor };
 };
