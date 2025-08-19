@@ -12,7 +12,7 @@ import ImageDisplay from '@/components/image-display';
 
 export type AuthStep = 'none' | 'login_email' | 'login_password' | 'register_email' | 'register_password';
 export type OSSelectionStep = 'none' | 'prompt' | 'installing' | 'done';
-type SessionState = 'terminal' | 'gdb';
+type SessionState = 'terminal' | 'gdb' | 'vulnerable_login';
 type EditingFile = { path: string; content: string } | null;
 
 type CommandResult = string | { type: 'install'; os: string; } | { component: React.ReactNode } | undefined;
@@ -82,7 +82,9 @@ CTF & Security Tools:
   r2 [file]          - Radare2 simulation for analysis.
   ./linpeas.sh     - Run PEASS-NG enumeration script.
   tshark -r [file]   - Read a .pcap file.
-
+  steghide extract -sf [file] -p [pass] - Extract steganographic data.
+  ./vulnerable_login - Run a program with a buffer overflow flaw.
+  volatility -f [dump] [plugin] - Analyze a memory dump.
 
 System & Process:
   ping [host]   - Send ICMP ECHO_REQUEST to network hosts.
@@ -151,6 +153,9 @@ export const useCommand = (user: User | null | undefined) => {
     }
     if (sessionState === 'gdb') {
       return '(gdb) ';
+    }
+    if (sessionState === 'vulnerable_login') {
+      return 'Enter password: ';
     }
     if (user) {
         const username = isRoot ? 'root' : user.email?.split('@')[0];
@@ -351,6 +356,18 @@ export const useCommand = (user: User | null | undefined) => {
   const processCommand = useCallback(async (command: string): Promise<CommandResult> => {
     const [cmd, ...args] = command.trim().split(/\s+/);
     const isLoggedIn = !!user;
+
+    if (sessionState === 'vulnerable_login') {
+        const password = command.trim();
+        setSessionState('terminal'); // Exit after one attempt
+        if (password.length > 32) { // Buffer size simulation
+            return `*** stack smashing detected ***: terminated
+FLAG{8UFF3R_0V3RFL0W_SUCC3SS}
+`;
+        }
+        return 'Login incorrect.';
+    }
+
 
     if (sessionState === 'gdb') {
         const gdbCmd = cmd.toLowerCase();
@@ -981,6 +998,13 @@ Reading symbols from ${fileToDebug}...
 (No debugging symbols found in ${fileToDebug})
 `;
       }
+
+      case './vulnerable_login': {
+        const node = getNodeFromPath(resolvePath('vulnerable_login'), currentFilesystem);
+        if (!node) return `bash: ./vulnerable_login: No such file or directory`;
+        setSessionState('vulnerable_login');
+        return `Welcome to the Secure Login Service.`;
+      }
       
       case './linpeas.sh':
       case 'linpeas.sh': {
@@ -1008,6 +1032,71 @@ Reading symbols from ${fileToDebug}...
 - Pass: FLAG{P4SSW0RD_1N_PL41N7EXT}
 `;
       }
+      
+      case 'steghide': {
+        const sfIndex = args.indexOf('-sf');
+        const pIndex = args.indexOf('-p');
+        if (args[0] !== 'extract' || sfIndex === -1 || pIndex === -1) {
+            return 'Usage: steghide extract -sf <file> -p <passphrase>';
+        }
+        const file = args[sfIndex + 1];
+        const pass = args[pIndex + 1];
+        if (file === 'image_with_secret.png' && pass === 'st3g0s4uru5') {
+            return `wrote extracted data to "secret_flag.txt".`;
+        }
+        return `steghide: could not extract any data with that passphrase.`;
+      }
+      
+      case 'volatility': {
+          const fIndex = args.indexOf('-f');
+          if (fIndex === -1 || !args[fIndex+1] || !args[fIndex+2]) {
+              return 'Usage: volatility -f <dumpfile> <plugin>';
+          }
+          const file = args[fIndex+1];
+          const plugin = args[fIndex+2];
+          const node = getNodeFromPath(resolvePath(file), currentFilesystem);
+          if (!node) return `Volatility: No such file or directory: ${file}`;
+          
+          switch(plugin) {
+              case 'imageinfo':
+                  return `
+Volatility Foundation Volatility Framework 2.6.1
+Determining profile based on KDBG search...
+
+          Suggested Profile(s) : Win7SP1x64, Win7SP0x64, Win2008R2SP1x64, Win2008R2SP0x64
+                     AS Layer1 : AMD64PagedMemory (Kernel AS)
+                     AS Layer2 : FileAddressSpace (/root/memdump.raw)
+                      PAE type : NoPAE
+                           DTB : 0x187000
+                          KDBG : 0xf800028a10a0
+          Number of Processors : 2
+     Image Type (Service Pack) : 1
+                KPCR for CPU 0 : 0xfffff800028a2d00
+                KPCR for CPU 1 : 0xfffff880009e9000
+             KUSER_SHARED_DATA : 0xfffff78000000000
+           Image date and time : 2024-05-21 10:15:10 UTC+0
+     Image local date and time : 2024-05-21 03:15:10 -0700
+`;
+              case 'pslist':
+                  return `
+Offset(V)          Name                    PID   PPID   Thds     Hnds   Sess  Wow64 Start                          Exit
+------------------ -------------------- ------ ------ ------ -------- ------ ------ ------------------------------ ------------------------------
+0xfffffa8000c1e4c0 System                    4      0    101      599 ------      0 2024-05-21 10:10:01
+0xfffffa800104ab30 lsass.exe               544    536      7      934      0      0 2024-05-21 10:11:15
+0xfffffa8001099b30 cmd.exe                2520   2448      1       27      0      0 2024-05-21 10:15:05
+0xfffffa8001156b30 notepad.exe            3012   2520      1       56      0      0 2024-05-21 10:15:08
+`;
+              case 'hashdump':
+                  return `
+Administrator:500:aad3b435b51404eeaad3b435b51404ee:31d6cfe0d16ae931b73c59d7e0c089c0:::
+Guest:501:aad3b435b51404eeaad3b435b51404ee:31d6cfe0d16ae931b73c59d7e0c089c0:::
+HelpAssistant:1000:long_hash_value:FLAG{H45H_DUMP3D_FR0M_M3M0RY}:::
+`;
+              default:
+                  return `Volatility: error: no such plugin: ${plugin}`;
+          }
+      }
+
 
       case 'strace':
       case 'ltrace':

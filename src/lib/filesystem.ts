@@ -58,6 +58,18 @@ export const initialFilesystem: Directory = {
     'capture.pcap': {
         type: 'file',
         content: 'Fake PCAP file. Use tshark to analyze.'
+    },
+    'vulnerable_login': {
+        type: 'file',
+        content: 'ELF 64-bit LSB executable, vulnerable to buffer overflow'
+    },
+    'image_with_secret.png': {
+        type: 'file',
+        content: 'A PNG image that might contain hidden data. The password is a type of dinosaur.'
+    },
+    'memdump.raw': {
+        type: 'file',
+        content: 'Memory dump file. Use volatility to analyze.'
     }
   },
 };
