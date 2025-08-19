@@ -182,6 +182,9 @@ export const useCommand = (user: User | null | undefined) => {
                     return isLogin ? 'Login successful.' : 'Registration successful.';
                 } catch (error: any) {
                     resetAuth();
+                    if (error.code === 'auth/invalid-credential' || error.code === 'auth/missing-password' || error.code === 'auth/wrong-password' || error.code === 'auth/user-not-found' || error.code === 'auth/invalid-email') {
+                        return 'Akun anda tidak terdaftar';
+                    }
                     return `Error: ${error.message}`;
                 }
         }
