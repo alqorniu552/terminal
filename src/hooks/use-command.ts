@@ -19,10 +19,10 @@ const getNeofetchOutput = (user: User | null | undefined) => {
     const email = user?.email || 'guest';
 
 return `
-${email}@command-center
+${email}@hacker
 --------------------
 OS: Web Browser
-Host: Command Center v1.0
+Host: Hacker v1.0
 Kernel: Next.js
 Uptime: ${uptime} seconds
 Shell: term-sim
@@ -96,9 +96,9 @@ export const useCommand = (user: User | null | undefined) => {
 
   const getInitialPrompt = useCallback(() => {
     if (user) {
-        return `${user.email?.split('@')[0]}@command-center:~$`;
+        return `${user.email?.split('@')[0]}@hacker:~$`;
     }
-    return 'guest@command-center:~$';
+    return 'guest@hacker:~$';
   }, [user]);
 
   const [prompt, setPrompt] = useState(getInitialPrompt());
@@ -122,7 +122,7 @@ export const useCommand = (user: User | null | undefined) => {
     if (user) {
         return `Welcome, ${user.email}! Type 'help' for a list of commands.`;
     }
-    return `Welcome to Command Center! Please 'login' or 'register' to continue.`;
+    return `Welcome to Hacker Terminal! Please 'login' or 'register' to continue.`;
   }, [user]);
 
   const processCommand = useCallback(async (command: string): Promise<string> => {
@@ -197,7 +197,7 @@ export const useCommand = (user: User | null | undefined) => {
       case 'cd': {
         if (!arg || arg === '~') {
           setCwd('/');
-          setPrompt(`${user.email?.split('@')[0]}@command-center:~$`);
+          setPrompt(`${user.email?.split('@')[0]}@hacker:~$`);
           return '';
         }
         const newPath = resolvePath(cwd, arg);
@@ -205,7 +205,7 @@ export const useCommand = (user: User | null | undefined) => {
         if (node && node.type === 'directory') {
           setCwd(newPath);
           const newPromptPath = newPath === '/' ? '~' : `~${newPath}`;
-          setPrompt(`${user.email?.split('@')[0]}@command-center:${newPromptPath}$`);
+          setPrompt(`${user.email?.split('@')[0]}@hacker:${newPromptPath}$`);
           return '';
         }
         return `cd: no such file or directory: ${arg}`;

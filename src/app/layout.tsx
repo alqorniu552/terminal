@@ -3,7 +3,7 @@ import './globals.css';
 import { Toaster } from "@/components/ui/toaster";
 
 export const metadata: Metadata = {
-  title: 'Command Center',
+  title: 'Hacker Terminal',
   description: 'A Linux terminal UI for navigating a web application.',
 };
 
