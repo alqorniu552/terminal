@@ -49,7 +49,20 @@ Available commands:
   cat [file]    - Display file content.
   neofetch      - Display system information.
   db "[query]"  - Query the database using natural language.
-  createfile [filename] "[content]" - Create a new file.
+  createfile [filename] "[content]" - Create a new file with content.
+  touch [filename] - Create an empty file.
+  mkdir [dirname] - Create a new directory.
+  rm [file/dir] - Remove a file or directory.
+  pwd           - Print current working directory.
+  whoami        - Display current user.
+  uname -a      - Display system information.
+  echo [text]   - Display a line of text.
+  ping [host]   - Send ICMP ECHO_REQUEST to network hosts.
+  free          - Display amount of free and used memory.
+  df -h         - Report file system disk space usage.
+  ps aux        - Report a snapshot of the current processes.
+  top           - Display Linux processes.
+  reboot/shutdown - Simulate system restart/shutdown.
   clear         - Clear the terminal screen.
   logout        - Log out from the application.
 `;
@@ -118,6 +131,14 @@ const getNodeFromPath = (path: string): FilesystemNode | null => {
   }
   return currentNode;
 };
+
+const getParentNodeFromPath = (path: string): Directory | null => {
+    const parts = path.split('/').filter(p => p && p !== '~');
+    if (parts.length === 0) return filesystem; // root's parent is root itself for our purpose
+    const parentPath = '/' + parts.slice(0, -1).join('/');
+    const node = getNodeFromPath(parentPath);
+    return node?.type === 'directory' ? node : null;
+}
 
 export const useCommand = (user: User | null | undefined) => {
   const [cwd, setCwd] = useState('/');
@@ -353,7 +374,9 @@ export const useCommand = (user: User | null | undefined) => {
         const targetPath = argString ? resolvePath(cwd, argString) : cwd;
         const node = getNodeFromPath(targetPath);
         if (node && node.type === 'directory') {
-          return Object.keys(node.children).map(key => {
+          const content = Object.keys(node.children);
+          if (content.length === 0) return '';
+          return content.map(key => {
             return node.children[key].type === 'directory' ? `\x1b[1;34m${key}/\x1b[0m` : key;
           }).join('\n');
         }
@@ -388,6 +411,119 @@ export const useCommand = (user: User | null | undefined) => {
         }
         return `cat: ${argString}: No such file or directory`;
       }
+
+      case 'pwd':
+        return cwd;
+
+      case 'whoami':
+        return isRoot ? 'root' : user?.email?.split('@')[0] || 'guest';
+      
+      case 'uname':
+        if (argString === '-a') {
+            return `Linux hacker-terminal 5.4.0-150-generic #167-Ubuntu SMP Mon May 15 17:33:04 UTC 2023 x86_64 x86_64 x86_64 GNU/Linux`;
+        }
+        return 'Linux';
+      
+      case 'echo':
+        return argString;
+      
+      case 'touch': {
+        if (!argString) return 'touch: missing file operand';
+        const targetPath = resolvePath(cwd, argString);
+        const parentNode = getParentNodeFromPath(targetPath);
+        const filename = targetPath.split('/').pop();
+        if (parentNode && filename) {
+            if (parentNode.children[filename]) {
+                return ''; // File exists, do nothing like the real touch
+            }
+            parentNode.children[filename] = { type: 'file', content: '' };
+            return '';
+        }
+        return `touch: cannot touch '${argString}': No such file or directory`;
+      }
+      
+      case 'mkdir': {
+        if (!argString) return 'mkdir: missing operand';
+        const targetPath = resolvePath(cwd, argString);
+        const parentNode = getParentNodeFromPath(targetPath);
+        const dirname = targetPath.split('/').pop();
+        if (parentNode && dirname) {
+            if (parentNode.children[dirname]) {
+                return `mkdir: cannot create directory ‘${argString}’: File exists`;
+            }
+            parentNode.children[dirname] = { type: 'directory', children: {} };
+            return '';
+        }
+        return `mkdir: cannot create directory ‘${argString}’: No such file or directory`;
+      }
+
+      case 'rm': {
+        if (!argString) return 'rm: missing operand';
+        const targetPath = resolvePath(cwd, argString);
+        const parentNode = getParentNodeFromPath(targetPath);
+        const nodeName = targetPath.split('/').pop();
+        if (parentNode && nodeName && parentNode.children[nodeName]) {
+            const nodeToRemove = parentNode.children[nodeName];
+            if (nodeToRemove.type === 'directory' && Object.keys(nodeToRemove.children).length > 0) {
+                return `rm: cannot remove '${argString}': Directory not empty`;
+            }
+            delete parentNode.children[nodeName];
+            return '';
+        }
+        return `rm: cannot remove '${argString}': No such file or directory`;
+      }
+      
+      case 'free':
+        return `              total        used        free      shared  buff/cache   available
+Mem:        8172316      903240     5786420       70196     1482656     6918880
+Swap:       2097148           0     2097148`;
+
+      case 'df':
+        if (argString === '-h') {
+          return `Filesystem      Size  Used Avail Use% Mounted on
+udev            3.9G     0  3.9G   0% /dev
+tmpfs           799M  1.7M  797M   1% /run
+/dev/sda1       228G   20G  197G  10% /
+tmpfs           3.9G     0  3.9G   0% /dev/shm
+tmpfs           5.0M  4.0K  5.0M   1% /run/lock`;
+        }
+        return 'Usage: df -h';
+
+      case 'top':
+          return `top - 14:14:14 up 1 day, 2:30,  1 user,  load average: 0.00, 0.01, 0.05
+Tasks: 247 total,   1 running, 246 sleeping,   0 stopped,   0 zombie
+%Cpu(s):  0.3 us,  0.1 sy,  0.0 ni, 99.5 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+MiB Mem :   7980.8 total,   5650.8 free,    882.1 used,   1447.9 buff/cache
+MiB Swap:   2048.0 total,   2048.0 free,      0.0 used.   6756.7 avail Mem
+
+    PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND
+      1 root      20   0  167292   9284   6560 S   0.0   0.1   0:01.11 systemd
+      2 root      20   0       0      0      0 S   0.0   0.0   0:00.00 kthreadd
+... (simulation ends here) ...`;
+      
+      case 'ps':
+        if (argString === 'aux') {
+            return `USER         PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
+root           1  0.0  0.1 167292  9284 ?        Ss   May30   0:01 /sbin/init
+root           2  0.0  0.0      0     0 ?        S    May30   0:00 [kthreadd]
+${isRoot ? 'root' : user?.email?.split('@')[0]}     1337  0.5  0.2 222333  4321 pts/0    Rs+  14:15   0:02 bash
+... (simulation ends here) ...`;
+        }
+        return `Usage: ps aux`;
+      
+      case 'ping': {
+        const host = args[0] || 'localhost';
+        return `PING ${host} (127.0.0.1) 56(84) bytes of data.
+64 bytes from localhost (127.0.0.1): icmp_seq=1 ttl=64 time=0.042 ms
+64 bytes from localhost (127.0.0.1): icmp_seq=2 ttl=64 time=0.045 ms
+64 bytes from localhost (127.0.0.1): icmp_seq=3 ttl=64 time=0.041 ms
+--- ${host} ping statistics ---
+3 packets transmitted, 3 received, 0% packet loss, time 2003ms`;
+      }
+      
+      case 'reboot':
+      case 'shutdown':
+        return 'System is going down for reboot NOW!';
       
       case 'list-users': {
         if (!isRoot) {
