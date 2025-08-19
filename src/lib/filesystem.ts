@@ -45,19 +45,19 @@ export const initialFilesystem: Directory = {
     },
     'config.php.bak': {
         type: 'file',
-        content: 'FTP_USER=ftp_user\\nFTP_PASS=Ch4ll3ng3_4cc3pt3d'
+        content: 'FTP_USER=ftp_user\nFTP_PASS=Ch4ll3ng3_4cc3pt3d'
     },
     'puzzle.txt': {
         type: 'file',
-        content: 'Gsv jfrxp yildm ulc qfnkh levi gsv ozab wlt. (Caesar, shift 20)'
+        content: 'Gsv jfrxp yildm ulc qfnkh levi gsv ozab wlt.'
     },
     'secret_recipe.txt': {
         type: 'file',
-        content: 'ZRIF! Vlr fnr jia ve mgqf jdrw gsv kvof zqam. (Vigenere, key: hack)'
+        content: 'ZRIF! Vlr fnr jia ve mgqf jdrw gsv kvof zqam.'
     },
     'credentials.enc': {
         type: 'file',
-        content: 'U2FsdGVkX1/RxE5B5D... (this is fake encrypted data). The password is hidden somewhere.'
+        content: 'U2FsdGVkX1951P4/iN3fDoE5sroM8bI0c2xT/2sWBik='
     },
     'a.out': {
         type: 'file',
@@ -110,6 +110,7 @@ May 10 10:07:00 server sudo:  user1 : TTY=pts/0 ; PWD=/home/user1 ; USER=root ; 
 May 10 10:07:01 server su: (to root) user1 on pts/0
 May 10 10:07:02 server su: pam_unix(su:session): session opened for user root by user1(uid=1000)
 May 10 10:08:00 server sshd[1275]: Strange situation: user guest attempted to log in with a password but is not in the system. The secret is FLAG{L0G_F0R3NS1CS_R0CKS}
+May 10 10:09:00 server systemd: SERVICE_START pid=1 uid=0 auid=4294967295 ses=4294967295 msg='unit=badactor_service comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=success' data='vigenerekey'
 `
     },
     'credentials.zip': {
@@ -118,3 +119,5 @@ May 10 10:08:00 server sshd[1275]: Strange situation: user guest attempted to lo
     }
   },
 };
+
+    

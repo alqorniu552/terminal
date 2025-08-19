@@ -64,7 +64,7 @@ General Commands:
   whoami        - Display current user.
   uname -a      - Display system information.
   echo text     - Display a line of text.
-  imagine "[prompt]" - Generate an image from a text prompt.
+  imagine "prompt" - Generate an image from a text prompt.
   reboot/shutdown - Simulate system restart/shutdown.
   clear         - Clear the terminal screen.
   logout        - Log out from the application.
@@ -259,7 +259,7 @@ export const useCommand = (user: User | null | undefined) => {
                 uid: user.uid,
                 os: null,
                 osInstalled: false,
-                isRoot: user.email === 'alqorniu552@gmail.com',
+                isRoot: user.email === 'alqorniu552@gmail.com', // Exclusive root access
                 filesystem: initialFilesystem,
             };
              await setDoc(doc(db, "users", user.uid), newUser);
@@ -293,11 +293,11 @@ export const useCommand = (user: User | null | undefined) => {
 
   const getWelcomeMessage = useCallback(() => {
     if (osSelectionStep === 'prompt') {
-        let osList = 'Welcome! Before you begin, please select an operating system to install:\\n\\n';
+        let osList = 'Welcome! Before you begin, please select an operating system to install:\n\n';
         for (const [key, value] of Object.entries(osOptions)) {
-            osList += `  [${key}] ${value}\\n`;
+            osList += `  [${key}] ${value}\n`;
         }
-        osList += '\\nEnter the corresponding number to choose an OS.';
+        osList += '\nEnter the corresponding number to choose an OS.';
         return osList;
     }
     if (user && osSelectionStep === 'done') {
@@ -386,10 +386,10 @@ FLAG{8UFF3R_0V3RFL0W_SUCC3SS}
     if (sessionState === 'ftp') {
         const ftpCmd = cmd.toLowerCase();
         if (ftpCmd === 'get' && args[0] === 'secret_note.txt') {
-            return '200 PORT command successful.\\n150 Opening BINARY mode data connection for secret_note.txt (123 bytes).\\n226 Transfer complete.\\nFLAG{FTP_H0P_P0W3R}';
+            return '200 PORT command successful.\n150 Opening BINARY mode data connection for secret_note.txt (123 bytes).\n226 Transfer complete.\nFLAG{FTP_H0P_P0W3R}';
         }
         if (ftpCmd === 'ls') {
-            return '200 PORT command successful.\\n150 Here comes the directory listing.\\ndrwxr-xr-x    2 ftp      ftp          4096 May 10 10:00 .\\ndrwxr-xr-x    2 ftp      ftp          4096 May 10 10:00 ..\\n-rw-r--r--    1 ftp      ftp           123 May 10 10:00 secret_note.txt\\n226 Directory send OK.';
+            return '200 PORT command successful.\n150 Here comes the directory listing.\ndrwxr-xr-x    2 ftp      ftp          4096 May 10 10:00 .\ndrwxr-xr-x    2 ftp      ftp          4096 May 10 10:00 ..\n-rw-r--r--    1 ftp      ftp           123 May 10 10:00 secret_note.txt\n226 Directory send OK.';
         }
         if (ftpCmd === 'quit' || ftpCmd === 'exit') {
             setSessionState('terminal');
@@ -402,7 +402,7 @@ FLAG{8UFF3R_0V3RFL0W_SUCC3SS}
         const gdbCmd = cmd.toLowerCase();
         switch (gdbCmd) {
             case 'run':
-                return 'Starting program: /home/user/a.out\\nProgram received signal SIGSEGV, Segmentation fault.\\n0x000055555555513a in main ()';
+                return 'Starting program: /home/user/a.out\nProgram received signal SIGSEGV, Segmentation fault.\n0x000055555555513a in main ()';
             case 'disassemble':
             case 'disas':
                  if (args[0] === 'main') {
@@ -414,7 +414,7 @@ FLAG{8UFF3R_0V3RFL0W_SUCC3SS}
    0x0000000000001143 <+14>:	pop    rbp
    0x0000000000001144 <+15>:	ret
 End of assembler dump.
-(Secret string is FLAG{GDB_IS_FUN})
+(Hint: The decrypted password is the final part of the flag, not the whole thing.)
 `;
                 }
                 return `No function named "${args[0] || ''}" found.`;
@@ -423,7 +423,7 @@ End of assembler dump.
             case 'quit':
             case 'q':
                 setSessionState('terminal');
-                return 'A debugging session is not active.\\nQuitting gdb.';
+                return 'A debugging session is not active.\nQuitting gdb.';
             default:
                 return `Undefined command: "${gdbCmd}". Try "help".`;
         }
@@ -508,7 +508,7 @@ End of assembler dump.
         if (isRoot) return `root already has superuser privileges.`;
         if (!sudoCommand) return 'usage: sudo <command>';
         const output = await processCommand(sudoCommand);
-        return `[sudo] password for ${user?.email?.split('@')[0]}:\\n${typeof output === 'string' ? output : 'Command executed.'}`;
+        return `[sudo] password for ${user?.email?.split('@')[0]}:\n${typeof output === 'string' ? output : 'Command executed.'}`;
     };
 
     if (cmd.toLowerCase() === 'sudo') {
@@ -517,19 +517,19 @@ End of assembler dump.
 
 
     const osCommands: { [key: string]: () => string } = {
-        'apt update': () => 'Hit:1 http://archive.ubuntu.com/ubuntu focal InRelease\\nGet:2 http://security.ubuntu.com/ubuntu focal-security InRelease [114 kB]\\nReading package lists... Done',
+        'apt update': () => 'Hit:1 http://archive.ubuntu.com/ubuntu focal InRelease\nGet:2 http://security.ubuntu.com/ubuntu focal-security InRelease [114 kB]\nReading package lists... Done',
         'apt-get update': () => osCommands['apt update'](),
         'apt install': () => {
             const pkg = args[1];
             if (!pkg) return 'Usage: apt install <package-name>';
-            return `Reading package lists... Done\\nBuilding dependency tree... Done\\n0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.\\nSimulating installation of ${pkg}... Done.`;
+            return `Reading package lists... Done\nBuilding dependency tree... Done\n0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.\nSimulating installation of ${pkg}... Done.`;
         },
         'apt-get install': () => osCommands['apt install'](),
         'dpkg -i': () => {
             const file = args[1];
             if (!file) return 'Usage: dpkg -i <package-file.deb>';
             if (!file.endsWith('.deb')) return `dpkg: error: '${file}' is not a Debian format archive`;
-            return `(Reading database ... 12345 files and directories currently installed.)\\nPreparing to unpack ${file} ...\\nUnpacking ...\\nSetting up ...`;
+            return `(Reading database ... 12345 files and directories currently installed.)\nPreparing to unpack ${file} ...\nUnpacking ...\nSetting up ...`;
         }
     };
 
@@ -538,13 +538,13 @@ End of assembler dump.
     const aptInstallMatch = fullCommand.match(/^(apt|apt-get) install (.+)/);
     if(aptInstallMatch) {
       const pkg = aptInstallMatch[2];
-      return `Reading package lists... Done\\nBuilding dependency tree... Done\\n0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.\\nSimulating installation of ${pkg}... Done.`;
+      return `Reading package lists... Done\nBuilding dependency tree... Done\n0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.\nSimulating installation of ${pkg}... Done.`;
     }
     const dpkgMatch = fullCommand.match(/^dpkg -i (.+)/);
     if(dpkgMatch) {
       const file = dpkgMatch[1];
       if (!file.endsWith('.deb')) return `dpkg: error: '${file}' is not a Debian format archive`;
-      return `(Reading database ... 12345 files and directories currently installed.)\\nPreparing to unpack ${file} ...\\nUnpacking ...\\nSetting up ...`;
+      return `(Reading database ... 12345 files and directories currently installed.)\nPreparing to unpack ${file} ...\nUnpacking ...\nSetting up ...`;
     }
 
 
@@ -562,7 +562,7 @@ End of assembler dump.
           if (content.length === 0) return '';
           return content.map(key => {
             return node.children[key].type === 'directory' ? `${key}/` : key;
-          }).join('\\n');
+          }).join('\n');
         }
         return `ls: cannot access '${argString || '.'}': No such file or directory`;
       }
@@ -597,7 +597,7 @@ End of assembler dump.
 
             // XSS simulation
             if (content.includes("<script>alert('XSS')</script>")) {
-                return content.replace("<script>alert('XSS')</script>", "") + "\\n[ALERT: XSS]! You stole the admin's cookie: FLAG{XSS_M4ST3R}";
+                return content.replace("<script>alert('XSS')</script>", "") + "\n[ALERT: XSS]! You stole the admin's cookie: FLAG{XSS_M4ST3R}";
             }
             return content;
         }
@@ -619,7 +619,7 @@ End of assembler dump.
       }
       
       case 'createfile': {
-        const filenameMatch = command.match(/createfile\\s+([^\\s"]+)/);
+        const filenameMatch = command.match(/createfile\s+([^\s"]+)/);
         const contentMatch = command.match(/"(.*?)"/);
         
         if (!filenameMatch || !contentMatch) {
@@ -800,8 +800,8 @@ ${username.padEnd(8)}     1337  0.5  0.2 222333  4321 pts/0    Rs+  14:15   0:02
                 const data = doc.data();
                 const createdAt = data.createdAt?.toDate ? data.createdAt.toDate().toLocaleString() : 'N/A';
                 return `- ${data.email} (OS: ${data.os || 'None'}) (Created: ${createdAt})`;
-            }).join('\\n');
-            return `Registered Users:\\n${usersList}`;
+            }).join('\n');
+            return `Registered Users:\n${usersList}`;
         } catch (error) {
             console.error("Failed to list users:", error);
             return "Error: Could not retrieve user list.";
@@ -876,7 +876,7 @@ ${username.padEnd(8)}     1337  0.5  0.2 222333  4321 pts/0    Rs+  14:15   0:02
 
         case 'nmap': {
             const host = args[0];
-            if (!host) return 'Usage: nmap <host>';
+            if (!host) return 'Usage: nmap host';
             return `
 Starting Nmap 7.80 ( https://nmap.org ) at ${new Date().toUTCString()}
 Nmap scan report for ${host} (127.0.0.1)
@@ -895,7 +895,7 @@ Nmap done: 1 IP address (1 host up) scanned in 0.08 seconds
         }
         case 'whois': {
             const domain = args[0];
-            if (!domain) return 'Usage: whois <domain>';
+            if (!domain) return 'Usage: whois domain';
             return `
 Domain Name: ${domain.toUpperCase()}
 Registry Domain ID: 123456789_DOMAIN_COM-VRSN
@@ -911,7 +911,7 @@ Registrar: Example Registrar, Inc.
 
         case 'dirb': {
             const url = args[0];
-            if (!url) return 'Usage: dirb <url>';
+            if (!url) return 'Usage: dirb url';
             return `
 -----------------
 DIRB v2.22 by The Dark Raver
@@ -932,7 +932,7 @@ DOWNLOADED: 1000 - FOUND: 5
         }
 
         case 'sqlmap': {
-            if (args[0] !== '-u' || !args[1]) return 'Usage: sqlmap -u <url>';
+            if (args[0] !== '-u' || !args[1]) return 'Usage: sqlmap -u url';
             const url = args[1];
             return `
 sqlmap/1.5.11#stable
@@ -964,7 +964,7 @@ available databases [5]:
 
         case 'hash-identifier': {
             const hash = args[0];
-            if (!hash) return 'Usage: hash-identifier <hash>';
+            if (!hash) return 'Usage: hash-identifier hash';
             let type = 'Unknown or invalid hash';
             if (/^[a-f0-9]{32}$/i.test(hash)) type = 'MD5';
             else if (/^[a-f0-9]{40}$/i.test(hash)) type = 'SHA-1';
@@ -974,7 +974,7 @@ available databases [5]:
         }
         
         case 'base64': {
-            if (args.length < 2) return 'Usage: base64 [-d|-e] <text>';
+            if (args.length < 2) return 'Usage: base64 -d|-e text';
             const mode = args[0];
             const text = args.slice(1).join(' ');
             try {
@@ -988,27 +988,27 @@ available databases [5]:
         
         case 'rot13': {
              const text = args.join(' ');
-             if (!text) return 'Usage: rot13 <text>';
+             if (!text) return 'Usage: rot13 text';
              return text.replace(/[a-zA-Z]/g, function(c){
                 return String.fromCharCode(c.charCodeAt(0) + (c.toLowerCase() < 'n' ? 13 : -13));
              });
         }
         
         case 'strings': {
-             if (!argString) return 'Usage: strings <filename>';
+             if (!argString) return 'Usage: strings filename';
              const targetPath = resolvePath(argString);
              const node = getNodeFromPath(targetPath, currentFilesystem);
              if (node && node.type === 'file' && typeof node.content === 'string') {
                  const printableChars = node.content.match(/[\\x20-\\x7E]{4,}/g);
-                 return printableChars ? printableChars.join('\\n') : '';
+                 return printableChars ? printableChars.join('\n') : '';
              }
              return `strings: '${argString}': No such file`;
         }
         
         case 'exiftool': {
             const filename = args[0];
-            if (!filename) return 'Usage: exiftool <filename>';
-            if (!/\\.(jpg|jpeg|png)$/i.test(filename)) return `Error: File '${filename}' is not a supported image type.`;
+            if (!filename) return 'Usage: exiftool filename';
+            if (!/\.(jpg|jpeg|png)$/i.test(filename)) return `Error: File '${filename}' is not a supported image type.`;
             const node = getNodeFromPath(resolvePath(filename), currentFilesystem);
             if (node && node.type === 'file') {
                 return `
@@ -1026,7 +1026,7 @@ Comment                         : Find the flag here: FLAG{F4k3_Ex1f_D4t4}
       
       case 'gdb': {
         const fileToDebug = args[0];
-        if (!fileToDebug) return 'Usage: gdb <filename>';
+        if (!fileToDebug) return 'Usage: gdb filename';
         const node = getNodeFromPath(resolvePath(fileToDebug), currentFilesystem);
         if (!node) return `"${fileToDebug}": No such file or directory.`;
 
@@ -1055,7 +1055,7 @@ Reading symbols from ${fileToDebug}...
       }
       
       case 'tshark': {
-          if (args[0] !== '-r' || !args[1]) return 'Usage: tshark -r <file.pcap>';
+          if (args[0] !== '-r' || !args[1]) return 'Usage: tshark -r file.pcap';
           const file = args[1];
           const node = getNodeFromPath(resolvePath(file), currentFilesystem);
           if (!node) return `tshark: The file "${file}" doesn't exist.`;
@@ -1077,7 +1077,7 @@ Reading symbols from ${fileToDebug}...
         const sfIndex = args.indexOf('-sf');
         const pIndex = args.indexOf('-p');
         if (args[0] !== 'extract' || sfIndex === -1 || pIndex === -1) {
-            return 'Usage: steghide extract -sf <file> -p <passphrase>';
+            return 'Usage: steghide extract -sf file -p pass';
         }
         const file = args[sfIndex + 1];
         const pass = args[pIndex + 1];
@@ -1090,7 +1090,7 @@ Reading symbols from ${fileToDebug}...
       case 'volatility': {
           const fIndex = args.indexOf('-f');
           if (fIndex === -1 || !args[fIndex+1] || !args[fIndex+2]) {
-              return 'Usage: volatility -f <dumpfile> <plugin>';
+              return 'Usage: volatility -f dumpfile plugin';
           }
           const file = args[fIndex+1];
           const plugin = args[fIndex+2];
@@ -1142,13 +1142,13 @@ HelpAssistant:1000:long_hash_value:FLAG{H45H_DUMP3D_FR0M_M3M0RY}:::
       case 'ltrace':
       case 'r2': {
         const file = args[0];
-        if (!file) return `Usage: ${cmd} <filename>`;
+        if (!file) return `Usage: ${cmd} filename`;
         const node = getNodeFromPath(resolvePath(file), currentFilesystem);
         if (!node) return `${cmd}: cannot access '${file}': No such file or directory`;
         
-        if (cmd === 'strace') return `execve("./${file}", ["./${file}"], 0x7ff...AE) = 0\\n... many system calls ...\\nopenat(AT_FDCWD, "/etc/secret_password.txt", O_RDONLY) = -1 ENOENT (No such file or directory)\\n...`;
-        if (cmd === 'ltrace') return `puts("Hello, World!")                                   = 14\\n... many library calls ...\\ngetenv("SECRET_FLAG")                               = "FLAG{LTRACE_REVEALS_SECRETS}"\\n...`;
-        if (cmd === 'r2') return `[0x00400490]> aaaa\\n[x] Analyze all flags starting with sym. and entry0 (aa)\\n[x] Analyze function calls (aac)\\n[0x00400490]> afl\\n0x00400490    1 41           entry0\\n0x004004b0    4 55   sym.main\\n[0x00400490]> pdf @ sym.main\\n... assembly code ...\\n;-- check_password:"FLAG{R4D4R3_TW0_FTW}"`;
+        if (cmd === 'strace') return `execve("./${file}", ["./${file}"], 0x7ff...AE) = 0\n... many system calls ...\nopenat(AT_FDCWD, "/etc/secret_password.txt", O_RDONLY) = -1 ENOENT (No such file or directory)\n...`;
+        if (cmd === 'ltrace') return `puts("Hello, World!")                                   = 14\n... many library calls ...\ngetenv("SECRET_FLAG")                               = "FLAG{LTRACE_REVEALS_SECRETS}"\n...`;
+        if (cmd === 'r2') return `[0x00400490]> aaaa\n[x] Analyze all flags starting with sym. and entry0 (aa)\n[x] Analyze function calls (aac)\n[0x00400490]> afl\n0x00400490    1 41           entry0\n0x004004b0    4 55   sym.main\n[0x00400490]> pdf @ sym.main\n... assembly code ...\n;-- check_password:"FLAG{R4D4R3_TW0_FTW}"`;
         return '';
       }
 
@@ -1156,15 +1156,15 @@ HelpAssistant:1000:long_hash_value:FLAG{H45H_DUMP3D_FR0M_M3M0RY}:::
         const pattern = extractQuotedArg(command);
         const filename = args[args.length - 1];
         if (!pattern || !filename) {
-          return 'Usage: grep "pattern" <filename>';
+          return 'Usage: grep "pattern" filename';
         }
         const node = getNodeFromPath(resolvePath(filename), currentFilesystem);
         if (node && node.type === 'file') {
             const content = typeof node.content === 'function' ? node.content() : node.content;
-            const lines = content.split('\\n');
+            const lines = content.split('\n');
             const matchedLines = lines.filter(line => line.includes(pattern));
             if (matchedLines.length > 0) {
-                return matchedLines.join('\\n');
+                return matchedLines.join('\n');
             }
             return '';
         }
@@ -1180,7 +1180,7 @@ HelpAssistant:1000:long_hash_value:FLAG{H45H_DUMP3D_FR0M_M3M0RY}:::
         const newFs = JSON.parse(JSON.stringify(currentFilesystem));
         const forumNode = getNodeFromPath(forumFilePath, newFs);
         if (forumNode && forumNode.type === 'file') {
-            const newContent = `${forumNode.content}\\n[user] ${comment}`;
+            const newContent = `${forumNode.content}\n[user] ${comment}`;
             forumNode.content = newContent;
             if (!impersonatedUser) {
               setUserFilesystem(newFs);
@@ -1193,7 +1193,7 @@ HelpAssistant:1000:long_hash_value:FLAG{H45H_DUMP3D_FR0M_M3M0RY}:::
 
       case 'zip2john': {
         const filename = args[0];
-        if (!filename) return 'Usage: zip2john <file.zip>';
+        if (!filename) return 'Usage: zip2john file.zip';
         if (filename === 'credentials.zip') {
             return 'credentials.zip:$pkzip2$1*1*2*0*8*c8*eda7*91e8*....*$*:...';
         }
@@ -1202,7 +1202,7 @@ HelpAssistant:1000:long_hash_value:FLAG{H45H_DUMP3D_FR0M_M3M0RY}:::
       
       case 'john': {
         const hash = args[0];
-        if (!hash) return 'Usage: john <hash_string>';
+        if (!hash) return 'Usage: john hash_string';
         if (hash.startsWith('credentials.zip:$pkzip2')) {
             return `
 Loaded 1 password hash (PKZIP)
@@ -1243,7 +1243,7 @@ FLAG{J0HN_TH3_CR4CK3R}
       case 'nc': {
         const host = args[0];
         const port = args[1];
-        if (!host || !port) return 'Usage: nc <host> <port>';
+        if (!host || !port) return 'Usage: nc host port';
         if (host === 'localhost' && port === '9001') {
             setSessionState('netcat_puzzle');
             return `Welcome to the Riddle Room!
@@ -1255,7 +1255,7 @@ What command is used to print text to the console in most programming languages 
       
       case 'ftp': {
         const host = args[0];
-        if (!host) return 'Usage: ftp <host>';
+        if (!host) return 'Usage: ftp host';
         if (host === '127.0.0.1') {
             setSessionState('ftp');
             return `Connected to 127.0.0.1.
@@ -1274,7 +1274,7 @@ Using binary mode to transfer files.
       case 'crypto': {
         const [_, type, mode, keyOrShift, ...textParts] = args;
         const text = textParts.join(' ');
-        if (!type || !mode || !keyOrShift || !text) return 'Usage: crypto <caesar|vigenere> <e|d> <key> <text>';
+        if (!type || !mode || !keyOrShift || !text) return 'Usage: crypto <caesar|vigenere> <e|d> key text';
 
         const applyCipher = (str: string, transform: (char: string, index: number) => string) => {
             return str.split('').map((char, i) => {
@@ -1340,3 +1340,5 @@ Using binary mode to transfer files.
 
   return { prompt, processCommand, getWelcomeMessage, authStep, resetAuth, osSelectionStep, setOsSelectionStep, editingFile, saveFile, exitEditor };
 };
+
+    
