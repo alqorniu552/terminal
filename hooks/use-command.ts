@@ -1,23 +1,23 @@
 "use client";
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useToast } from "@/hooks/use-toast";
 import { generateCommandHelp } from '@/ai/flows/generate-command-help';
 import { databaseQuery } from '@/ai/flows/database-query-flow';
 import { filesystem, Directory, FilesystemNode } from '@/lib/filesystem';
 import { db, auth } from '@/lib/firebase';
-import { collection, query, where, getDocs, WhereFilterOp } from 'firebase/firestore';
+import { collection, query, where, getDocs, WhereFilterOp, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/firestore';
+import { User } from 'firebase/auth';
 
-
-const getNeofetchOutput = () => {
+const getNeofetchOutput = (user: User | null | undefined) => {
     let uptime = 0;
     if (typeof window !== 'undefined') {
         uptime = Math.floor(performance.now() / 1000);
     }
-    const user = auth.currentUser;
+    const email = user?.email || 'guest';
 
 return `
-${user?.email}@command-center
+${email}@command-center
 --------------------
 OS: Web Browser
 Host: Command Center v1.0
@@ -27,7 +27,9 @@ Shell: term-sim
 `;
 };
 
-const getHelpOutput = () => `
+const getHelpOutput = (isLoggedIn: boolean) => {
+    if (isLoggedIn) {
+        return `
 Available commands:
   help          - Show this help message.
   ls [path]     - List directory contents.
@@ -41,6 +43,16 @@ Available commands:
 
 For unrecognized commands, AI will try to provide assistance.
 `;
+    }
+    return `
+Available commands:
+  help          - Show this help message.
+  login [email] [password] - Log in to your account.
+  register [email] [password] - Create a new account.
+  clear         - Clear the terminal screen.
+`;
+}
+
 
 const resolvePath = (cwd: string, path: string): string => {
   if (path.startsWith('/')) {
@@ -76,21 +88,72 @@ const getNodeFromPath = (path: string): FilesystemNode | null => {
   return currentNode;
 };
 
-export const useCommand = () => {
+export const useCommand = (user: User | null | undefined) => {
   const [cwd, setCwd] = useState('/');
-  const userEmail = auth.currentUser?.email?.split('@')[0] || 'guest';
-  const [prompt, setPrompt] = useState(`${userEmail}@command-center:~$`);
+  const getInitialPrompt = useCallback(() => {
+    if (user) {
+        return `${user.email?.split('@')[0]}@command-center:~$`;
+    }
+    return 'guest@command-center:~$';
+  }, [user]);
+
+  const [prompt, setPrompt] = useState(getInitialPrompt());
   const { toast } = useToast();
+  
+  useEffect(() => {
+    setPrompt(getInitialPrompt());
+  }, [user, getInitialPrompt]);
+
+  const resetPrompt = useCallback(() => {
+      setPrompt(getInitialPrompt());
+  }, [getInitialPrompt]);
+
+  const getWelcomeMessage = useCallback(() => {
+    if (user) {
+        return `Welcome, ${user.email}! Type 'help' for a list of commands.`;
+    }
+    return `Welcome to Command Center! Please 'login' or 'register' to continue.`;
+  }, [user]);
 
   const processCommand = useCallback(async (command: string): Promise<string> => {
     const [cmd, ...args] = command.trim().split(/\s+/);
+    const isLoggedIn = !!user;
+
+    const handleAuth = async (authFn: typeof signInWithEmailAndPassword | typeof createUserWithEmailAndPassword) => {
+        const [email, password] = args;
+        if (!email || !password) {
+            return `Usage: ${cmd} [email] [password]`;
+        }
+        try {
+            await authFn(auth, email, password);
+            return authFn === signInWithEmailAndPassword ? 'Login successful.' : 'Registration successful.';
+        } catch (error: any) {
+            return `Error: ${error.message}`;
+        }
+    }
+
+    if (!isLoggedIn) {
+        switch (cmd.toLowerCase()) {
+            case 'login':
+                return handleAuth(signInWithEmailAndPassword);
+            case 'register':
+                return handleAuth(createUserWithEmailAndPassword);
+            case 'help':
+                return getHelpOutput(false);
+            case '':
+                return '';
+            default:
+                return `Command not found: ${cmd}. Please 'login' or 'register'.`;
+        }
+    }
+
     const arg = args.join(' ');
 
     switch (cmd.toLowerCase()) {
       case 'help':
-        return getHelpOutput();
+        return getHelpOutput(true);
       case 'neofetch':
-        return getNeofetchOutput();
+        return getNeofetchOutput(user);
       
       case 'ls': {
         const targetPath = arg ? resolvePath(cwd, arg) : cwd;
@@ -106,7 +169,7 @@ export const useCommand = () => {
       case 'cd': {
         if (!arg || arg === '~') {
           setCwd('/');
-          setPrompt(`${userEmail}@command-center:~$`);
+          setPrompt(`${user.email?.split('@')[0]}@command-center:~$`);
           return '';
         }
         const newPath = resolvePath(cwd, arg);
@@ -114,7 +177,7 @@ export const useCommand = () => {
         if (node && node.type === 'directory') {
           setCwd(newPath);
           const newPromptPath = newPath === '/' ? '~' : `~${newPath}`;
-          setPrompt(`${userEmail}@command-center:${newPromptPath}$`);
+          setPrompt(`${user.email?.split('@')[0]}@command-center:${newPromptPath}$`);
           return '';
         }
         return `cd: no such file or directory: ${arg}`;
@@ -166,7 +229,7 @@ export const useCommand = () => {
 
       case 'logout': {
         await auth.signOut();
-        return 'Logged out.';
+        return 'Logged out successfully.';
       }
       
       case '':
@@ -187,7 +250,7 @@ export const useCommand = () => {
         }
       }
     }
-  }, [cwd, toast, userEmail]);
+  }, [cwd, toast, user, prompt]);
 
-  return { prompt, setPrompt, processCommand };
+  return { prompt, setPrompt, processCommand, resetPrompt, getWelcomeMessage };
 };

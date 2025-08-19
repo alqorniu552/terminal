@@ -16,10 +16,6 @@ export type FilesystemNode = File | Directory;
 export const filesystem: Directory = {
   type: 'directory',
   children: {
-    'welcome.txt': {
-      type: 'file',
-      content: ``,
-    },
     'about': {
       type: 'directory',
       children: {

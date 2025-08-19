@@ -3,8 +3,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useCommand } from '@/hooks/use-command';
 import Typewriter from './typewriter';
-import { auth } from '@/lib/firebase';
-import { useRouter } from 'next/navigation';
+import { User } from 'firebase/auth';
 
 interface HistoryItem {
   id: number;
@@ -17,15 +16,14 @@ const BlinkingCursor = () => (
   <span className="w-2.5 h-5 bg-accent inline-block animate-blink ml-1" />
 );
 
-export default function Terminal() {
+export default function Terminal({ user }: { user: User | null | undefined }) {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [command, setCommand] = useState('');
-  const [isTyping, setIsTyping] = useState(true);
-  const { prompt, setPrompt, processCommand } = useCommand();
+  const [isTyping, setIsTyping] = useState(false);
+  const { prompt, setPrompt, processCommand, resetPrompt, getWelcomeMessage } = useCommand(user);
   const inputRef = useRef<HTMLInputElement>(null);
   const endOfHistoryRef = useRef<HTMLDivElement>(null);
-  const router = useRouter();
-
+  
   const focusInput = useCallback(() => {
     if (typeof window !== 'undefined' && window.innerWidth > 768) {
       inputRef.current?.focus();
@@ -38,19 +36,19 @@ export default function Terminal() {
   
   useEffect(() => {
     const loadWelcomeMessage = async () => {
-      const output = await processCommand('cat welcome.txt');
-      const welcomeHistory: HistoryItem = {
-        id: 0,
-        command: '',
-        output: <Typewriter text={output as string} onFinished={() => setIsTyping(false)} />,
-        prompt: '',
-      };
-      setHistory([welcomeHistory]);
+        setIsTyping(true);
+        const output = getWelcomeMessage();
+        const welcomeHistory: HistoryItem = {
+            id: 0,
+            command: '',
+            output: <Typewriter text={output as string} onFinished={() => setIsTyping(false)} />,
+            prompt: '',
+        };
+        setHistory([welcomeHistory]);
+        resetPrompt();
     };
-    if (auth.currentUser) {
-      loadWelcomeMessage();
-    }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    loadWelcomeMessage();
+  }, [user, getWelcomeMessage, resetPrompt]);
 
   useEffect(() => {
     endOfHistoryRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -78,13 +76,6 @@ export default function Terminal() {
       return;
     }
     
-    if (currentCommand.trim().toLowerCase() === 'logout') {
-      await auth.signOut();
-      router.push('/');
-      setIsTyping(false);
-      return;
-    }
-
     if (currentCommand.trim().toLowerCase().startsWith('prompt ')) {
       const newPrompt = currentCommand.trim().substring(7);
       if (newPrompt) {
