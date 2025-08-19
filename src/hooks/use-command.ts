@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { useToast } from "@/hooks/use-toast";
 import { generateCommandHelp } from '@/ai/flows/generate-command-help';
 import { databaseQuery } from '@/ai/flows/database-query-flow';
-import { filesystem, Directory, FilesystemNode } from '@/lib/filesystem';
+import { filesystem, Directory, FilesystemNode, File } from '@/lib/filesystem';
 import { db, auth } from '@/lib/firebase';
 import { collection, query, where, getDocs, WhereFilterOp } from 'firebase/firestore';
 import { User, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
@@ -29,9 +29,10 @@ Shell: term-sim
 `;
 };
 
-const getHelpOutput = (isLoggedIn: boolean) => {
+const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean) => {
+    let output = '';
     if (isLoggedIn) {
-        return `
+        output = `
 Available commands:
   help          - Show this help message.
   ls [path]     - List directory contents.
@@ -41,17 +42,26 @@ Available commands:
   db "[query]"  - Query the database using natural language.
   clear         - Clear the terminal screen.
   logout        - Log out from the application.
-
+`;
+        if (isRoot) {
+            output += `
+Root-only commands:
+  createfile [filename] "[content]" - Create a new file.
+`;
+        }
+        output += `
 For unrecognized commands, AI will try to provide assistance.
 `;
-    }
-    return `
+    } else {
+        output = `
 Available commands:
   help          - Show this help message.
   login         - Log in to your account.
   register      - Create a new account.
   clear         - Clear the terminal screen.
 `;
+    }
+    return output;
 }
 
 
@@ -99,10 +109,11 @@ export const useCommand = (user: User | null | undefined) => {
     if (user) {
         const username = isRoot ? 'root' : user.email?.split('@')[0];
         const promptSymbol = isRoot ? '#' : '$';
-        return `${username}@hacker:~$${promptSymbol}`;
+        const currentPath = cwd === '/' ? '~' : `~${cwd}`;
+        return `${username}@hacker:${currentPath}${promptSymbol}`;
     }
     return 'guest@hacker:~$';
-  }, [user, isRoot]);
+  }, [user, isRoot, cwd]);
 
   const [prompt, setPrompt] = useState(getInitialPrompt());
   const { toast } = useToast();
@@ -112,10 +123,10 @@ export const useCommand = (user: User | null | undefined) => {
     if (!user) {
         setAuthStep('none');
         setCwd('/');
-    } else {
-        setCwd('/'); // Reset to home dir on login/logout
+    } else if (cwd === '/') { // Only reset to home dir on login/logout if at root
+        setCwd('/');
     }
-  }, [user, getInitialPrompt]);
+  }, [user, getInitialPrompt, cwd]);
 
 
   const resetAuth = useCallback(() => {
@@ -176,7 +187,7 @@ export const useCommand = (user: User | null | undefined) => {
                 setPrompt('Email:');
                 return '';
             case 'help':
-                return getHelpOutput(false);
+                return getHelpOutput(false, false);
             case '':
                 return '';
             default:
@@ -184,16 +195,16 @@ export const useCommand = (user: User | null | undefined) => {
         }
     }
 
-    const arg = args.join(' ');
+    const argString = args.join(' ');
 
     switch (cmd.toLowerCase()) {
       case 'help':
-        return getHelpOutput(true);
+        return getHelpOutput(true, isRoot);
       case 'neofetch':
         return getNeofetchOutput(user, isRoot);
       
       case 'ls': {
-        const targetPath = arg ? resolvePath(cwd, arg) : cwd;
+        const targetPath = argString ? resolvePath(cwd, argString) : cwd;
         const node = getNodeFromPath(targetPath);
         if (node && node.type === 'directory') {
           if (targetPath.startsWith('/root') && !isRoot) {
@@ -203,18 +214,18 @@ export const useCommand = (user: User | null | undefined) => {
             return node.children[key].type === 'directory' ? `\x1b[1;34m${key}/\x1b[0m` : key;
           }).join('\n');
         }
-        return `ls: cannot access '${arg || '.'}': No such file or directory`;
+        return `ls: cannot access '${argString || '.'}': No such file or directory`;
       }
 
       case 'cd': {
-        if (!arg || arg === '~') {
+        if (!argString || argString === '~') {
           setCwd('/');
           const username = isRoot ? 'root' : user.email?.split('@')[0];
           const promptSymbol = isRoot ? '#' : '$';
           setPrompt(`${username}@hacker:~$${promptSymbol}`);
           return '';
         }
-        const newPath = resolvePath(cwd, arg);
+        const newPath = resolvePath(cwd, argString);
         if (newPath.startsWith('/root') && !isRoot) {
             return `cd: permission denied: /root`
         }
@@ -227,16 +238,16 @@ export const useCommand = (user: User | null | undefined) => {
           setPrompt(`${username}@hacker:${newPromptPath}${promptSymbol}`);
           return '';
         }
-        return `cd: no such file or directory: ${arg}`;
+        return `cd: no such file or directory: ${argString}`;
       }
       
       case 'cat': {
-        if (!arg) {
+        if (!argString) {
           return 'cat: missing operand';
         }
-        const targetPath = resolvePath(cwd, arg);
+        const targetPath = resolvePath(cwd, argString);
          if (targetPath.startsWith('/root') && !isRoot) {
-            return `cat: ${arg}: Permission denied`;
+            return `cat: ${argString}: Permission denied`;
         }
         const node = getNodeFromPath(targetPath);
         if (node && node.type === 'file') {
@@ -245,15 +256,39 @@ export const useCommand = (user: User | null | undefined) => {
             }
           return node.content;
         }
-        return `cat: ${arg}: No such file or directory`;
+        return `cat: ${argString}: No such file or directory`;
+      }
+      
+      case 'createfile': {
+        if (!isRoot) {
+          return `createfile: command not found`;
+        }
+        const match = argString.match(/^(\S+)\s+"(.*)"$/);
+        if (!match) {
+          return 'Usage: createfile [filename] "[content]"';
+        }
+        const [, filename, content] = match;
+
+        const targetPath = resolvePath(cwd, '');
+        const node = getNodeFromPath(targetPath);
+
+        if (node && node.type === 'directory') {
+          if (node.children[filename]) {
+            return `createfile: cannot create file '${filename}': File exists`;
+          }
+          const newFile: File = { type: 'file', content: content };
+          node.children[filename] = newFile;
+          return `File created: ${filename}`;
+        }
+        return `createfile: cannot create file in '${targetPath}': No such directory`;
       }
 
       case 'db': {
-        if (!arg) {
+        if (!argString) {
           return 'db: missing query. Usage: db "your natural language query"';
         }
         try {
-          const queryInstruction = await databaseQuery({ query: arg });
+          const queryInstruction = await databaseQuery({ query: argString });
           
           const whereClauses = queryInstruction.where.map(w => where(w[0], w[1] as WhereFilterOp, w[2]));
           const q = query(collection(db, queryInstruction.collection), ...whereClauses);
@@ -304,3 +339,5 @@ export const useCommand = (user: User | null | undefined) => {
 
   return { prompt, processCommand, getWelcomeMessage, authStep, resetAuth };
 };
+
+    
