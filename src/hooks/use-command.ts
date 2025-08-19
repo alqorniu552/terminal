@@ -3,7 +3,11 @@
 import { useState, useCallback } from 'react';
 import { useToast } from "@/hooks/use-toast";
 import { generateCommandHelp } from '@/ai/flows/generate-command-help';
+import { databaseQuery } from '@/ai/flows/database-query-flow';
 import { filesystem, Directory, FilesystemNode } from '@/lib/filesystem';
+import { db } from '@/lib/firebase';
+import { collection, query, where, getDocs, WhereFilterOp } from 'firebase/firestore';
+
 
 const getNeofetchOutput = () => {
     let uptime = 0;
@@ -37,6 +41,7 @@ Available commands:
   cat [file]    - Display file content.
   neofetch      - Display system information.
   prompt [value]- Set a new prompt.
+  db "[query]"  - Query the database using natural language.
   clear         - Clear the terminal screen.
 
 For unrecognized commands, AI will try to provide assistance.
@@ -132,6 +137,35 @@ export const useCommand = () => {
           return node.content;
         }
         return `cat: ${arg}: No such file or directory`;
+      }
+
+      case 'db': {
+        if (!arg) {
+          return 'db: missing query. Usage: db "your natural language query"';
+        }
+        try {
+          const queryInstruction = await databaseQuery({ query: arg });
+          
+          const whereClauses = queryInstruction.where.map(w => where(w[0], w[1] as WhereFilterOp, w[2]));
+          const q = query(collection(db, queryInstruction.collection), ...whereClauses);
+          
+          const querySnapshot = await getDocs(q);
+          if (querySnapshot.empty) {
+            return "No documents found.";
+          }
+          
+          const results = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          return JSON.stringify(results, null, 2);
+
+        } catch (error) {
+          console.error('Database query failed:', error);
+          toast({
+            variant: "destructive",
+            title: "Database Query Error",
+            description: "Could not process your database query.",
+          });
+          return `Error: Could not query database.`;
+        }
       }
       
       case '':
