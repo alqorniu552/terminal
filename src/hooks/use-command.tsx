@@ -9,7 +9,6 @@ import { db, auth } from '@/lib/firebase';
 import { collection, query, where, getDocs, WhereFilterOp, doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
 import { User, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import ImageDisplay from '@/components/image-display';
-import NanoEditor from '@/components/nano-editor';
 
 export type AuthStep = 'none' | 'login_email' | 'login_password' | 'register_email' | 'register_password';
 export type OSSelectionStep = 'none' | 'prompt' | 'installing' | 'done';
@@ -271,11 +270,11 @@ export const useCommand = (user: User | null | undefined) => {
 
   const getWelcomeMessage = useCallback(() => {
     if (osSelectionStep === 'prompt') {
-        let osList = 'Welcome! Before you begin, please select an operating system to install:\\n\\n';
+        let osList = 'Welcome! Before you begin, please select an operating system to install:\n\n';
         for (const [key, value] of Object.entries(osOptions)) {
-            osList += `  [${key}] ${value}\\n`;
+            osList += `  [${key}] ${value}\n`;
         }
-        osList += '\\nEnter the corresponding number to choose an OS.';
+        osList += '\nEnter the corresponding number to choose an OS.';
         return osList;
     }
     if (user && osSelectionStep === 'done') {
@@ -419,7 +418,7 @@ export const useCommand = (user: User | null | undefined) => {
         if (isRoot) return `root already has superuser privileges.`;
         if (!sudoCommand) return 'usage: sudo <command>';
         const output = await processCommand(sudoCommand);
-        return `[sudo] password for ${user?.email?.split('@')[0]}:\\n${typeof output === 'string' ? output : 'Command executed.'}`;
+        return `[sudo] password for ${user?.email?.split('@')[0]}:\n${typeof output === 'string' ? output : 'Command executed.'}`;
     };
 
     if (cmd.toLowerCase() === 'sudo') {
@@ -428,19 +427,19 @@ export const useCommand = (user: User | null | undefined) => {
 
 
     const osCommands: { [key: string]: () => string } = {
-        'apt update': () => 'Hit:1 http://archive.ubuntu.com/ubuntu focal InRelease\\nGet:2 http://security.ubuntu.com/ubuntu focal-security InRelease [114 kB]\\nReading package lists... Done',
+        'apt update': () => 'Hit:1 http://archive.ubuntu.com/ubuntu focal InRelease\nGet:2 http://security.ubuntu.com/ubuntu focal-security InRelease [114 kB]\nReading package lists... Done',
         'apt-get update': () => osCommands['apt update'](),
         'apt install': () => {
             const pkg = args[1];
             if (!pkg) return 'Usage: apt install [package-name]';
-            return `Reading package lists... Done\\nBuilding dependency tree... Done\\n0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.\\nSimulating installation of ${pkg}... Done.`;
+            return `Reading package lists... Done\nBuilding dependency tree... Done\n0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.\nSimulating installation of ${pkg}... Done.`;
         },
         'apt-get install': () => osCommands['apt install'](),
         'dpkg -i': () => {
             const file = args[1];
             if (!file) return 'Usage: dpkg -i [package-file.deb]';
             if (!file.endsWith('.deb')) return `dpkg: error: '${file}' is not a Debian format archive`;
-            return `(Reading database ... 12345 files and directories currently installed.)\\nPreparing to unpack ${file} ...\\nUnpacking ...\\nSetting up ...`;
+            return `(Reading database ... 12345 files and directories currently installed.)\nPreparing to unpack ${file} ...\nUnpacking ...\nSetting up ...`;
         }
     };
 
@@ -449,13 +448,13 @@ export const useCommand = (user: User | null | undefined) => {
     const aptInstallMatch = fullCommand.match(/^(apt|apt-get) install (.+)/);
     if(aptInstallMatch) {
       const pkg = aptInstallMatch[2];
-      return `Reading package lists... Done\\nBuilding dependency tree... Done\\n0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.\\nSimulating installation of ${pkg}... Done.`;
+      return `Reading package lists... Done\nBuilding dependency tree... Done\n0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.\nSimulating installation of ${pkg}... Done.`;
     }
     const dpkgMatch = fullCommand.match(/^dpkg -i (.+)/);
     if(dpkgMatch) {
       const file = dpkgMatch[1];
       if (!file.endsWith('.deb')) return `dpkg: error: '${file}' is not a Debian format archive`;
-      return `(Reading database ... 12345 files and directories currently installed.)\\nPreparing to unpack ${file} ...\\nUnpacking ...\\nSetting up ...`;
+      return `(Reading database ... 12345 files and directories currently installed.)\nPreparing to unpack ${file} ...\nUnpacking ...\nSetting up ...`;
     }
 
 
@@ -473,7 +472,7 @@ export const useCommand = (user: User | null | undefined) => {
           if (content.length === 0) return '';
           return content.map(key => {
             return node.children[key].type === 'directory' ? `${key}/` : key;
-          }).join('\\n');
+          }).join('\n');
         }
         return `ls: cannot access '${argString || '.'}': No such file or directory`;
       }
@@ -703,8 +702,8 @@ ${username.padEnd(8)}     1337  0.5  0.2 222333  4321 pts/0    Rs+  14:15   0:02
                 const data = doc.data();
                 const createdAt = data.createdAt?.toDate ? data.createdAt.toDate().toLocaleString() : 'N/A';
                 return `- ${data.email} (OS: ${data.os || 'None'}) (Created: ${createdAt})`;
-            }).join('\\n');
-            return `Registered Users:\\n${usersList}`;
+            }).join('\n');
+            return `Registered Users:\n${usersList}`;
         } catch (error) {
             console.error("Failed to list users:", error);
             return "Error: Could not retrieve user list.";
@@ -900,7 +899,7 @@ available databases [5]:
              const node = getNodeFromPath(targetPath, currentFilesystem);
              if (node && node.type === 'file' && typeof node.content === 'string') {
                  const printableChars = node.content.match(/[\x20-\x7E]{4,}/g);
-                 return printableChars ? printableChars.join('\\n') : '';
+                 return printableChars ? printableChars.join('\n') : '';
              }
              return `strings: '${argString}': No such file`;
         }
@@ -951,5 +950,3 @@ Comment                         : Find the flag here: FLAG{F4k3_Ex1f_D4t4}
 
   return { prompt, processCommand, getWelcomeMessage, authStep, resetAuth, osSelectionStep, setOsSelectionStep, editingFile, saveFile, exitEditor };
 };
-
-    
