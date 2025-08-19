@@ -6,7 +6,7 @@ import { generateCommandHelp } from '@/ai/flows/generate-command-help';
 import { databaseQuery } from '@/ai/flows/database-query-flow';
 import { filesystem, Directory, FilesystemNode, File } from '@/lib/filesystem';
 import { db, auth } from '@/lib/firebase';
-import { collection, query, where, getDocs, WhereFilterOp } from 'firebase/firestore';
+import { collection, query, where, getDocs, WhereFilterOp, doc, setDoc } from 'firebase/firestore';
 import { User, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 
 export type AuthStep = 'none' | 'login_email' | 'login_password' | 'register_email' | 'register_password';
@@ -166,7 +166,16 @@ export const useCommand = (user: User | null | undefined) => {
                 const isLogin = authStep === 'login_password';
                 try {
                     const authFn = isLogin ? signInWithEmailAndPassword : createUserWithEmailAndPassword;
-                    await authFn(auth, email, password);
+                    const userCredential = await authFn(auth, email, password);
+
+                    if (!isLogin) {
+                        // Save user to 'users' collection on registration
+                        await setDoc(doc(db, "users", userCredential.user.uid), {
+                            email: userCredential.user.email,
+                            createdAt: new Date(),
+                        });
+                    }
+
                     resetAuth();
                     return isLogin ? 'Login successful.' : 'Registration successful.';
                 } catch (error: any) {
@@ -290,6 +299,10 @@ export const useCommand = (user: User | null | undefined) => {
         try {
           const queryInstruction = await databaseQuery({ query: argString });
           
+          if (queryInstruction.collection === 'users' && !isRoot) {
+            return "Error: Access to users collection is restricted to root.";
+          }
+
           const whereClauses = queryInstruction.where.map(w => where(w[0], w[1] as WhereFilterOp, w[2]));
           const q = query(collection(db, queryInstruction.collection), ...whereClauses);
           
