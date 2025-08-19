@@ -1,3 +1,4 @@
+
 export interface File {
   type: 'file';
   content: string | (() => string);
@@ -17,17 +18,7 @@ export const filesystem: Directory = {
   children: {
     'welcome.txt': {
       type: 'file',
-      content: `
-  _____                                  _           _   _             
- / ____|                                | |         | | | |            
-| |     ___  _ __   __ _ _ __ __ _ _ __ | |__  _   _| |_| |_ ___  _ __ 
-| |    / _ \\| '_ \\ / _\` | '__/ _\` | '_ \\| '_ \\| | | | __| __/ _ \\| '__|
-| |___| (_) | | | | (_| | | | (_| | |_) | | | | |_| | |_| || (_) | |   
- \\_____\\___/|_| |_|\\__, |_|  \\__,_| .__/|_| |_|\\__,_|\\__|\\__\\___/|_|   
-                     __/ |         | |                                  
-                    |___/          |_|                                  
-
-Welcome to Command Center!
+      content: `Welcome to Command Center!
 
 This is a simulated terminal interface.
 Type 'help' to see a list of available commands.
