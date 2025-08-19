@@ -12,7 +12,7 @@ import ImageDisplay from '@/components/image-display';
 
 export type AuthStep = 'none' | 'login_email' | 'login_password' | 'register_email' | 'register_password';
 export type OSSelectionStep = 'none' | 'prompt' | 'installing' | 'done';
-type SessionState = 'terminal' | 'gdb' | 'vulnerable_login';
+type SessionState = 'terminal' | 'gdb' | 'vulnerable_login' | 'netcat_puzzle' | 'ftp';
 type EditingFile = { path: string; content: string } | null;
 
 type CommandResult = string | { type: 'install'; os: string; } | { component: React.ReactNode } | undefined;
@@ -50,43 +50,47 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean, osInstalled: boolea
         output = `
 General Commands:
   help          - Show this help message.
-  ls path     - List directory contents.
-  cd path     - Change directory.
-  cat file    - Display file content.
+  ls path       - List directory contents.
+  cd path       - Change directory.
+  cat file      - Display file content.
   grep "pattern" file - Search for a pattern in a file.
   post-comment "comment" - Post a comment to the forum.
-  nano file   - Edit a file.
+  nano file     - Edit a file.
   createfile filename "[content]" - Create a file with content.
   touch filename - Create an empty file.
   mkdir dirname - Create a new directory.
-  rm file/dir - Remove a file or directory.
+  rm file/dir   - Remove a file or directory.
   pwd           - Print current working directory.
   whoami        - Display current user.
   uname -a      - Display system information.
-  echo text   - Display a line of text.
+  echo text     - Display a line of text.
   imagine "[prompt]" - Generate an image from a text prompt.
   reboot/shutdown - Simulate system restart/shutdown.
   clear         - Clear the terminal screen.
   logout        - Log out from the application.
 
 CTF & Security Tools:
-  nmap host        - Scan ports on a target host.
-  whois domain     - Get registration info for a domain.
-  dirb url         - Find hidden directories on a web server.
-  sqlmap -u url    - Simulate SQL injection detection.
+  nmap host     - Scan ports on a target host.
+  nc host port  - Connect to a target (Netcat).
+  ftp host      - Connect to a FTP server.
+  whois domain  - Get registration info for a domain.
+  dirb url      - Find hidden directories on a web server.
+  sqlmap -u url - Simulate SQL injection detection.
   hash-identifier hash - Identify hash type.
   base64 -d|-e text - Decode/Encode Base64.
-  rot13 text       - Apply ROT13 cipher to text.
-  strings file     - Display printable strings from a file.
-  exiftool file    - Display EXIF data from an image.
-  gdb file         - GNU Debugger simulation.
+  rot13 text    - Apply ROT13 cipher to text.
+  crypto caesar <e|d> <shift> <text> - Encrypt/decrypt with Caesar cipher.
+  crypto vigenere <e|d> <key> <text> - Encrypt/decrypt with Vigenere cipher.
+  strings file  - Display printable strings from a file.
+  exiftool file - Display EXIF data from an image.
+  gdb file      - GNU Debugger simulation.
   strace/ltrace file - Trace system/library calls.
-  r2 file          - Radare2 simulation for analysis.
-  ./linpeas.sh     - Run PEASS-NG enumeration script.
-  tshark -r file   - Read a .pcap file.
+  r2 file       - Radare2 simulation for analysis.
+  ./linpeas.sh  - Run PEASS-NG enumeration script.
+  tshark -r file - Read a .pcap file.
   steghide extract -sf file -p pass - Extract steganographic data.
-  zip2john file    - Extract hash from a zip file.
-  john hash        - Crack a password hash.
+  zip2john file - Extract hash from a zip file.
+  john hash     - Crack a password hash.
   ./vulnerable_login - Run a program with a buffer overflow flaw.
   volatility -f dump plugin - Analyze a memory dump.
   aws s3 ls [bucket] - List S3 buckets or objects.
@@ -153,6 +157,12 @@ export const useCommand = (user: User | null | undefined) => {
     }
     if (sessionState === 'vulnerable_login') {
       return 'Enter password: ';
+    }
+    if (sessionState === 'netcat_puzzle') {
+        return 'Your answer: ';
+    }
+    if (sessionState === 'ftp') {
+        return 'ftp> ';
     }
     if (user) {
         const username = isRoot ? 'root' : user.email?.split('@')[0];
@@ -363,7 +373,30 @@ FLAG{8UFF3R_0V3RFL0W_SUCC3SS}
         }
         return 'Login incorrect.';
     }
+    
+    if (sessionState === 'netcat_puzzle') {
+        const answer = command.trim().toLowerCase();
+        setSessionState('terminal');
+        if (answer === 'echo') {
+            return `Correct! Here is your flag: FLAG{N3TC4T_M4ST3R_C0NGR4TS}`;
+        }
+        return 'Incorrect. Connection closed.';
+    }
 
+    if (sessionState === 'ftp') {
+        const ftpCmd = cmd.toLowerCase();
+        if (ftpCmd === 'get' && args[0] === 'secret_note.txt') {
+            return '200 PORT command successful.\\n150 Opening BINARY mode data connection for secret_note.txt (123 bytes).\\n226 Transfer complete.\\nFLAG{FTP_H0P_P0W3R}';
+        }
+        if (ftpCmd === 'ls') {
+            return '200 PORT command successful.\\n150 Here comes the directory listing.\\ndrwxr-xr-x    2 ftp      ftp          4096 May 10 10:00 .\\ndrwxr-xr-x    2 ftp      ftp          4096 May 10 10:00 ..\\n-rw-r--r--    1 ftp      ftp           123 May 10 10:00 secret_note.txt\\n226 Directory send OK.';
+        }
+        if (ftpCmd === 'quit' || ftpCmd === 'exit') {
+            setSessionState('terminal');
+            return '221 Goodbye.';
+        }
+        return `${ftpCmd}: command not understood. Try 'ls' or 'get <filename>'.`;
+    }
 
     if (sessionState === 'gdb') {
         const gdbCmd = cmd.toLowerCase();
@@ -850,10 +883,12 @@ Nmap scan report for ${host} (127.0.0.1)
 Host is up (0.00019s latency).
 Not shown: 996 closed ports
 PORT      STATE SERVICE
+21/tcp    open  ftp
 22/tcp    open  ssh
 80/tcp    open  http
 443/tcp   open  https
 3306/tcp  open  mysql
+9001/tcp  open  jetdirect
 
 Nmap done: 1 IP address (1 host up) scanned in 0.08 seconds
 `;
@@ -888,10 +923,11 @@ URL_BASE: ${url}
 + ${url}/admin/ (CODE:403|SIZE:45)
 + ${url}/backups/ (CODE:403|SIZE:45)
 + ${url}/config/ (CODE:200|SIZE:341)
++ ${url}/config.php.bak (CODE:200|SIZE:150)
 ==> DIRECTORY: ${url}/uploads/
 -----------------
 END_TIME: ${new Date().toUTCString()}
-DOWNLOADED: 1000 - FOUND: 4
+DOWNLOADED: 1000 - FOUND: 5
 `;
         }
 
@@ -1203,7 +1239,79 @@ FLAG{J0HN_TH3_CR4CK3R}
           }
           return `An error occurred (NoSuchBucket) when calling the ListObjectsV2 operation: The specified bucket does not exist`;
       }
+      
+      case 'nc': {
+        const host = args[0];
+        const port = args[1];
+        if (!host || !port) return 'Usage: nc <host> <port>';
+        if (host === 'localhost' && port === '9001') {
+            setSessionState('netcat_puzzle');
+            return `Welcome to the Riddle Room!
+What command is used to print text to the console in most programming languages and shells?
+`;
+        }
+        return `nc: connect to ${host} port ${port} (tcp) failed: Connection refused`;
+      }
+      
+      case 'ftp': {
+        const host = args[0];
+        if (!host) return 'Usage: ftp <host>';
+        if (host === '127.0.0.1') {
+            setSessionState('ftp');
+            return `Connected to 127.0.0.1.
+220 (vsFTPd 3.0.3)
+Name (127.0.0.1:${user?.email?.split('@')[0]}): user
+331 Please specify the password.
+Password:
+230 Login successful.
+Remote system type is UNIX.
+Using binary mode to transfer files.
+`;
+        }
+        return `ftp: connect: Connection refused`;
+      }
+      
+      case 'crypto': {
+        const [_, type, mode, keyOrShift, ...textParts] = args;
+        const text = textParts.join(' ');
+        if (!type || !mode || !keyOrShift || !text) return 'Usage: crypto <caesar|vigenere> <e|d> <key> <text>';
 
+        const applyCipher = (str: string, transform: (char: string, index: number) => string) => {
+            return str.split('').map((char, i) => {
+                if (/[a-zA-Z]/.test(char)) {
+                    return transform(char, i);
+                }
+                return char;
+            }).join('');
+        }
+
+        if (type === 'caesar') {
+            const shift = parseInt(keyOrShift);
+            if (isNaN(shift)) return 'Invalid shift value for Caesar cipher.';
+            const effectiveShift = mode === 'd' ? -shift : shift;
+            return applyCipher(text, (char, i) => {
+                const base = char.toLowerCase() === char ? 'a'.charCodeAt(0) : 'A'.charCodeAt(0);
+                return String.fromCharCode(((char.charCodeAt(0) - base + effectiveShift) % 26 + 26) % 26 + base);
+            });
+        }
+        
+        if (type === 'vigenere') {
+            const key = keyOrShift.toLowerCase();
+            let keyIndex = 0;
+            return applyCipher(text, (char, i) => {
+                if (/[a-zA-Z]/.test(char)) {
+                    const base = char.toLowerCase() === char ? 'a'.charCodeAt(0) : 'A'.charCodeAt(0);
+                    const keyChar = key[keyIndex % key.length];
+                    const shift = keyChar.charCodeAt(0) - 'a'.charCodeAt(0);
+                    keyIndex++;
+                    const effectiveShift = mode === 'd' ? -shift : shift;
+                    return String.fromCharCode(((char.charCodeAt(0) - base + effectiveShift) % 26 + 26) % 26 + base);
+                }
+                return char;
+            });
+        }
+        return 'Invalid cipher type. Use "caesar" or "vigenere".';
+      }
 
       case 'logout': {
         await auth.signOut();

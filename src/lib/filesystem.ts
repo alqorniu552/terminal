@@ -43,6 +43,18 @@ export const initialFilesystem: Directory = {
         type: 'file',
         content: 'This is not a real image file, but you can run `exiftool` or `strings` on it.'
     },
+    'config.php.bak': {
+        type: 'file',
+        content: 'FTP_USER=ftp_user\\nFTP_PASS=Ch4ll3ng3_4cc3pt3d'
+    },
+    'puzzle.txt': {
+        type: 'file',
+        content: 'Gsv jfrxp yildm ulc qfnkh levi gsv ozab wlt. (Caesar, shift 20)'
+    },
+    'secret_recipe.txt': {
+        type: 'file',
+        content: 'ZRIF! Vlr fnr jia ve mgqf jdrw gsv kvof zqam. (Vigenere, key: hack)'
+    },
     'credentials.enc': {
         type: 'file',
         content: 'U2FsdGVkX1/RxE5B5D... (this is fake encrypted data). The password is hidden somewhere.'
