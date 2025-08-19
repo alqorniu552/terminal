@@ -1,0 +1,193 @@
+"use client";
+
+import { useState, useCallback } from 'react';
+import { useToast } from "@/hooks/use-toast";
+import { generateCommandHelp } from '@/ai/flows/generate-command-help';
+import { databaseQuery } from '@/ai/flows/database-query-flow';
+import { filesystem, Directory, FilesystemNode } from '@/lib/filesystem';
+import { db, auth } from '@/lib/firebase';
+import { collection, query, where, getDocs, WhereFilterOp } from 'firebase/firestore';
+
+
+const getNeofetchOutput = () => {
+    let uptime = 0;
+    if (typeof window !== 'undefined') {
+        uptime = Math.floor(performance.now() / 1000);
+    }
+    const user = auth.currentUser;
+
+return `
+${user?.email}@command-center
+--------------------
+OS: Web Browser
+Host: Command Center v1.0
+Kernel: Next.js
+Uptime: ${uptime} seconds
+Shell: term-sim
+`;
+};
+
+const getHelpOutput = () => `
+Available commands:
+  help          - Show this help message.
+  ls [path]     - List directory contents.
+  cd [path]     - Change directory.
+  cat [file]    - Display file content.
+  neofetch      - Display system information.
+  prompt [value]- Set a new prompt.
+  db "[query]"  - Query the database using natural language.
+  clear         - Clear the terminal screen.
+  logout        - Log out from the application.
+
+For unrecognized commands, AI will try to provide assistance.
+`;
+
+const resolvePath = (cwd: string, path: string): string => {
+  if (path.startsWith('/')) {
+    const newParts = path.split('/').filter(p => p);
+    return '/' + newParts.join('/');
+  }
+
+  const parts = cwd === '/' ? [] : cwd.split('/').filter(p => p);
+  const newParts = path.split('/').filter(p => p);
+
+  for (const part of newParts) {
+    if (part === '.') continue;
+    if (part === '..') {
+      parts.pop();
+    } else {
+      parts.push(part);
+    }
+  }
+  return '/' + parts.join('/');
+};
+
+const getNodeFromPath = (path: string): FilesystemNode | null => {
+  const parts = path.split('/').filter(p => p && p !== '~');
+  let currentNode: FilesystemNode = filesystem;
+
+  for (const part of parts) {
+    if (currentNode.type === 'directory' && currentNode.children[part]) {
+      currentNode = currentNode.children[part];
+    } else {
+      return null;
+    }
+  }
+  return currentNode;
+};
+
+export const useCommand = () => {
+  const [cwd, setCwd] = useState('/');
+  const userEmail = auth.currentUser?.email?.split('@')[0] || 'guest';
+  const [prompt, setPrompt] = useState(`${userEmail}@command-center:~$`);
+  const { toast } = useToast();
+
+  const processCommand = useCallback(async (command: string): Promise<string> => {
+    const [cmd, ...args] = command.trim().split(/\s+/);
+    const arg = args.join(' ');
+
+    switch (cmd.toLowerCase()) {
+      case 'help':
+        return getHelpOutput();
+      case 'neofetch':
+        return getNeofetchOutput();
+      
+      case 'ls': {
+        const targetPath = arg ? resolvePath(cwd, arg) : cwd;
+        const node = getNodeFromPath(targetPath);
+        if (node && node.type === 'directory') {
+          return Object.keys(node.children).map(key => {
+            return node.children[key].type === 'directory' ? `\x1b[1;34m${key}/\x1b[0m` : key;
+          }).join('\n');
+        }
+        return `ls: cannot access '${arg || '.'}': No such file or directory`;
+      }
+
+      case 'cd': {
+        if (!arg || arg === '~') {
+          setCwd('/');
+          setPrompt(`${userEmail}@command-center:~$`);
+          return '';
+        }
+        const newPath = resolvePath(cwd, arg);
+        const node = getNodeFromPath(newPath);
+        if (node && node.type === 'directory') {
+          setCwd(newPath);
+          const newPromptPath = newPath === '/' ? '~' : `~${newPath}`;
+          setPrompt(`${userEmail}@command-center:${newPromptPath}$`);
+          return '';
+        }
+        return `cd: no such file or directory: ${arg}`;
+      }
+      
+      case 'cat': {
+        if (!arg) {
+          return 'cat: missing operand';
+        }
+        const targetPath = resolvePath(cwd, arg);
+        const node = getNodeFromPath(targetPath);
+        if (node && node.type === 'file') {
+            if (typeof node.content === 'function') {
+                return node.content();
+            }
+          return node.content;
+        }
+        return `cat: ${arg}: No such file or directory`;
+      }
+
+      case 'db': {
+        if (!arg) {
+          return 'db: missing query. Usage: db "your natural language query"';
+        }
+        try {
+          const queryInstruction = await databaseQuery({ query: arg });
+          
+          const whereClauses = queryInstruction.where.map(w => where(w[0], w[1] as WhereFilterOp, w[2]));
+          const q = query(collection(db, queryInstruction.collection), ...whereClauses);
+          
+          const querySnapshot = await getDocs(q);
+          if (querySnapshot.empty) {
+            return "No documents found.";
+          }
+          
+          const results = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          return JSON.stringify(results, null, 2);
+
+        } catch (error) {
+          console.error('Database query failed:', error);
+          toast({
+            variant: "destructive",
+            title: "Database Query Error",
+            description: "Could not process your database query.",
+          });
+          return `Error: Could not query database.`;
+        }
+      }
+
+      case 'logout': {
+        await auth.signOut();
+        return 'Logged out.';
+      }
+      
+      case '':
+        return '';
+
+      default: {
+        try {
+          const result = await generateCommandHelp({ command: cmd });
+          return result.helpMessage;
+        } catch (error) {
+          console.error('AI command help failed:', error);
+          toast({
+            variant: "destructive",
+            title: "AI Assistant Error",
+            description: "Could not get help for the command.",
+          });
+          return `command not found: ${cmd}`;
+        }
+      }
+    }
+  }, [cwd, toast, userEmail]);
+
+  return { prompt, setPrompt, processCommand };
+};

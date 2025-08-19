@@ -3,6 +3,8 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useCommand } from '@/hooks/use-command';
 import Typewriter from './typewriter';
+import { auth } from '@/lib/firebase';
+import { useRouter } from 'next/navigation';
 
 interface HistoryItem {
   id: number;
@@ -22,6 +24,7 @@ export default function Terminal() {
   const { prompt, setPrompt, processCommand } = useCommand();
   const inputRef = useRef<HTMLInputElement>(null);
   const endOfHistoryRef = useRef<HTMLDivElement>(null);
+  const router = useRouter();
 
   const focusInput = useCallback(() => {
     if (typeof window !== 'undefined' && window.innerWidth > 768) {
@@ -44,7 +47,9 @@ export default function Terminal() {
       };
       setHistory([welcomeHistory]);
     };
-    loadWelcomeMessage();
+    if (auth.currentUser) {
+      loadWelcomeMessage();
+    }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -73,6 +78,13 @@ export default function Terminal() {
       return;
     }
     
+    if (currentCommand.trim().toLowerCase() === 'logout') {
+      await auth.signOut();
+      router.push('/');
+      setIsTyping(false);
+      return;
+    }
+
     if (currentCommand.trim().toLowerCase().startsWith('prompt ')) {
       const newPrompt = currentCommand.trim().substring(7);
       if (newPrompt) {
