@@ -1,0 +1,158 @@
+"use client";
+
+import { useState, useCallback } from 'react';
+import { useToast } from "@/hooks/use-toast";
+import { generateCommandHelp } from '@/ai/flows/generate-command-help';
+import { filesystem, Directory, FilesystemNode } from '@/lib/filesystem';
+
+const getNeofetchOutput = () => {
+    let uptime = 0;
+    if (typeof window !== 'undefined') {
+        uptime = Math.floor(performance.now() / 1000);
+    }
+
+return `
+       .MMMM.        guest@command-center
+      .MMMMMM.       --------------------
+     .MMMMMMMM.      OS: Web Browser
+     MMMMMMMMMM      Host: Command Center v1.0
+     MMMMMMMMMM      Kernel: Next.js
+   .MMMMMMMMMMMM.    Uptime: ${uptime} seconds
+  .MMMMMMMMMMMMMM.   Shell: term-sim
+  MMMMMMMMMMMMMMMM
+ .MMMMMMMMMMMMMMMM.
+ MMMMMMMMMMMMMMMMMM
+ MMMMMMMMMMMMMMMMMM
+ 'MMMMMMMMMMMMMMMM'
+  'MMMMMMMMMMMMMM'
+    'MMMMMMMMMM'
+      'MMMMMM'
+`};
+
+const getHelpOutput = () => `
+Available commands:
+  help          - Show this help message.
+  ls [path]     - List directory contents.
+  cd [path]     - Change directory.
+  cat [file]    - Display file content.
+  neofetch      - Display system information.
+  prompt [value]- Set a new prompt.
+  clear         - Clear the terminal screen.
+
+For unrecognized commands, AI will try to provide assistance.
+`;
+
+const resolvePath = (cwd: string, path: string): string => {
+  if (path.startsWith('/')) {
+    const newParts = path.split('/').filter(p => p);
+    return '/' + newParts.join('/');
+  }
+
+  const parts = cwd === '/' ? [] : cwd.split('/').filter(p => p);
+  const newParts = path.split('/').filter(p => p);
+
+  for (const part of newParts) {
+    if (part === '.') continue;
+    if (part === '..') {
+      parts.pop();
+    } else {
+      parts.push(part);
+    }
+  }
+  return '/' + parts.join('/');
+};
+
+const getNodeFromPath = (path: string): FilesystemNode | null => {
+  const parts = path.split('/').filter(p => p && p !== '~');
+  let currentNode: FilesystemNode = filesystem;
+
+  for (const part of parts) {
+    if (currentNode.type === 'directory' && currentNode.children[part]) {
+      currentNode = currentNode.children[part];
+    } else {
+      return null;
+    }
+  }
+  return currentNode;
+};
+
+export const useCommand = () => {
+  const [cwd, setCwd] = useState('/');
+  const [prompt, setPrompt] = useState('guest@command-center:~$');
+  const { toast } = useToast();
+
+  const processCommand = useCallback(async (command: string): Promise<string> => {
+    const [cmd, ...args] = command.trim().split(/\s+/);
+    const arg = args.join(' ');
+
+    switch (cmd.toLowerCase()) {
+      case 'help':
+        return getHelpOutput();
+      case 'neofetch':
+        return getNeofetchOutput();
+      
+      case 'ls': {
+        const targetPath = arg ? resolvePath(cwd, arg) : cwd;
+        const node = getNodeFromPath(targetPath);
+        if (node && node.type === 'directory') {
+          return Object.keys(node.children).map(key => {
+            return node.children[key].type === 'directory' ? `\x1b[1;34m${key}/\x1b[0m` : key;
+          }).join('\n');
+        }
+        return `ls: cannot access '${arg || '.'}': No such file or directory`;
+      }
+
+      case 'cd': {
+        if (!arg || arg === '~') {
+          setCwd('/');
+          setPrompt(`guest@command-center:~$`);
+          return '';
+        }
+        const newPath = resolvePath(cwd, arg);
+        const node = getNodeFromPath(newPath);
+        if (node && node.type === 'directory') {
+          setCwd(newPath);
+          const newPromptPath = newPath === '/' ? '~' : `~${newPath}`;
+          setPrompt(`guest@command-center:${newPromptPath}$`);
+          return '';
+        }
+        return `cd: no such file or directory: ${arg}`;
+      }
+      
+      case 'cat': {
+        if (!arg) {
+          return 'cat: missing operand';
+        }
+        const targetPath = resolvePath(cwd, arg);
+        const node = getNodeFromPath(targetPath);
+        if (node && node.type === 'file') {
+            if (typeof node.content === 'function') {
+                return node.content();
+            }
+          return node.content;
+        }
+        return `cat: ${arg}: No such file or directory`;
+      }
+      
+      case '':
+        return '';
+
+      default: {
+        try {
+          const result = await generateCommandHelp({ command: cmd });
+          return result.helpMessage;
+        } catch (error) {
+          console.error('AI command help failed:', error);
+          toast({
+            variant: "destructive",
+            title: "AI Assistant Error",
+            description: "Could not get help for the command.",
+          });
+          return `command not found: ${cmd}`;
+        }
+      }
+    }
+  }, [cwd, toast]);
+
+  return { prompt, setPrompt, processCommand };
+};
