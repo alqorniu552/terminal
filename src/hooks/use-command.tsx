@@ -236,6 +236,7 @@ export const useCommand = (user: User | null | undefined) => {
                 uid: user.uid,
                 os: null,
                 osInstalled: false,
+                // Ensure only the specific email gets root access. This is permanent.
                 isRoot: user.email === 'alqorniu552@gmail.com',
                 filesystem: initialFilesystem,
             };
@@ -950,3 +951,5 @@ Comment                         : Find the flag here: FLAG{F4k3_Ex1f_D4t4}
 
   return { prompt, processCommand, getWelcomeMessage, authStep, resetAuth, osSelectionStep, setOsSelectionStep, editingFile, saveFile, exitEditor };
 };
+
+    
