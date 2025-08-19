@@ -20,23 +20,58 @@ const BlinkingCursor = () => (
   <span className="w-2.5 h-5 bg-accent inline-block animate-blink ml-1" />
 );
 
+const installationFeatures = [
+    "Initializing hardware...",
+    "Partitioning disk...",
+    "Formatting filesystem...",
+    "Copying OS files...",
+    "Installing kernel...",
+    "Configuring network settings...",
+    "Installing graphics drivers...",
+    "Setting up package manager...",
+    "Installing core utilities...",
+    "Configuring user environment...",
+    "Finalizing installation...",
+];
+
+
 const OSInstaller = ({ os, onFinished }: { os: string, onFinished: () => void }) => {
     const [progress, setProgress] = useState(0);
-
+    const [currentFeature, setCurrentFeature] = useState(installationFeatures[0]);
+    
     useEffect(() => {
-        const interval = setInterval(() => {
+        const totalDuration = 120000; // 2 minutes in ms
+        const intervalTime = totalDuration / 100; // time per percentage point
+
+        const progressInterval = setInterval(() => {
             setProgress(prev => {
                 if (prev >= 100) {
-                    clearInterval(interval);
+                    clearInterval(progressInterval);
                     onFinished();
                     return 100;
                 }
                 return prev + 1;
             });
-        }, 45); // Adjust for a ~5 second install time
+        }, intervalTime);
 
-        return () => clearInterval(interval);
+        return () => clearInterval(progressInterval);
     }, [onFinished]);
+
+    useEffect(() => {
+        const featureChangeInterval = 120000 / installationFeatures.length;
+        let featureIndex = 0;
+        const featureInterval = setInterval(() => {
+            featureIndex++;
+            if (featureIndex < installationFeatures.length) {
+                setCurrentFeature(installationFeatures[featureIndex]);
+            } else {
+                clearInterval(featureInterval);
+            }
+        }, featureChangeInterval);
+
+        return () => clearInterval(featureInterval);
+    }, []);
+
 
     return (
         <div className='p-2'>
@@ -44,6 +79,9 @@ const OSInstaller = ({ os, onFinished }: { os: string, onFinished: () => void })
             <div className="flex items-center gap-2">
               <Progress value={progress} className="w-[60%]" />
               <p>{progress}%</p>
+            </div>
+            <div className='pt-2'>
+                <p>{currentFeature}</p>
             </div>
             {progress === 100 && <p className='pt-2'>Installation complete! You can now use the terminal.</p>}
         </div>
@@ -100,7 +138,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
         loadWelcomeMessage();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, osSelectionStep, getWelcomeMessage, resetAuth]);
+  }, [user, osSelectionStep]);
 
 
   useEffect(() => {
