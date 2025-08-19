@@ -112,12 +112,12 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     processCommand, 
     getWelcomeMessage,
     authStep,
+    resetAuth,
     osSelectionStep,
     setOsSelectionStep,
     editingFile,
     saveFile,
     exitEditor,
-    resetAuth,
   } = useCommand(user);
 
   const inputRef = useRef<HTMLInputElement>(null);
@@ -154,27 +154,17 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
         setHistory([]);
         resetAuth();
     } else {
-      const welcomeMessage = getWelcomeMessage();
-      if(welcomeMessage && history.length === 0) {
+      if(history.length === 0) {
         loadWelcomeMessage();
       }
     }
-  }, [user, getWelcomeMessage, history.length, loadWelcomeMessage, resetAuth]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, resetAuth]);
 
   useEffect(() => {
-    const welcomeMessage = getWelcomeMessage();
-    if (welcomeMessage) {
-        const welcomeHistory: HistoryItem = {
-            id: Date.now(),
-            command: '',
-            output: <Typewriter text={welcomeMessage} onFinished={() => setIsTyping(false)} />,
-            prompt: '',
-        };
-        setIsTyping(true);
-        setHistory([welcomeHistory]);
-    }
+    loadWelcomeMessage();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [osSelectionStep === 'prompt']);
+  }, [osSelectionStep]);
 
 
   useEffect(() => {
