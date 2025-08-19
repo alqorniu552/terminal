@@ -1,0 +1,24 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // For a production app, it's more secure to use the root user's UID instead of email.
+    // You can get the UID from the Firebase console's Authentication section.
+    function isRoot() {
+      return request.auth.token.email == "alqorniu552@gmail.com";
+    }
+
+    match /users/{userId} {
+      // Allow users to create their own user document when they register.
+      // The userId must match the UID of the user creating the document.
+      allow create: if request.auth != null && request.auth.uid == userId;
+
+      // Allow only the root user to read user documents.
+      allow read: if isRoot();
+    }
+    
+    // The list-users command needs to be able to query the collection.
+    match /users/{document=**} {
+        allow list: if isRoot();
+    }
+  }
+}
