@@ -2,6 +2,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { Textarea } from '@/components/ui/textarea';
+import { Button } from '@/components/ui/button';
+import { useIsMobile } from '@/hooks/use-mobile';
+
 
 interface NanoEditorProps {
   filename: string;
@@ -12,6 +15,7 @@ interface NanoEditorProps {
 
 const NanoEditor = ({ filename, initialContent, onSave, onExit }: NanoEditorProps) => {
   const [content, setContent] = useState(initialContent);
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -44,9 +48,18 @@ const NanoEditor = ({ filename, initialContent, onSave, onExit }: NanoEditorProp
         className="flex-1 w-full bg-black text-white rounded-none border-none focus-visible:ring-0 p-2"
         autoFocus
       />
-      <div className="bg-gray-700 grid grid-cols-2 gap-x-4 px-2 py-0.5">
-        <span>^O Save</span>
-        <span>^X Exit</span>
+      <div className="bg-gray-700 grid grid-cols-2 gap-x-4 px-2 py-0.5 items-center">
+        {isMobile ? (
+            <>
+              <Button onClick={() => onSave(content)} variant="ghost" className="text-white h-8">Save</Button>
+              <Button onClick={onExit} variant="ghost" className="text-white h-8">Exit</Button>
+            </>
+        ) : (
+            <>
+              <span>^O Save</span>
+              <span>^X Exit</span>
+            </>
+        )}
       </div>
     </div>
   );
