@@ -13,7 +13,9 @@ export interface Directory {
 
 export type FilesystemNode = File | Directory;
 
-export const filesystem: Directory = {
+export const initialFilesystem: Directory = {
   type: 'directory',
   children: {},
 };
+
+    

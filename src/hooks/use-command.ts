@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { useToast } from "@/hooks/use-toast";
 import { generateCommandHelp } from '@/ai/flows/generate-command-help';
 import { databaseQuery } from '@/ai/flows/database-query-flow';
-import { filesystem, Directory, FilesystemNode, File } from '@/lib/filesystem';
+import { initialFilesystem, Directory, FilesystemNode, File } from '@/lib/filesystem';
 import { db, auth } from '@/lib/firebase';
 import { collection, query, where, getDocs, WhereFilterOp, doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
 import { User, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
@@ -97,55 +97,13 @@ Available commands:
     return output;
 }
 
-
-const resolvePath = (cwd: string, path: string): string => {
-  if (path.startsWith('/')) {
-    const newParts = path.split('/').filter(p => p);
-    return '/' + newParts.join('/');
-  }
-
-  const parts = cwd === '/' ? [] : cwd.split('/').filter(p => p);
-  const newParts = path.split('/').filter(p => p);
-
-  for (const part of newParts) {
-    if (part === '.') continue;
-    if (part === '..') {
-      parts.pop();
-    } else {
-      parts.push(part);
-    }
-  }
-  return '/' + parts.join('/');
-};
-
-const getNodeFromPath = (path: string): FilesystemNode | null => {
-  const parts = path.split('/').filter(p => p && p !== '~');
-  let currentNode: FilesystemNode = filesystem;
-
-  for (const part of parts) {
-    if (currentNode.type === 'directory' && currentNode.children[part]) {
-      currentNode = currentNode.children[part];
-    } else {
-      return null;
-    }
-  }
-  return currentNode;
-};
-
-const getParentNodeFromPath = (path: string): Directory | null => {
-    const parts = path.split('/').filter(p => p && p !== '~');
-    if (parts.length === 0) return filesystem; // root's parent is root itself for our purpose
-    const parentPath = '/' + parts.slice(0, -1).join('/');
-    const node = getNodeFromPath(parentPath);
-    return node?.type === 'directory' ? node : null;
-}
-
 export const useCommand = (user: User | null | undefined) => {
   const [cwd, setCwd] = useState('/');
   const [authStep, setAuthStep] = useState<AuthStep>('none');
   const [osSelectionStep, setOsSelectionStep] = useState<OSSelectionStep>('none');
   const [authCredentials, setAuthCredentials] = useState({ email: '', password: '' });
   const [userData, setUserData] = useState<any>(null);
+  const [userFilesystem, setUserFilesystem] = useState<Directory>(initialFilesystem);
   
   const isRoot = user?.email === 'alqorniu552@gmail.com';
 
@@ -171,6 +129,64 @@ export const useCommand = (user: User | null | undefined) => {
   const [prompt, setPrompt] = useState(getInitialPrompt());
   const { toast } = useToast();
   
+  const resolvePath = (path: string): string => {
+    if (path.startsWith('/')) {
+      const newParts = path.split('/').filter(p => p);
+      return '/' + newParts.join('/');
+    }
+  
+    const parts = cwd === '/' ? [] : cwd.split('/').filter(p => p);
+    const newParts = path.split('/').filter(p => p);
+  
+    for (const part of newParts) {
+      if (part === '.') continue;
+      if (part === '..') {
+        parts.pop();
+      } else {
+        parts.push(part);
+      }
+    }
+    return '/' + parts.join('/');
+  };
+
+  const getNodeFromPath = (path: string, fs: Directory): FilesystemNode | null => {
+    const parts = path.split('/').filter(p => p && p !== '~');
+    let currentNode: FilesystemNode = fs;
+  
+    for (const part of parts) {
+      if (currentNode.type === 'directory' && currentNode.children[part]) {
+        currentNode = currentNode.children[part];
+      } else {
+        return null;
+      }
+    }
+    return currentNode;
+  };
+  
+  const getParentNodeFromPath = (path: string, fs: Directory): Directory | null => {
+      const parts = path.split('/').filter(p => p && p !== '~');
+      if (parts.length === 0) return fs;
+      const parentPath = '/' + parts.slice(0, -1).join('/');
+      const node = getNodeFromPath(parentPath, fs);
+      return node?.type === 'directory' ? node : null;
+  }
+  
+  const updateFirestoreFilesystem = async (newFilesystem: Directory) => {
+    if (user) {
+        try {
+            const userDocRef = doc(db, 'users', user.uid);
+            await updateDoc(userDocRef, { filesystem: newFilesystem });
+        } catch (error) {
+            console.error("Error updating filesystem in Firestore:", error);
+            toast({
+                variant: "destructive",
+                title: "Filesystem Error",
+                description: "Could not save file changes to the cloud.",
+            });
+        }
+    }
+  };
+
   const fetchUserData = useCallback(async () => {
     if (user) {
         const userDocRef = doc(db, 'users', user.uid);
@@ -178,6 +194,7 @@ export const useCommand = (user: User | null | undefined) => {
         if (userDoc.exists()) {
             const data = userDoc.data();
             setUserData(data);
+            setUserFilesystem(data.filesystem || initialFilesystem)
             if (!data.osInstalled) {
                 setOsSelectionStep('prompt');
             } else {
@@ -190,8 +207,10 @@ export const useCommand = (user: User | null | undefined) => {
                 uid: user.uid,
                 os: null,
                 osInstalled: false,
+                filesystem: initialFilesystem,
             });
             setUserData({ os: null, osInstalled: false });
+            setUserFilesystem(initialFilesystem);
             setOsSelectionStep('prompt');
         }
     } else {
@@ -216,11 +235,11 @@ export const useCommand = (user: User | null | undefined) => {
 
   const getWelcomeMessage = useCallback(() => {
     if (osSelectionStep === 'prompt') {
-        let osList = 'Welcome! Before you begin, please select an operating system to install:\n\n';
+        let osList = 'Welcome! Before you begin, please select an operating system to install:\\n\\n';
         for (const [key, value] of Object.entries(osOptions)) {
-            osList += `  [${key}] ${value}\n`;
+            osList += `  [${key}] ${value}\\n`;
         }
-        osList += '\nEnter the corresponding number to choose an OS.';
+        osList += '\\nEnter the corresponding number to choose an OS.';
         return osList;
     }
     if (user) {
@@ -288,6 +307,7 @@ export const useCommand = (user: User | null | undefined) => {
                             uid: userCredential.user.uid,
                             os: null,
                             osInstalled: false,
+                            filesystem: initialFilesystem,
                         });
                     }
                     resetAuth();
@@ -331,21 +351,21 @@ export const useCommand = (user: User | null | undefined) => {
         'sudo': () => {
             if (isRoot) return `root already has superuser privileges.`;
             const sudoArg = args.join(' ');
-            return sudoArg ? processCommand(sudoArg).then(output => `[sudo] password for ${user?.email?.split('@')[0]}:\n${typeof output === 'string' ? output : 'OK'}`) as unknown as string : 'usage: sudo <command>';
+            return sudoArg ? processCommand(sudoArg).then(output => `[sudo] password for ${user?.email?.split('@')[0]}:\\n${typeof output === 'string' ? output : 'OK'}`) as unknown as string : 'usage: sudo <command>';
         },
-        'apt update': () => 'Hit:1 http://archive.ubuntu.com/ubuntu focal InRelease\nGet:2 http://security.ubuntu.com/ubuntu focal-security InRelease [114 kB]\nReading package lists... Done',
+        'apt update': () => 'Hit:1 http://archive.ubuntu.com/ubuntu focal InRelease\\nGet:2 http://security.ubuntu.com/ubuntu focal-security InRelease [114 kB]\\nReading package lists... Done',
         'apt-get update': () => osCommands['apt update'](),
         'apt install': () => {
             const pkg = args[1];
             if (!pkg) return 'Usage: apt install [package-name]';
-            return `Reading package lists... Done\nBuilding dependency tree... Done\n0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.\nSimulating installation of ${pkg}... Done.`;
+            return `Reading package lists... Done\\nBuilding dependency tree... Done\\n0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.\\nSimulating installation of ${pkg}... Done.`;
         },
         'apt-get install': () => osCommands['apt install'](),
         'dpkg -i': () => {
             const file = args[1];
             if (!file) return 'Usage: dpkg -i [package-file.deb]';
             if (!file.endsWith('.deb')) return `dpkg: error: '${file}' is not a Debian format archive`;
-            return `(Reading database ... 12345 files and directories currently installed.)\nPreparing to unpack ${file} ...\nUnpacking ...\nSetting up ...`;
+            return `(Reading database ... 12345 files and directories currently installed.)\\nPreparing to unpack ${file} ...\\nUnpacking ...\\nSetting up ...`;
         }
     };
 
@@ -354,13 +374,13 @@ export const useCommand = (user: User | null | undefined) => {
     const aptInstallMatch = fullCommand.match(/^(apt|apt-get) install (.+)/);
     if(aptInstallMatch) {
       const pkg = aptInstallMatch[2];
-      return `Reading package lists... Done\nBuilding dependency tree... Done\n0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.\nSimulating installation of ${pkg}... Done.`;
+      return `Reading package lists... Done\\nBuilding dependency tree... Done\\n0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.\\nSimulating installation of ${pkg}... Done.`;
     }
     const dpkgMatch = fullCommand.match(/^dpkg -i (.+)/);
     if(dpkgMatch) {
       const file = dpkgMatch[1];
       if (!file.endsWith('.deb')) return `dpkg: error: '${file}' is not a Debian format archive`;
-      return `(Reading database ... 12345 files and directories currently installed.)\nPreparing to unpack ${file} ...\nUnpacking ...\nSetting up ...`;
+      return `(Reading database ... 12345 files and directories currently installed.)\\nPreparing to unpack ${file} ...\\nUnpacking ...\\nSetting up ...`;
     }
 
 
@@ -371,14 +391,14 @@ export const useCommand = (user: User | null | undefined) => {
         return getNeofetchOutput(user, isRoot, userData?.os);
       
       case 'ls': {
-        const targetPath = argString ? resolvePath(cwd, argString) : cwd;
-        const node = getNodeFromPath(targetPath);
+        const targetPath = resolvePath(argString);
+        const node = getNodeFromPath(targetPath, userFilesystem);
         if (node && node.type === 'directory') {
           const content = Object.keys(node.children);
           if (content.length === 0) return '';
           return content.map(key => {
             return node.children[key].type === 'directory' ? `${key}/` : key;
-          }).join('\n');
+          }).join('\\n');
         }
         return `ls: cannot access '${argString || '.'}': No such file or directory`;
       }
@@ -388,8 +408,8 @@ export const useCommand = (user: User | null | undefined) => {
           setCwd('/');
           return '';
         }
-        const newPath = resolvePath(cwd, argString);
-        const node = getNodeFromPath(newPath);
+        const newPath = resolvePath(argString);
+        const node = getNodeFromPath(newPath, userFilesystem);
         if (node && node.type === 'directory') {
           setCwd(newPath);
           return '';
@@ -401,8 +421,8 @@ export const useCommand = (user: User | null | undefined) => {
         if (!argString) {
           return 'cat: missing operand';
         }
-        const targetPath = resolvePath(cwd, argString);
-        const node = getNodeFromPath(targetPath);
+        const targetPath = resolvePath(argString);
+        const node = getNodeFromPath(targetPath, userFilesystem);
         if (node && node.type === 'file') {
             if (typeof node.content === 'function') {
                 return node.content();
@@ -429,14 +449,17 @@ export const useCommand = (user: User | null | undefined) => {
       
       case 'touch': {
         if (!argString) return 'touch: missing file operand';
-        const targetPath = resolvePath(cwd, argString);
-        const parentNode = getParentNodeFromPath(targetPath);
+        const newFs = JSON.parse(JSON.stringify(userFilesystem));
+        const targetPath = resolvePath(argString);
+        const parentNode = getParentNodeFromPath(targetPath, newFs);
         const filename = targetPath.split('/').pop();
         if (parentNode && filename) {
             if (parentNode.children[filename]) {
-                return ''; // File exists, do nothing like the real touch
+                return '';
             }
             parentNode.children[filename] = { type: 'file', content: '' };
+            setUserFilesystem(newFs);
+            await updateFirestoreFilesystem(newFs);
             return '';
         }
         return `touch: cannot touch '${argString}': No such file or directory`;
@@ -444,14 +467,17 @@ export const useCommand = (user: User | null | undefined) => {
       
       case 'mkdir': {
         if (!argString) return 'mkdir: missing operand';
-        const targetPath = resolvePath(cwd, argString);
-        const parentNode = getParentNodeFromPath(targetPath);
+        const newFs = JSON.parse(JSON.stringify(userFilesystem));
+        const targetPath = resolvePath(argString);
+        const parentNode = getParentNodeFromPath(targetPath, newFs);
         const dirname = targetPath.split('/').pop();
         if (parentNode && dirname) {
             if (parentNode.children[dirname]) {
                 return `mkdir: cannot create directory ‘${argString}’: File exists`;
             }
             parentNode.children[dirname] = { type: 'directory', children: {} };
+            setUserFilesystem(newFs);
+            await updateFirestoreFilesystem(newFs);
             return '';
         }
         return `mkdir: cannot create directory ‘${argString}’: No such file or directory`;
@@ -459,15 +485,18 @@ export const useCommand = (user: User | null | undefined) => {
 
       case 'rm': {
         if (!argString) return 'rm: missing operand';
-        const targetPath = resolvePath(cwd, argString);
-        const parentNode = getParentNodeFromPath(targetPath);
+        const newFs = JSON.parse(JSON.stringify(userFilesystem));
+        const targetPath = resolvePath(argString);
+        const parentNode = getParentNodeFromPath(targetPath, newFs);
         const nodeName = targetPath.split('/').pop();
         if (parentNode && nodeName && parentNode.children[nodeName]) {
             const nodeToRemove = parentNode.children[nodeName];
-            if (nodeToRemove.type === 'directory' && Object.keys(nodeToRemove.children).length > 0) {
+            if (nodeToRemove.type === 'directory' && Object.keys(nodeToRemove.children).length > 0 && !args.includes('-r')) {
                 return `rm: cannot remove '${argString}': Directory not empty`;
             }
             delete parentNode.children[nodeName];
+            setUserFilesystem(newFs);
+            await updateFirestoreFilesystem(newFs);
             return '';
         }
         return `rm: cannot remove '${argString}': No such file or directory`;
@@ -539,8 +568,8 @@ ${isRoot ? 'root' : user?.email?.split('@')[0]}     1337  0.5  0.2 222333  4321 
                 const data = doc.data();
                 const createdAt = data.createdAt?.toDate ? data.createdAt.toDate().toLocaleString() : 'N/A';
                 return `- ${data.email} (OS: ${data.os || 'None'}) (Created: ${createdAt})`;
-            }).join('\n');
-            return `Registered Users:\n${usersList}`;
+            }).join('\\n');
+            return `Registered Users:\\n${usersList}`;
         } catch (error) {
             console.error("Failed to list users:", error);
             return "Error: Could not retrieve user list.";
@@ -553,9 +582,9 @@ ${isRoot ? 'root' : user?.email?.split('@')[0]}     1337  0.5  0.2 222333  4321 
           return 'Usage: createfile [filename] "[content]"';
         }
         const [, filename, content] = match;
-
-        const targetPath = resolvePath(cwd, '');
-        const node = getNodeFromPath(targetPath);
+        const newFs = JSON.parse(JSON.stringify(userFilesystem));
+        const targetPath = resolvePath('');
+        const node = getNodeFromPath(targetPath, newFs);
 
         if (node && node.type === 'directory') {
           if (node.children[filename]) {
@@ -563,6 +592,8 @@ ${isRoot ? 'root' : user?.email?.split('@')[0]}     1337  0.5  0.2 222333  4321 
           }
           const newFile: File = { type: 'file', content: content };
           node.children[filename] = newFile;
+          setUserFilesystem(newFs);
+          await updateFirestoreFilesystem(newFs);
           return `File created: ${filename}`;
         }
         return `createfile: cannot create file in '${targetPath}': No such directory`;
@@ -624,7 +655,9 @@ ${isRoot ? 'root' : user?.email?.split('@')[0]}     1337  0.5  0.2 222333  4321 
         }
       }
     }
-  }, [cwd, toast, user, authStep, authCredentials, getInitialPrompt, resetAuth, isRoot, osSelectionStep, userData, fetchUserData]);
+  }, [cwd, toast, user, authStep, authCredentials, getInitialPrompt, resetAuth, isRoot, osSelectionStep, userData, fetchUserData, userFilesystem]);
 
   return { prompt, processCommand, getWelcomeMessage, authStep, resetAuth, osSelectionStep, setOsSelectionStep };
 };
+
+    

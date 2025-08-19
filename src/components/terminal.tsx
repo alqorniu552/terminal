@@ -126,34 +126,34 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     focusInput();
   }, [focusInput]);
   
+  const loadWelcomeMessage = useCallback(() => {
+    setIsTyping(true);
+    const output = getWelcomeMessage();
+    if (!output) {
+        setIsTyping(false);
+        return;
+    };
+    const welcomeHistory: HistoryItem = {
+        id: 0,
+        command: '',
+        output: <Typewriter text={output as string} onFinished={() => setIsTyping(false)} />,
+        prompt: '',
+    };
+    setHistory([welcomeHistory]);
+  }, [getWelcomeMessage]);
+  
   useEffect(() => {
     if (osSelectionStep === 'none' && !user) {
         setHistory([]);
-    }
-
-    if (osSelectionStep !== 'installing') {
-        const loadWelcomeMessage = () => {
-            setIsTyping(true);
-            const output = getWelcomeMessage();
-            if (!output) {
-                setIsTyping(false);
-                return;
-            };
-            const welcomeHistory: HistoryItem = {
-                id: 0,
-                command: '',
-                output: <Typewriter text={output as string} onFinished={() => setIsTyping(false)} />,
-                prompt: '',
-            };
-            setHistory([welcomeHistory]);
-            if (!user) {
-                resetAuth();
-            }
-        };
         loadWelcomeMessage();
+        resetAuth();
+    } else if (osSelectionStep === 'prompt' || (user && osSelectionStep === 'done')) {
+        const currentHistoryIsEmptyOrJustShowsOldWelcome = history.length === 0 || (history.length === 1 && history[0].id === 0);
+        if (currentHistoryIsEmptyOrJustShowsOldWelcome) {
+          loadWelcomeMessage();
+        }
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, osSelectionStep, getWelcomeMessage]);
+  }, [user, osSelectionStep, loadWelcomeMessage, resetAuth, history]);
 
 
   useEffect(() => {
@@ -179,27 +179,8 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
         setHistory([]);
         setCommand('');
         setIsTyping(false);
-        if(!user) {
-            resetAuth();
-             const output = getWelcomeMessage();
-             const welcomeHistory: HistoryItem = {
-                 id: 0,
-                 command: '',
-                 output: <Typewriter text={output as string} onFinished={() => setIsTyping(false)} />,
-                 prompt: '',
-             };
-             setHistory([welcomeHistory]);
-        } else if (osSelectionStep === 'done' || osSelectionStep === 'prompt') {
-            const output = getWelcomeMessage();
-             if (output) {
-                const welcomeHistory: HistoryItem = {
-                    id: 0,
-                    command: '',
-                    output: <Typewriter text={output as string} onFinished={() => setIsTyping(false)} />,
-                    prompt: '',
-                };
-                setHistory([welcomeHistory]);
-             }
+        if (osSelectionStep === 'done' || osSelectionStep === 'prompt' || !user) {
+          loadWelcomeMessage();
         }
         return;
     }
@@ -276,3 +257,5 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     </div>
   );
 }
+
+    
