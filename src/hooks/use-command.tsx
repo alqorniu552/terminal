@@ -9,6 +9,7 @@ import { db, auth } from '@/lib/firebase';
 import { collection, query, where, getDocs, WhereFilterOp, doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
 import { User, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import ImageDisplay from '@/components/image-display';
+import NanoEditor from '@/components/nano-editor';
 
 export type AuthStep = 'none' | 'login_email' | 'login_password' | 'register_email' | 'register_password';
 export type OSSelectionStep = 'none' | 'prompt' | 'installing' | 'done';
@@ -47,14 +48,12 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean, osInstalled: boolea
     let output = '';
     if (isLoggedIn) {
         output = `
-Available commands:
+General Commands:
   help          - Show this help message.
   ls [path]     - List directory contents.
   cd [path]     - Change directory.
   cat [file]    - Display file content.
   nano [file]   - Edit a file.
-  neofetch      - Display system information.
-  db "[query]"  - Query the database using natural language.
   createfile [filename] "[content]" - Create a file with content.
   touch [filename] - Create an empty file.
   mkdir [dirname] - Create a new directory.
@@ -63,15 +62,29 @@ Available commands:
   whoami        - Display current user.
   uname -a      - Display system information.
   echo [text]   - Display a line of text.
+  imagine "[prompt]" - Generate an image from a text prompt.
+  reboot/shutdown - Simulate system restart/shutdown.
+  clear         - Clear the terminal screen.
+  logout        - Log out from the application.
+
+CTF & Security Tools:
+  nmap [host]        - Scan ports on a target host.
+  whois [domain]     - Get registration info for a domain.
+  dirb [url]         - Find hidden directories on a web server.
+  sqlmap -u [url]    - Simulate SQL injection detection.
+  hash-identifier [hash] - Identify hash type.
+  base64 -d|-e [text] - Decode/Encode Base64.
+  rot13 [text]       - Apply ROT13 cipher to text.
+  strings [file]     - Display printable strings from a file.
+  exiftool [file]    - Display EXIF data from an image.
+
+System & Process:
   ping [host]   - Send ICMP ECHO_REQUEST to network hosts.
   free          - Display amount of free and used memory.
   df -h         - Report file system disk space usage.
   ps aux        - Report a snapshot of the current processes.
   top           - Display Linux processes.
-  imagine "[prompt]" - Generate an image from a text prompt.
-  reboot/shutdown - Simulate system restart/shutdown.
-  clear         - Clear the terminal screen.
-  logout        - Log out from the application.
+  db "[query]"  - Query the database using natural language.
 `;
         if (osInstalled) {
             output += `
@@ -711,6 +724,153 @@ ${username.padEnd(8)}     1337  0.5  0.2 222333  4321 pts/0    Rs+  14:15   0:02
           return `Error: Could not query database.`;
         }
       }
+
+        case 'nmap': {
+            const host = args[0];
+            if (!host) return 'Usage: nmap <host>';
+            return `
+Starting Nmap 7.80 ( https://nmap.org ) at ${new Date().toUTCString()}
+Nmap scan report for ${host} (127.0.0.1)
+Host is up (0.00019s latency).
+Not shown: 996 closed ports
+PORT      STATE SERVICE
+22/tcp    open  ssh
+80/tcp    open  http
+443/tcp   open  https
+3306/tcp  open  mysql
+
+Nmap done: 1 IP address (1 host up) scanned in 0.08 seconds
+`;
+        }
+        case 'whois': {
+            const domain = args[0];
+            if (!domain) return 'Usage: whois <domain>';
+            return `
+Domain Name: ${domain.toUpperCase()}
+Registry Domain ID: 123456789_DOMAIN_COM-VRSN
+Registrar WHOIS Server: whois.example.com
+Registrar URL: http://www.example.com
+Updated Date: 2023-01-01T00:00:00Z
+Creation Date: 2020-01-01T00:00:00Z
+Registrar Registration Expiration Date: 2025-01-01T00:00:00Z
+Registrar: Example Registrar, Inc.
+(Fictional data)
+`;
+        }
+
+        case 'dirb': {
+            const url = args[0];
+            if (!url) return 'Usage: dirb <url>';
+            return `
+-----------------
+DIRB v2.22 by The Dark Raver
+-----------------
+START_TIME: ${new Date().toUTCString()}
+URL_BASE: ${url}
+-----------------
++ ${url}/.git/ (CODE:200|SIZE:123)
++ ${url}/admin/ (CODE:403|SIZE:45)
++ ${url}/backups/ (CODE:403|SIZE:45)
++ ${url}/config/ (CODE:200|SIZE:341)
+==> DIRECTORY: ${url}/uploads/
+-----------------
+END_TIME: ${new Date().toUTCString()}
+DOWNLOADED: 1000 - FOUND: 4
+`;
+        }
+
+        case 'sqlmap': {
+            if (args[0] !== '-u' || !args[1]) return 'Usage: sqlmap -u <url>';
+            const url = args[1];
+            return `
+sqlmap/1.5.11#stable
+...
+[INFO] testing connection to the target URL
+[INFO] checking if the target is protected by some kind of WAF/IPS
+[INFO] testing for SQL injection on GET parameter 'id'
+[INFO] GET parameter 'id' is vulnerable. Do you want to keep testing the others (if any)? [y/N] N
+sqlmap identified the following injection point(s) with a total of 678 HTTP(s) requests:
+---
+Parameter: id (GET)
+    Type: boolean-based blind
+    Title: AND boolean-based blind - WHERE or HAVING clause
+    Payload: id=1 AND 1921=1921
+---
+[INFO] the back-end DBMS is MySQL
+web server operating system: Linux Ubuntu
+web application technology: Apache 2.4.29
+back-end DBMS: MySQL >= 5.0
+[INFO] fetching database names
+available databases [5]:
+[*] ctf_db
+[*] information_schema
+[*] mysql
+[*] performance_schema
+[*] sys
+`;
+        }
+
+        case 'hash-identifier': {
+            const hash = args[0];
+            if (!hash) return 'Usage: hash-identifier <hash>';
+            let type = 'Unknown or invalid hash';
+            if (/^[a-f0-9]{32}$/i.test(hash)) type = 'MD5';
+            else if (/^[a-f0-9]{40}$/i.test(hash)) type = 'SHA-1';
+            else if (/^[a-f0-9]{64}$/i.test(hash)) type = 'SHA-256';
+            else if (/^\$2[ayb]\$.{56}$/.test(hash)) type = 'Bcrypt';
+            return `Possible Hash Type: ${type}`;
+        }
+        
+        case 'base64': {
+            if (args.length < 2) return 'Usage: base64 [-d|-e] <text>';
+            const mode = args[0];
+            const text = args.slice(1).join(' ');
+            try {
+                if (mode === '-e') return btoa(text);
+                if (mode === '-d') return atob(text);
+                return 'Invalid flag. Use -e for encode or -d for decode.';
+            } catch (e) {
+                return 'Error: Invalid Base64 string.';
+            }
+        }
+        
+        case 'rot13': {
+             const text = args.join(' ');
+             if (!text) return 'Usage: rot13 <text>';
+             return text.replace(/[a-zA-Z]/g, function(c){
+                return String.fromCharCode(c.charCodeAt(0) + (c.toLowerCase() < 'n' ? 13 : -13));
+             });
+        }
+        
+        case 'strings': {
+             if (!argString) return 'Usage: strings <filename>';
+             const targetPath = resolvePath(argString);
+             const node = getNodeFromPath(targetPath, userFilesystem);
+             if (node && node.type === 'file' && typeof node.content === 'string') {
+                 const printableChars = node.content.match(/[\x20-\x7E]{4,}/g);
+                 return printableChars ? printableChars.join('\n') : '';
+             }
+             return `strings: '${argString}': No such file`;
+        }
+        
+        case 'exiftool': {
+            const filename = args[0];
+            if (!filename) return 'Usage: exiftool <filename>';
+            if (!/\.(jpg|jpeg|png)$/i.test(filename)) return `Error: File '${filename}' is not a supported image type.`;
+            const node = getNodeFromPath(resolvePath(filename), userFilesystem);
+            if (node && node.type === 'file') {
+                return `
+ExifTool Version Number         : 12.40
+File Name                       : ${filename}
+File Size                       : 128 kB
+Image Size                      : 1024x768
+Camera Model Name               : Canon EOS 5D Mark IV
+Copyright                       : (c) 2024 Hacker Inc.
+Comment                         : Find the flag here: FLAG{F4k3_Ex1f_D4t4}
+`;
+            }
+            return `Error: File not found - ${filename}`;
+        }
 
       case 'logout': {
         await auth.signOut();
