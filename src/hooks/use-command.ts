@@ -16,22 +16,15 @@ const getNeofetchOutput = () => {
     }
 
 return `
-       .MMMM.        guest@command-center
-      .MMMMMM.       --------------------
-     .MMMMMMMM.      OS: Web Browser
-     MMMMMMMMMM      Host: Command Center v1.0
-     MMMMMMMMMM      Kernel: Next.js
-   .MMMMMMMMMMMM.    Uptime: ${uptime} seconds
-  .MMMMMMMMMMMMMM.   Shell: term-sim
-  MMMMMMMMMMMMMMMM
- .MMMMMMMMMMMMMMMM.
- MMMMMMMMMMMMMMMMMM
- MMMMMMMMMMMMMMMMMM
- 'MMMMMMMMMMMMMMMM'
-  'MMMMMMMMMMMMMM'
-    'MMMMMMMMMM'
-      'MMMMMM'
-`};
+guest@command-center
+--------------------
+OS: Web Browser
+Host: Command Center v1.0
+Kernel: Next.js
+Uptime: ${uptime} seconds
+Shell: term-sim
+`;
+};
 
 const getHelpOutput = () => `
 Available commands:
