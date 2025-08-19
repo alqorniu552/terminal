@@ -377,7 +377,7 @@ export const useCommand = (user: User | null | undefined) => {
           const content = Object.keys(node.children);
           if (content.length === 0) return '';
           return content.map(key => {
-            return node.children[key].type === 'directory' ? `\x1b[1;34m${key}/\x1b[0m` : key;
+            return node.children[key].type === 'directory' ? `${key}/` : key;
           }).join('\n');
         }
         return `ls: cannot access '${argString || '.'}': No such file or directory`;
