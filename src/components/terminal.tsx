@@ -142,18 +142,26 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     setHistory([welcomeHistory]);
   }, [getWelcomeMessage]);
   
+  // This effect handles resetting the terminal and auth state on logout.
   useEffect(() => {
-    if (osSelectionStep === 'none' && !user) {
-        setHistory([]);
-        loadWelcomeMessage();
-        resetAuth();
-    } else if (osSelectionStep === 'prompt' || (user && osSelectionStep === 'done')) {
-        const currentHistoryIsEmptyOrJustShowsOldWelcome = history.length === 0 || (history.length === 1 && history[0].id === 0);
-        if (currentHistoryIsEmptyOrJustShowsOldWelcome) {
+      if (!user && osSelectionStep === 'none' && authStep === 'none') {
+          setHistory([]);
           loadWelcomeMessage();
-        }
+          resetAuth();
+      }
+  }, [user, osSelectionStep, authStep, loadWelcomeMessage, resetAuth]);
+
+  // This effect handles loading the welcome message when the user state or osSelectionStep changes.
+  useEffect(() => {
+    const shouldShowWelcome = 
+      osSelectionStep === 'prompt' || 
+      (user && osSelectionStep === 'done') ||
+      (!user && osSelectionStep === 'none');
+
+    if (shouldShowWelcome) {
+      loadWelcomeMessage();
     }
-  }, [user, osSelectionStep, loadWelcomeMessage, resetAuth, history]);
+  }, [user, osSelectionStep, loadWelcomeMessage]);
 
 
   useEffect(() => {
@@ -166,24 +174,28 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
 
     const currentCommand = command;
     const currentPrompt = prompt;
-
-    let newHistoryItem: HistoryItem = { 
-        id: history.length + 1,
-        command: authStep.includes('password') ? '********' : currentCommand, 
-        output: '', 
-        prompt: `${currentPrompt} ` 
-    };
     
     // This needs to be before setHistory to avoid showing the prompt in the history
     if (currentCommand.toLowerCase() === 'clear') {
         setHistory([]);
         setCommand('');
         setIsTyping(false);
-        if (osSelectionStep === 'done' || osSelectionStep === 'prompt' || !user) {
+        const shouldShowWelcome = 
+          osSelectionStep === 'prompt' || 
+          (user && osSelectionStep === 'done') ||
+          (!user && osSelectionStep === 'none');
+        if (shouldShowWelcome) {
           loadWelcomeMessage();
         }
         return;
     }
+    
+    let newHistoryItem: HistoryItem = { 
+        id: history.length + 1,
+        command: authStep.includes('password') ? '********' : currentCommand, 
+        output: '', 
+        prompt: `${currentPrompt} ` 
+    };
 
     setHistory(prev => [...prev, newHistoryItem]);
     setCommand('');
@@ -257,5 +269,3 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     </div>
   );
 }
-
-    
