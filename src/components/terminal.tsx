@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { useCommand } from '@/hooks/use-command.tsx';
+import { useCommand } from '@/hooks/use-command';
 import Typewriter from './typewriter';
 import { User } from 'firebase/auth';
 import { Progress } from "@/components/ui/progress"
@@ -112,7 +112,6 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     processCommand, 
     getWelcomeMessage,
     authStep,
-    resetAuth,
     osSelectionStep,
     setOsSelectionStep,
     editingFile,
@@ -149,31 +148,21 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     setHistory([welcomeHistory]);
   }, [getWelcomeMessage]);
   
-  // This effect handles resetting the terminal and auth state on logout.
   useEffect(() => {
     if (!user) {
-        // Reset state only if it hasn't been reset already
-        if (osSelectionStep !== 'none' || authStep !== 'none' || history.length > 0) {
-            setHistory([]);
-            setOsSelectionStep('none');
-            resetAuth();
-        }
+        setHistory([]);
     }
-  }, [user, osSelectionStep, authStep, history.length, setOsSelectionStep, resetAuth]);
+  }, [user]);
 
 
-  // This effect handles loading the welcome message when the user state or osSelectionStep changes.
   useEffect(() => {
-    const shouldShowWelcome = 
-      osSelectionStep === 'prompt' || 
-      (user && osSelectionStep === 'done') ||
-      (!user && authStep === 'none');
-
-    // Only show welcome if history is empty to avoid re-showing it on every render
-    if (shouldShowWelcome && history.length === 0) {
-      loadWelcomeMessage();
-    }
-  }, [user, osSelectionStep, authStep, history.length, loadWelcomeMessage]);
+      if(history.length === 0) {
+        const welcomeMessage = getWelcomeMessage();
+        if(welcomeMessage) {
+          loadWelcomeMessage();
+        }
+      }
+  }, [getWelcomeMessage, history.length, loadWelcomeMessage]);
 
 
   useEffect(() => {
@@ -187,11 +176,9 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     const currentCommand = command;
     const currentPrompt = prompt;
     
-    // This needs to be before setHistory to avoid showing the prompt in the history
     if (currentCommand.toLowerCase() === 'clear') {
         setHistory([]);
         setCommand('');
-        // Don't set isTyping, let the welcome message logic handle it
         return;
     }
     
@@ -209,7 +196,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     const result = await processCommand(currentCommand);
     
     let output;
-    let componentOnFinished = () => setIsTyping(false);
+    let onFinishedCallback = () => setIsTyping(false);
 
     if (result && typeof result === 'object') {
         if ('type' in result && result.type === 'install') {
@@ -218,20 +205,18 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
                     await updateDoc(doc(db, 'users', user.uid), { osInstalled: true });
                 }
                 setOsSelectionStep('done');
-                // After installation, clear history and show new welcome message.
                 setHistory([]); 
                 loadWelcomeMessage();
                 setIsTyping(false);
             }} />;
         } else if ('component' in result && React.isValidElement(result.component)) {
-             output = React.cloneElement(result.component, { onFinished: componentOnFinished });
+             output = React.cloneElement(result.component as React.ReactElement<{ onFinished: () => void}>, { onFinished: onFinishedCallback });
         } else {
-             output = <Typewriter text={JSON.stringify(result, null, 2)} onFinished={() => setIsTyping(false)} />;
+             output = <Typewriter text={JSON.stringify(result, null, 2)} onFinished={onFinishedCallback} />;
         }
     } else if (typeof result === 'string') {
-        output = <Typewriter text={result} onFinished={() => setIsTyping(false)} />;
+        output = <Typewriter text={result} onFinished={onFinishedCallback} />;
     } else {
-        // No output, so we are not typing anymore.
         setIsTyping(false);
     }
     
@@ -250,7 +235,6 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
         initialContent={editingFile.content}
         onSave={async (newContent) => {
             await saveFile(editingFile.path, newContent);
-            // Optionally add a history item for saving
             const saveMessage = `File saved: ${editingFile.path}`;
             const newHistoryItem: HistoryItem = { 
                 id: history.length + 1,

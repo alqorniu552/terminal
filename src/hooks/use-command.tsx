@@ -14,7 +14,7 @@ export type AuthStep = 'none' | 'login_email' | 'login_password' | 'register_ema
 export type OSSelectionStep = 'none' | 'prompt' | 'installing' | 'done';
 type EditingFile = { path: string; content: string } | null;
 
-type CommandResult = string | { type: 'install'; os: string; } | { component: React.ReactElement } | undefined;
+type CommandResult = string | { type: 'install'; os: string; } | { component: React.ReactNode } | undefined;
 
 
 const osOptions: { [key: string]: string } = {
@@ -227,7 +227,8 @@ export const useCommand = (user: User | null | undefined) => {
         setCwd('/');
         setUserFilesystem(initialFilesystem);
         setOsSelectionStep('none');
-        resetAuth();
+        setAuthStep('none');
+        setAuthCredentials({ email: '', password: '' });
     }
   }, [user]);
 
@@ -326,11 +327,10 @@ export const useCommand = (user: User | null | undefined) => {
     }
     
     if (osSelectionStep === 'installing') {
-        return ''; // Ignore commands during installation
+        return '';
     }
 
 
-    // Multi-step auth flow
     if (authStep !== 'none') {
         switch (authStep) {
             case 'login_email':
@@ -346,24 +346,8 @@ export const useCommand = (user: User | null | undefined) => {
                 const isLogin = authStep === 'login_password';
                 try {
                     const authFn = isLogin ? signInWithEmailAndPassword : createUserWithEmailAndPassword;
-                    const userCredential = await authFn(auth, email, password);
-
-                    if (!isLogin) {
-                        // Save user to 'users' collection on registration
-                         const newUser = {
-                            email: userCredential.user.email,
-                            createdAt: new Date(),
-                            uid: userCredential.user.uid,
-                            os: null,
-                            osInstalled: false,
-                            isRoot: userCredential.user.email === 'alqorniu552@gmail.com',
-                            filesystem: initialFilesystem,
-                        };
-                        await setDoc(doc(db, "users", userCredential.user.uid), newUser);
-                    }
+                    await authFn(auth, email, password);
                     resetAuth();
-                    // Manually trigger fetchUserData because the user object might not be updated yet
-                    await fetchUserData();
                     return isLogin ? 'Login successful.' : 'Registration successful.';
                 } catch (error: any) {
                     resetAuth();
@@ -406,18 +390,9 @@ export const useCommand = (user: User | null | undefined) => {
     const fullCommand = [cmd.toLowerCase(), ...args].join(' ');
 
     const processSudo = async (sudoCommand: string): Promise<CommandResult> => {
-        // This is a simplified sudo. In a real scenario, you'd handle passwords.
         if (isRoot) return `root already has superuser privileges.`;
         if (!sudoCommand) return 'usage: sudo <command>';
-
-        const tempUserData = { ...userData, isRoot: true };
-        const tempIsRoot = true;
-        
-        // This is a tricky part: we are temporarily "becoming" root
-        // The underlying processCommand function needs to be aware of this context.
-        // For simplicity, we just process the command and prepend a message.
-        // A more robust solution might involve a different state management approach.
-        const output = await processCommand(sudoCommand); // Recursive call
+        const output = await processCommand(sudoCommand);
         return `[sudo] password for ${user?.email?.split('@')[0]}:\n${typeof output === 'string' ? output : 'Command executed.'}`;
     };
 
@@ -544,8 +519,6 @@ export const useCommand = (user: User | null | undefined) => {
         const filename = targetPath.split('/').pop();
         if (parentNode && filename) {
             if (parentNode.children[filename]) {
-                // File exists, do nothing which is the behavior of touch
-                // In a real system this would update timestamps.
                 return ''; 
             }
             parentNode.children[filename] = { type: 'file', content: '' };
@@ -733,7 +706,7 @@ ${username.padEnd(8)}     1337  0.5  0.2 222333  4321 pts/0    Rs+  14:15   0:02
         }
       }
     }
-  }, [cwd, toast, user, authStep, authCredentials, getInitialPrompt, resetAuth, isRoot, osSelectionStep, userData, fetchUserData, userFilesystem]);
+  }, [cwd, toast, user, authStep, authCredentials, resetAuth, isRoot, osSelectionStep, userData, fetchUserData, userFilesystem]);
 
   return { prompt, processCommand, getWelcomeMessage, authStep, resetAuth, osSelectionStep, setOsSelectionStep, editingFile, saveFile, exitEditor };
 };
