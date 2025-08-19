@@ -22,9 +22,7 @@ export default function LoginPage() {
     }
   }, [user, router]);
 
-  const handleAuth = async (event: React.FormEvent<HTMLFormElement>, authFn: typeof signInWithEmailAndPassword | typeof createUserWithEmailAndPassword) => {
-    event.preventDefault();
-    const form = event.currentTarget;
+  const handleAuth = async (authFn: typeof signInWithEmailAndPassword | typeof createUserWithEmailAndPassword, form: HTMLFormElement) => {
     const email = (form.elements.namedItem('email') as HTMLInputElement).value;
     const password = (form.elements.namedItem('password') as HTMLInputElement).value;
     
@@ -60,6 +58,11 @@ export default function LoginPage() {
     }
   };
   
+  const onFormSubmit = (authFn: typeof signInWithEmailAndPassword | typeof createUserWithEmailAndPassword) => (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    handleAuth(authFn, event.currentTarget);
+  };
+  
   if (loading || user) {
     return (
       <div className="flex h-screen w-full items-center justify-center">
@@ -86,8 +89,8 @@ export default function LoginPage() {
               <Input id="password" type="password" name="password" required />
             </div>
             <div className="flex flex-col gap-2 sm:flex-row">
-              <Button onClick={(e) => handleAuth(e.currentTarget.form!, signInWithEmailAndPassword)} className="w-full">Sign In</Button>
-              <Button onClick={(e) => handleAuth(e.currentTarget.form!, createUserWithEmailAndPassword)} className="w-full" variant="outline">Sign Up</Button>
+              <Button onClick={(e) => { e.preventDefault(); handleAuth(signInWithEmailAndPassword, e.currentTarget.form!);}} type="submit" className="w-full">Sign In</Button>
+              <Button onClick={(e) => { e.preventDefault(); handleAuth(createUserWithEmailAndPassword, e.currentTarget.form!);}} type="submit" className="w-full" variant="outline">Sign Up</Button>
             </div>
           </form>
         </CardContent>
