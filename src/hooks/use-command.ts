@@ -119,6 +119,12 @@ export const useCommand = (user: User | null | undefined) => {
   const isRoot = user?.email === 'alqorniu552@gmail.com';
 
   const getInitialPrompt = useCallback(() => {
+    if (authStep === 'login_email' || authStep === 'register_email') {
+      return 'Email:';
+    }
+    if (authStep === 'login_password' || authStep === 'register_password') {
+      return 'Password:';
+    }
     if (osSelectionStep === 'prompt') {
       return 'Select OS [1-4]:';
     }
@@ -129,41 +135,44 @@ export const useCommand = (user: User | null | undefined) => {
         return `${username}@hacker:${currentPath}${promptSymbol}`;
     }
     return 'guest@hacker:~$';
-  }, [user, isRoot, cwd, osSelectionStep]);
+  }, [user, isRoot, cwd, osSelectionStep, authStep]);
 
   const [prompt, setPrompt] = useState(getInitialPrompt());
   const { toast } = useToast();
   
-  useEffect(() => {
-    const checkUserOS = async () => {
-        if (user) {
-            const userDocRef = doc(db, 'users', user.uid);
-            const userDoc = await getDoc(userDocRef);
-            if (userDoc.exists()) {
-                const data = userDoc.data();
-                setUserData(data);
-                if (!data.osInstalled) {
-                    setOsSelectionStep('prompt');
-                } else {
-                    setOsSelectionStep('done');
-                }
-            } else {
-                 await setDoc(doc(db, "users", user.uid), {
-                    email: user.email,
-                    createdAt: new Date(),
-                    uid: user.uid,
-                    os: null,
-                    osInstalled: false,
-                });
+  const fetchUserData = useCallback(async () => {
+    if (user) {
+        const userDocRef = doc(db, 'users', user.uid);
+        const userDoc = await getDoc(userDocRef);
+        if (userDoc.exists()) {
+            const data = userDoc.data();
+            setUserData(data);
+            if (!data.osInstalled) {
                 setOsSelectionStep('prompt');
+            } else {
+                setOsSelectionStep('done');
             }
         } else {
-            setUserData(null);
-            setOsSelectionStep('none');
+             await setDoc(doc(db, "users", user.uid), {
+                email: user.email,
+                createdAt: new Date(),
+                uid: user.uid,
+                os: null,
+                osInstalled: false,
+            });
+            setUserData({ os: null, osInstalled: false });
+            setOsSelectionStep('prompt');
         }
-    };
-    checkUserOS();
+    } else {
+        setUserData(null);
+        setOsSelectionStep('none');
+        resetAuth();
+    }
   }, [user]);
+
+  useEffect(() => {
+    fetchUserData();
+  }, [user, fetchUserData]);
 
   useEffect(() => {
     setPrompt(getInitialPrompt());
@@ -172,8 +181,7 @@ export const useCommand = (user: User | null | undefined) => {
   const resetAuth = useCallback(() => {
     setAuthStep('none');
     setAuthCredentials({ email: '', password: '' });
-    setPrompt(getInitialPrompt());
-  }, [getInitialPrompt]);
+  }, []);
 
   const getWelcomeMessage = useCallback(() => {
     if (osSelectionStep === 'prompt') {
@@ -185,6 +193,7 @@ export const useCommand = (user: User | null | undefined) => {
         return osList;
     }
     if (user) {
+        if(osSelectionStep !== 'done') return ''; // Don't show welcome message until OS is installed
         if (isRoot) {
             return `Welcome, root! You have superuser privileges. Type 'help' for commands.`;
         }
@@ -192,11 +201,12 @@ export const useCommand = (user: User | null | undefined) => {
     }
     return `Welcome to Hacker Terminal! Please 'login' or 'register' to continue.`;
   }, [user, isRoot, osSelectionStep]);
-
+  
   const startOSInstallation = async (selectedOS: string) => {
     setOsSelectionStep('installing');
     if(user) {
       await updateDoc(doc(db, 'users', user.uid), { os: selectedOS });
+      setUserData((prev: any) => ({ ...prev, os: selectedOS }));
     }
   };
 
@@ -228,7 +238,6 @@ export const useCommand = (user: User | null | undefined) => {
             case 'register_email':
                 setAuthCredentials({ email: command, password: '' });
                 setAuthStep(authStep === 'login_email' ? 'login_password' : 'register_password');
-                setPrompt('Password:');
                 return '';
             case 'login_password':
             case 'register_password':
@@ -266,11 +275,9 @@ export const useCommand = (user: User | null | undefined) => {
         switch (cmd.toLowerCase()) {
             case 'login':
                 setAuthStep('login_email');
-                setPrompt('Email:');
                 return '';
             case 'register':
                 setAuthStep('register_email');
-                setPrompt('Email:');
                 return '';
             case 'help':
                 return getHelpOutput(false, false);
@@ -280,6 +287,11 @@ export const useCommand = (user: User | null | undefined) => {
                 return `Command not found: ${cmd}. Please 'login' or 'register'.`;
         }
     }
+    
+    if (osSelectionStep !== 'done') {
+        return "Please complete the OS installation first.";
+    }
+
 
     const argString = args.join(' ');
 
@@ -303,19 +315,12 @@ export const useCommand = (user: User | null | undefined) => {
       case 'cd': {
         if (!argString || argString === '~') {
           setCwd('/');
-          const username = isRoot ? 'root' : user.email?.split('@')[0];
-          const promptSymbol = isRoot ? '#' : '$';
-          setPrompt(`${username}@hacker:~$${promptSymbol}`);
           return '';
         }
         const newPath = resolvePath(cwd, argString);
         const node = getNodeFromPath(newPath);
         if (node && node.type === 'directory') {
           setCwd(newPath);
-          const username = isRoot ? 'root' : user.email?.split('@')[0];
-          const promptSymbol = isRoot ? '#' : '$';
-          const newPromptPath = newPath === '/' ? '~' : `~${newPath}`;
-          setPrompt(`${username}@hacker:${newPromptPath}${promptSymbol}`);
           return '';
         }
         return `cd: no such file or directory: ${argString}`;
@@ -366,11 +371,6 @@ export const useCommand = (user: User | null | undefined) => {
         const [, filename, content] = match;
 
         const targetPath = resolvePath(cwd, '');
-        
-        if (!isRoot && targetPath === '/') {
-           // Non-root users can only create files in their home directory, for now we can restrict root
-        }
-
         const node = getNodeFromPath(targetPath);
 
         if (node && node.type === 'directory') {
@@ -440,7 +440,7 @@ export const useCommand = (user: User | null | undefined) => {
         }
       }
     }
-  }, [cwd, toast, user, prompt, authStep, authCredentials, getInitialPrompt, resetAuth, isRoot, osSelectionStep, userData?.os]);
+  }, [cwd, toast, user, authStep, authCredentials, getInitialPrompt, resetAuth, isRoot, osSelectionStep, userData?.os, fetchUserData]);
 
   return { prompt, processCommand, getWelcomeMessage, authStep, resetAuth, osSelectionStep, setOsSelectionStep };
 };

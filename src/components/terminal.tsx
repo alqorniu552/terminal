@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { useCommand, OSSelectionStep } from '@/hooks/use-command';
+import { useCommand } from '@/hooks/use-command';
 import Typewriter from './typewriter';
 import { User } from 'firebase/auth';
 import { Progress } from "@/components/ui/progress"
@@ -78,12 +78,12 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
   }, [focusInput]);
   
   useEffect(() => {
-    if(osSelectionStep === 'none' && !user) {
+    if (osSelectionStep === 'none' && !user) {
         setHistory([]);
     }
 
     if (osSelectionStep !== 'installing') {
-        const loadWelcomeMessage = async () => {
+        const loadWelcomeMessage = () => {
             setIsTyping(true);
             const output = getWelcomeMessage();
             const welcomeHistory: HistoryItem = {
@@ -100,7 +100,8 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
         loadWelcomeMessage();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, osSelectionStep]);
+  }, [user, osSelectionStep, getWelcomeMessage, resetAuth]);
+
 
   useEffect(() => {
     endOfHistoryRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -124,7 +125,26 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
         setHistory([]);
         setCommand('');
         setIsTyping(false);
-        if(!user) resetAuth();
+        if(!user) {
+            resetAuth();
+             const output = getWelcomeMessage();
+             const welcomeHistory: HistoryItem = {
+                 id: 0,
+                 command: '',
+                 output: <Typewriter text={output as string} onFinished={() => setIsTyping(false)} />,
+                 prompt: '',
+             };
+             setHistory([welcomeHistory]);
+        } else if (osSelectionStep === 'done' || osSelectionStep === 'prompt') {
+            const output = getWelcomeMessage();
+            const welcomeHistory: HistoryItem = {
+                id: 0,
+                command: '',
+                output: <Typewriter text={output as string} onFinished={() => setIsTyping(false)} />,
+                prompt: '',
+            };
+            setHistory([welcomeHistory]);
+        }
         return;
     }
 
@@ -155,7 +175,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
   };
   
   const isPasswordInput = authStep.includes('password');
-  const showInput = !isTyping && (authStep !== 'none' || (!!user && osSelectionStep === 'done') || osSelectionStep === 'prompt');
+  const showInput = !isTyping && osSelectionStep !== 'installing';
 
 
   return (
