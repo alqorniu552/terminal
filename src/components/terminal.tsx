@@ -8,6 +8,7 @@ import { Progress } from "@/components/ui/progress"
 import { db } from '@/lib/firebase';
 import { doc, updateDoc } from 'firebase/firestore';
 import NanoEditor from './nano-editor';
+import ImageDisplay from './image-display';
 
 
 interface HistoryItem {
@@ -23,27 +24,29 @@ const BlinkingCursor = () => (
 
 const installationFeatures = [
     "Probing hardware devices...",
-    "Loading kernel modules...",
-    "Setting up disk partitions...",
-    "Formatting /dev/sda1 as ext4...",
-    "Mounting filesystems...",
-    "Unpacking base system image... (0%)",
-    "Unpacking base system image... (50%)",
-    "Unpacking base system image... (100%)",
+    "Loading kernel modules (ext4, vfat, ntfs)...",
+    "Setting up disk partitions on /dev/vda...",
+    "Formatting /dev/vda1 as ext4...",
+    "Mounting filesystems on /...",
+    "Unpacking base system image (0%)...",
+    "Unpacking base system image (25%)...",
+    "Unpacking base system image (50%)...",
+    "Unpacking base system image (75%)...",
+    "Unpacking base system image (100%)...",
     "Installing kernel: linux-image-generic...",
     "Configuring APT package manager...",
     "Fetching package lists from repositories...",
     "Installing core utilities (coreutils, findutils, grep)...",
     "Setting up networking with netplan...",
     "Configuring system clock (chrony)...",
-    "Creating user account...",
+    "Creating user account and group...",
     "Setting up user environment and home directory...",
-    "Installing desktop environment (GNOME)...",
+    "Installing desktop environment dependencies (GNOME)...",
     "Configuring display manager (GDM3)...",
-    "Running post-installation triggers...",
+    "Running post-installation triggers (man-db, desktop-file-utils)...",
     "Cleaning up temporary files...",
     "Finalizing installation...",
-    "System will restart shortly...",
+    "System will be ready after this step...",
 ];
 
 
@@ -149,6 +152,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
   // This effect handles resetting the terminal and auth state on logout.
   useEffect(() => {
     if (!user) {
+        // Reset state only if it hasn't been reset already
         if (osSelectionStep !== 'none' || authStep !== 'none' || history.length > 0) {
             setHistory([]);
             setOsSelectionStep('none');
@@ -156,6 +160,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
         }
     }
   }, [user, osSelectionStep, authStep, history.length, setOsSelectionStep, resetAuth]);
+
 
   // This effect handles loading the welcome message when the user state or osSelectionStep changes.
   useEffect(() => {
@@ -186,15 +191,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     if (currentCommand.toLowerCase() === 'clear') {
         setHistory([]);
         setCommand('');
-        setIsTyping(false);
-        const shouldShowWelcome = 
-          osSelectionStep === 'prompt' || 
-          (user && osSelectionStep === 'done') ||
-          (!user && authStep === 'none');
-
-        if (shouldShowWelcome) {
-          loadWelcomeMessage();
-        }
+        // Don't set isTyping, let the welcome message logic handle it
         return;
     }
     
@@ -212,6 +209,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     const result = await processCommand(currentCommand);
     
     let output;
+    let componentOnFinished = () => setIsTyping(false);
 
     if (result && typeof result === 'object') {
         if ('type' in result && result.type === 'install') {
@@ -226,19 +224,15 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
                 setIsTyping(false);
             }} />;
         } else if ('component' in result && React.isValidElement(result.component)) {
-             output = React.cloneElement(result.component, { onFinished: () => setIsTyping(false) });
+             output = React.cloneElement(result.component, { onFinished: componentOnFinished });
         } else {
              output = <Typewriter text={JSON.stringify(result, null, 2)} onFinished={() => setIsTyping(false)} />;
         }
     } else if (typeof result === 'string') {
         output = <Typewriter text={result} onFinished={() => setIsTyping(false)} />;
     } else {
-        output = '';
-    }
-    
-    // Don't set isTyping to false if there's no output, as the prompt might change (e.g., auth flow)
-    if (!output) {
-      setIsTyping(false);
+        // No output, so we are not typing anymore.
+        setIsTyping(false);
     }
     
     const updatedHistoryItem = { ...newHistoryItem, output };
