@@ -33,10 +33,10 @@ const getNeofetchOutput = (user: User | null | undefined, isRoot: boolean, os: s
     const osName = os || 'Generic OS';
 
 return `
-${username}@command-center
+${username}@hacker
 --------------------
 OS: ${osName} (Web Browser)
-Host: Command Center v1.0
+Host: Hacker Terminal v1.0
 Kernel: Next.js
 Uptime: ${uptime} seconds
 Shell: term-sim
@@ -55,6 +55,7 @@ Available commands:
   nano [file]   - Edit a file.
   neofetch      - Display system information.
   db "[query]"  - Query the database using natural language.
+  createfile [filename] "[content]" - Create a file with content.
   touch [filename] - Create an empty file.
   mkdir [dirname] - Create a new directory.
   rm [file/dir] - Remove a file or directory.
@@ -128,9 +129,9 @@ export const useCommand = (user: User | null | undefined) => {
         const username = isRoot ? 'root' : user.email?.split('@')[0];
         const promptSymbol = isRoot ? '#' : '$';
         const currentPath = cwd === '/' ? '~' : `~${cwd}`;
-        return `${username}@command-center:${currentPath}${promptSymbol}`;
+        return `${username}@hacker:${currentPath}${promptSymbol}`;
     }
-    return 'guest@command-center:~$';
+    return 'guest@hacker:~$';
   }, [user, isRoot, cwd, osSelectionStep, authStep]);
 
   const [prompt, setPrompt] = useState(getInitialPrompt());
@@ -261,7 +262,7 @@ export const useCommand = (user: User | null | undefined) => {
         return `Welcome, ${user.email}! Type 'help' for a list of commands.`;
     }
     if (!user && authStep === 'none') {
-        return `Welcome to Command Center! Please 'login' or 'register' to continue.`;
+        return `Welcome to Hacker Terminal! Please 'login' or 'register' to continue.`;
     }
     return '';
   }, [user, isRoot, osSelectionStep, authStep]);
@@ -494,6 +495,34 @@ export const useCommand = (user: User | null | undefined) => {
         setEditingFile({ path: targetPath, content: content });
         return;
       }
+      
+      case 'createfile': {
+        const filenameMatch = command.match(/createfile\s+([^\s"]+)/);
+        const contentMatch = command.match(/"(.*?)"/);
+        
+        if (!filenameMatch || !contentMatch) {
+            return 'Usage: createfile [filename] "[content]"';
+        }
+
+        const filename = filenameMatch[1];
+        const content = contentMatch[1];
+        const targetPath = resolvePath(filename);
+
+        const newFs = JSON.parse(JSON.stringify(userFilesystem));
+        const parentNode = getParentNodeFromPath(targetPath, newFs);
+        const newFilename = targetPath.split('/').pop();
+
+        if (parentNode && newFilename) {
+            if (parentNode.children[newFilename]) {
+                return `createfile: cannot create file '${filename}': File exists`;
+            }
+            parentNode.children[newFilename] = { type: 'file', content: content };
+            setUserFilesystem(newFs);
+            await updateFirestoreFilesystem(newFs);
+            return `File created: ${filename}`;
+        }
+        return `createfile: cannot create file '${filename}': No such file or directory`;
+      }
 
 
       case 'pwd':
@@ -504,7 +533,7 @@ export const useCommand = (user: User | null | undefined) => {
       
       case 'uname':
         if (argString === '-a') {
-            return `Linux command-center 5.4.0-150-generic #167-Ubuntu SMP Mon May 15 17:33:04 UTC 2023 x86_64 x86_64 x86_64 GNU/Linux`;
+            return `Linux hacker 5.4.0-150-generic #167-Ubuntu SMP Mon May 15 17:33:04 UTC 2023 x86_64 x86_64 x86_64 GNU/Linux`;
         }
         return 'Linux';
       
