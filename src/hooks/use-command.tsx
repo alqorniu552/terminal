@@ -50,44 +50,44 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean, osInstalled: boolea
         output = `
 General Commands:
   help          - Show this help message.
-  ls [path]     - List directory contents.
-  cd [path]     - Change directory.
-  cat [file]    - Display file content.
-  nano [file]   - Edit a file.
-  createfile [filename] "[content]" - Create a file with content.
-  touch [filename] - Create an empty file.
-  mkdir [dirname] - Create a new directory.
-  rm [file/dir] - Remove a file or directory.
+  ls path     - List directory contents.
+  cd path     - Change directory.
+  cat file    - Display file content.
+  nano file   - Edit a file.
+  createfile filename "[content]" - Create a file with content.
+  touch filename - Create an empty file.
+  mkdir dirname - Create a new directory.
+  rm file/dir - Remove a file or directory.
   pwd           - Print current working directory.
   whoami        - Display current user.
   uname -a      - Display system information.
-  echo [text]   - Display a line of text.
+  echo text   - Display a line of text.
   imagine "[prompt]" - Generate an image from a text prompt.
   reboot/shutdown - Simulate system restart/shutdown.
   clear         - Clear the terminal screen.
   logout        - Log out from the application.
 
 CTF & Security Tools:
-  nmap [host]        - Scan ports on a target host.
-  whois [domain]     - Get registration info for a domain.
-  dirb [url]         - Find hidden directories on a web server.
-  sqlmap -u [url]    - Simulate SQL injection detection.
-  hash-identifier [hash] - Identify hash type.
-  base64 -d|-e [text] - Decode/Encode Base64.
-  rot13 [text]       - Apply ROT13 cipher to text.
-  strings [file]     - Display printable strings from a file.
-  exiftool [file]    - Display EXIF data from an image.
-  gdb [file]         - GNU Debugger simulation.
-  strace/ltrace [file] - Trace system/library calls.
-  r2 [file]          - Radare2 simulation for analysis.
+  nmap host        - Scan ports on a target host.
+  whois domain     - Get registration info for a domain.
+  dirb url         - Find hidden directories on a web server.
+  sqlmap -u url    - Simulate SQL injection detection.
+  hash-identifier hash - Identify hash type.
+  base64 -d|-e text - Decode/Encode Base64.
+  rot13 text       - Apply ROT13 cipher to text.
+  strings file     - Display printable strings from a file.
+  exiftool file    - Display EXIF data from an image.
+  gdb file         - GNU Debugger simulation.
+  strace/ltrace file - Trace system/library calls.
+  r2 file          - Radare2 simulation for analysis.
   ./linpeas.sh     - Run PEASS-NG enumeration script.
-  tshark -r [file]   - Read a .pcap file.
-  steghide extract -sf [file] -p [pass] - Extract steganographic data.
+  tshark -r file   - Read a .pcap file.
+  steghide extract -sf file -p pass - Extract steganographic data.
   ./vulnerable_login - Run a program with a buffer overflow flaw.
-  volatility -f [dump] [plugin] - Analyze a memory dump.
+  volatility -f dump plugin - Analyze a memory dump.
 
 System & Process:
-  ping [host]   - Send ICMP ECHO_REQUEST to network hosts.
+  ping host   - Send ICMP ECHO_REQUEST to network hosts.
   free          - Display amount of free and used memory.
   df -h         - Report file system disk space usage.
   ps aux        - Report a snapshot of the current processes.
@@ -97,10 +97,10 @@ System & Process:
         if (osInstalled) {
             output += `
 OS Commands:
-  sudo [command]  - Execute a command as the superuser.
+  sudo command  - Execute a command as the superuser.
   apt/apt-get update - Update package lists.
-  apt/apt-get install [pkg] - Install a package.
-  dpkg -i [file]  - Install a .deb package file.
+  apt/apt-get install pkg - Install a package.
+  dpkg -i file  - Install a .deb package file.
 `;
         }
 
@@ -287,11 +287,11 @@ export const useCommand = (user: User | null | undefined) => {
 
   const getWelcomeMessage = useCallback(() => {
     if (osSelectionStep === 'prompt') {
-        let osList = 'Welcome! Before you begin, please select an operating system to install:\n\n';
+        let osList = 'Welcome! Before you begin, please select an operating system to install:\\n\\n';
         for (const [key, value] of Object.entries(osOptions)) {
-            osList += `  [${key}] ${value}\n`;
+            osList += `  [${key}] ${value}\\n`;
         }
-        osList += '\nEnter the corresponding number to choose an OS.';
+        osList += '\\nEnter the corresponding number to choose an OS.';
         return osList;
     }
     if (user && osSelectionStep === 'done') {
@@ -373,7 +373,7 @@ FLAG{8UFF3R_0V3RFL0W_SUCC3SS}
         const gdbCmd = cmd.toLowerCase();
         switch (gdbCmd) {
             case 'run':
-                return 'Starting program: /home/user/a.out\nProgram received signal SIGSEGV, Segmentation fault.\n0x000055555555513a in main ()';
+                return 'Starting program: /home/user/a.out\\nProgram received signal SIGSEGV, Segmentation fault.\\n0x000055555555513a in main ()';
             case 'disassemble':
             case 'disas':
                  if (args[0] === 'main') {
@@ -394,7 +394,7 @@ End of assembler dump.
             case 'quit':
             case 'q':
                 setSessionState('terminal');
-                return 'A debugging session is not active.\nQuitting gdb.';
+                return 'A debugging session is not active.\\nQuitting gdb.';
             default:
                 return `Undefined command: "${gdbCmd}". Try "help".`;
         }
@@ -479,7 +479,7 @@ End of assembler dump.
         if (isRoot) return `root already has superuser privileges.`;
         if (!sudoCommand) return 'usage: sudo <command>';
         const output = await processCommand(sudoCommand);
-        return `[sudo] password for ${user?.email?.split('@')[0]}:\n${typeof output === 'string' ? output : 'Command executed.'}`;
+        return `[sudo] password for ${user?.email?.split('@')[0]}:\\n${typeof output === 'string' ? output : 'Command executed.'}`;
     };
 
     if (cmd.toLowerCase() === 'sudo') {
@@ -488,19 +488,19 @@ End of assembler dump.
 
 
     const osCommands: { [key: string]: () => string } = {
-        'apt update': () => 'Hit:1 http://archive.ubuntu.com/ubuntu focal InRelease\nGet:2 http://security.ubuntu.com/ubuntu focal-security InRelease [114 kB]\nReading package lists... Done',
+        'apt update': () => 'Hit:1 http://archive.ubuntu.com/ubuntu focal InRelease\\nGet:2 http://security.ubuntu.com/ubuntu focal-security InRelease [114 kB]\\nReading package lists... Done',
         'apt-get update': () => osCommands['apt update'](),
         'apt install': () => {
             const pkg = args[1];
-            if (!pkg) return 'Usage: apt install [package-name]';
-            return `Reading package lists... Done\nBuilding dependency tree... Done\n0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.\nSimulating installation of ${pkg}... Done.`;
+            if (!pkg) return 'Usage: apt install <package-name>';
+            return `Reading package lists... Done\\nBuilding dependency tree... Done\\n0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.\\nSimulating installation of ${pkg}... Done.`;
         },
         'apt-get install': () => osCommands['apt install'](),
         'dpkg -i': () => {
             const file = args[1];
-            if (!file) return 'Usage: dpkg -i [package-file.deb]';
+            if (!file) return 'Usage: dpkg -i <package-file.deb>';
             if (!file.endsWith('.deb')) return `dpkg: error: '${file}' is not a Debian format archive`;
-            return `(Reading database ... 12345 files and directories currently installed.)\nPreparing to unpack ${file} ...\nUnpacking ...\nSetting up ...`;
+            return `(Reading database ... 12345 files and directories currently installed.)\\nPreparing to unpack ${file} ...\\nUnpacking ...\\nSetting up ...`;
         }
     };
 
@@ -509,13 +509,13 @@ End of assembler dump.
     const aptInstallMatch = fullCommand.match(/^(apt|apt-get) install (.+)/);
     if(aptInstallMatch) {
       const pkg = aptInstallMatch[2];
-      return `Reading package lists... Done\nBuilding dependency tree... Done\n0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.\nSimulating installation of ${pkg}... Done.`;
+      return `Reading package lists... Done\\nBuilding dependency tree... Done\\n0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.\\nSimulating installation of ${pkg}... Done.`;
     }
     const dpkgMatch = fullCommand.match(/^dpkg -i (.+)/);
     if(dpkgMatch) {
       const file = dpkgMatch[1];
       if (!file.endsWith('.deb')) return `dpkg: error: '${file}' is not a Debian format archive`;
-      return `(Reading database ... 12345 files and directories currently installed.)\nPreparing to unpack ${file} ...\nUnpacking ...\nSetting up ...`;
+      return `(Reading database ... 12345 files and directories currently installed.)\\nPreparing to unpack ${file} ...\\nUnpacking ...\\nSetting up ...`;
     }
 
 
@@ -533,7 +533,7 @@ End of assembler dump.
           if (content.length === 0) return '';
           return content.map(key => {
             return node.children[key].type === 'directory' ? `${key}/` : key;
-          }).join('\n');
+          }).join('\\n');
         }
         return `ls: cannot access '${argString || '.'}': No such file or directory`;
       }
@@ -582,7 +582,7 @@ End of assembler dump.
       }
       
       case 'createfile': {
-        const filenameMatch = command.match(/createfile\s+([^\s"]+)/);
+        const filenameMatch = command.match(/createfile\\s+([^\\s"]+)/);
         const contentMatch = command.match(/"(.*?)"/);
         
         if (!filenameMatch || !contentMatch) {
@@ -763,8 +763,8 @@ ${username.padEnd(8)}     1337  0.5  0.2 222333  4321 pts/0    Rs+  14:15   0:02
                 const data = doc.data();
                 const createdAt = data.createdAt?.toDate ? data.createdAt.toDate().toLocaleString() : 'N/A';
                 return `- ${data.email} (OS: ${data.os || 'None'}) (Created: ${createdAt})`;
-            }).join('\n');
-            return `Registered Users:\n${usersList}`;
+            }).join('\\n');
+            return `Registered Users:\\n${usersList}`;
         } catch (error) {
             console.error("Failed to list users:", error);
             return "Error: Could not retrieve user list.";
@@ -929,7 +929,7 @@ available databases [5]:
             if (/^[a-f0-9]{32}$/i.test(hash)) type = 'MD5';
             else if (/^[a-f0-9]{40}$/i.test(hash)) type = 'SHA-1';
             else if (/^[a-f0-9]{64}$/i.test(hash)) type = 'SHA-256';
-            else if (/^\$2[ayb]\$.{56}$/.test(hash)) type = 'Bcrypt';
+            else if (/^\\$2[ayb]\\$.{56}$/.test(hash)) type = 'Bcrypt';
             return `Possible Hash Type: ${type}`;
         }
         
@@ -959,8 +959,8 @@ available databases [5]:
              const targetPath = resolvePath(argString);
              const node = getNodeFromPath(targetPath, currentFilesystem);
              if (node && node.type === 'file' && typeof node.content === 'string') {
-                 const printableChars = node.content.match(/[\x20-\x7E]{4,}/g);
-                 return printableChars ? printableChars.join('\n') : '';
+                 const printableChars = node.content.match(/[\\x20-\\x7E]{4,}/g);
+                 return printableChars ? printableChars.join('\\n') : '';
              }
              return `strings: '${argString}': No such file`;
         }
@@ -968,7 +968,7 @@ available databases [5]:
         case 'exiftool': {
             const filename = args[0];
             if (!filename) return 'Usage: exiftool <filename>';
-            if (!/\.(jpg|jpeg|png)$/i.test(filename)) return `Error: File '${filename}' is not a supported image type.`;
+            if (!/\\.(jpg|jpeg|png)$/i.test(filename)) return `Error: File '${filename}' is not a supported image type.`;
             const node = getNodeFromPath(resolvePath(filename), currentFilesystem);
             if (node && node.type === 'file') {
                 return `
@@ -1106,9 +1106,9 @@ HelpAssistant:1000:long_hash_value:FLAG{H45H_DUMP3D_FR0M_M3M0RY}:::
         const node = getNodeFromPath(resolvePath(file), currentFilesystem);
         if (!node) return `${cmd}: cannot access '${file}': No such file or directory`;
         
-        if (cmd === 'strace') return `execve("./${file}", ["./${file}"], 0x7ff...AE) = 0\n... many system calls ...\nopenat(AT_FDCWD, "/etc/secret_password.txt", O_RDONLY) = -1 ENOENT (No such file or directory)\n...`;
-        if (cmd === 'ltrace') return `puts("Hello, World!")                                   = 14\n... many library calls ...\ngetenv("SECRET_FLAG")                               = "FLAG{LTRACE_REVEALS_SECRETS}"\n...`;
-        if (cmd === 'r2') return `[0x00400490]> aaaa\n[x] Analyze all flags starting with sym. and entry0 (aa)\n[x] Analyze function calls (aac)\n[0x00400490]> afl\n0x00400490    1 41           entry0\n0x004004b0    4 55   sym.main\n[0x00400490]> pdf @ sym.main\n... assembly code ...\n;-- check_password:"FLAG{R4D4R3_TW0_FTW}"`;
+        if (cmd === 'strace') return `execve("./${file}", ["./${file}"], 0x7ff...AE) = 0\\n... many system calls ...\\nopenat(AT_FDCWD, "/etc/secret_password.txt", O_RDONLY) = -1 ENOENT (No such file or directory)\\n...`;
+        if (cmd === 'ltrace') return `puts("Hello, World!")                                   = 14\\n... many library calls ...\\ngetenv("SECRET_FLAG")                               = "FLAG{LTRACE_REVEALS_SECRETS}"\\n...`;
+        if (cmd === 'r2') return `[0x00400490]> aaaa\\n[x] Analyze all flags starting with sym. and entry0 (aa)\\n[x] Analyze function calls (aac)\\n[0x00400490]> afl\\n0x00400490    1 41           entry0\\n0x004004b0    4 55   sym.main\\n[0x00400490]> pdf @ sym.main\\n... assembly code ...\\n;-- check_password:"FLAG{R4D4R3_TW0_FTW}"`;
         return '';
       }
 
