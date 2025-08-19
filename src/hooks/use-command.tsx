@@ -1,17 +1,20 @@
 "use client";
 
-import { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useToast } from "@/hooks/use-toast";
 import { generateCommandHelp } from '@/ai/flows/generate-command-help';
 import { databaseQuery } from '@/ai/flows/database-query-flow';
-import { initialFilesystem, Directory, FilesystemNode, File } from '@/lib/filesystem';
+import { initialFilesystem, Directory, FilesystemNode } from '@/lib/filesystem';
 import { db, auth } from '@/lib/firebase';
 import { collection, query, where, getDocs, WhereFilterOp, doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
 import { User, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
+import ImageDisplay from '@/components/image-display';
 
 export type AuthStep = 'none' | 'login_email' | 'login_password' | 'register_email' | 'register_password';
 export type OSSelectionStep = 'none' | 'prompt' | 'installing' | 'done';
 type EditingFile = { path: string; content: string } | null;
+
+type CommandResult = string | { type: 'install'; os: string; } | { component: React.ReactElement } | undefined;
 
 
 const osOptions: { [key: string]: string } = {
@@ -20,31 +23,6 @@ const osOptions: { [key: string]: string } = {
     '3': 'Ubuntu 24.04',
     '4': 'Debian',
 };
-
-const installationFeatures = [
-    "Probing hardware devices...",
-    "Loading kernel modules...",
-    "Setting up disk partitions...",
-    "Formatting /dev/sda1 as ext4...",
-    "Mounting filesystems...",
-    "Unpacking base system image... (0%)",
-    "Unpacking base system image... (50%)",
-    "Unpacking base system image... (100%)",
-    "Installing kernel: linux-image-generic...",
-    "Configuring APT package manager...",
-    "Fetching package lists from repositories...",
-    "Installing core utilities (coreutils, findutils, grep)...",
-    "Setting up networking with netplan...",
-    "Configuring system clock (chrony)...",
-    "Creating user account...",
-    "Setting up user environment and home directory...",
-    "Installing desktop environment (GNOME)...",
-    "Configuring display manager (GDM3)...",
-    "Running post-installation triggers...",
-    "Cleaning up temporary files...",
-    "Finalizing installation...",
-    "System will restart shortly...",
-];
 
 const getNeofetchOutput = (user: User | null | undefined, isRoot: boolean, os: string | null) => {
     let uptime = 0;
@@ -55,10 +33,10 @@ const getNeofetchOutput = (user: User | null | undefined, isRoot: boolean, os: s
     const osName = os || 'Generic OS';
 
 return `
-${username}@hacker
+${username}@command-center
 --------------------
 OS: ${osName} (Web Browser)
-Host: Hacker v1.0
+Host: Command Center v1.0
 Kernel: Next.js
 Uptime: ${uptime} seconds
 Shell: term-sim
@@ -89,6 +67,7 @@ Available commands:
   df -h         - Report file system disk space usage.
   ps aux        - Report a snapshot of the current processes.
   top           - Display Linux processes.
+  imagine "[prompt]" - Generate an image from a text prompt.
   reboot/shutdown - Simulate system restart/shutdown.
   clear         - Clear the terminal screen.
   logout        - Log out from the application.
@@ -133,7 +112,7 @@ export const useCommand = (user: User | null | undefined) => {
   const [userFilesystem, setUserFilesystem] = useState<Directory>(initialFilesystem);
   const [editingFile, setEditingFile] = useState<EditingFile>(null);
   
-  const isRoot = user?.email === 'alqorniu552@gmail.com';
+  const isRoot = userData?.isRoot;
 
   const getInitialPrompt = useCallback(() => {
     if (authStep === 'login_email' || authStep === 'register_email') {
@@ -149,9 +128,9 @@ export const useCommand = (user: User | null | undefined) => {
         const username = isRoot ? 'root' : user.email?.split('@')[0];
         const promptSymbol = isRoot ? '#' : '$';
         const currentPath = cwd === '/' ? '~' : `~${cwd}`;
-        return `${username}@hacker:${currentPath}${promptSymbol}`;
+        return `${username}@command-center:${currentPath}${promptSymbol}`;
     }
-    return 'guest@hacker:~$';
+    return 'guest@command-center:~$';
   }, [user, isRoot, cwd, osSelectionStep, authStep]);
 
   const [prompt, setPrompt] = useState(getInitialPrompt());
@@ -229,20 +208,24 @@ export const useCommand = (user: User | null | undefined) => {
                 setOsSelectionStep('done');
             }
         } else {
-             await setDoc(doc(db, "users", user.uid), {
+             const newUser = {
                 email: user.email,
                 createdAt: new Date(),
                 uid: user.uid,
                 os: null,
                 osInstalled: false,
+                isRoot: user.email === 'alqorniu552@gmail.com',
                 filesystem: initialFilesystem,
-            });
-            setUserData({ os: null, osInstalled: false });
+            };
+             await setDoc(doc(db, "users", user.uid), newUser);
+            setUserData(newUser);
             setUserFilesystem(initialFilesystem);
             setOsSelectionStep('prompt');
         }
     } else {
         setUserData(null);
+        setCwd('/');
+        setUserFilesystem(initialFilesystem);
         setOsSelectionStep('none');
         resetAuth();
     }
@@ -270,15 +253,17 @@ export const useCommand = (user: User | null | undefined) => {
         osList += '\nEnter the corresponding number to choose an OS.';
         return osList;
     }
-    if (user) {
-        if(osSelectionStep !== 'done') return ''; // Don't show welcome message until OS is installed
+    if (user && osSelectionStep === 'done') {
         if (isRoot) {
             return `Welcome, root! You have superuser privileges. Type 'help' for commands.`;
         }
         return `Welcome, ${user.email}! Type 'help' for a list of commands.`;
     }
-    return `Welcome to Hacker Terminal! Please 'login' or 'register' to continue.`;
-  }, [user, isRoot, osSelectionStep]);
+    if (!user && authStep === 'none') {
+        return `Welcome to Command Center! Please 'login' or 'register' to continue.`;
+    }
+    return '';
+  }, [user, isRoot, osSelectionStep, authStep]);
   
   const startOSInstallation = async (selectedOS: string) => {
     setOsSelectionStep('installing');
@@ -325,7 +310,7 @@ export const useCommand = (user: User | null | undefined) => {
     };
 
 
-  const processCommand = useCallback(async (command: string): Promise<string | { type: 'install'; os: string; } | undefined> => {
+  const processCommand = useCallback(async (command: string): Promise<CommandResult> => {
     const [cmd, ...args] = command.trim().split(/\s+/);
     const isLoggedIn = !!user;
 
@@ -365,21 +350,25 @@ export const useCommand = (user: User | null | undefined) => {
 
                     if (!isLogin) {
                         // Save user to 'users' collection on registration
-                        await setDoc(doc(db, "users", userCredential.user.uid), {
+                         const newUser = {
                             email: userCredential.user.email,
                             createdAt: new Date(),
                             uid: userCredential.user.uid,
                             os: null,
                             osInstalled: false,
+                            isRoot: userCredential.user.email === 'alqorniu552@gmail.com',
                             filesystem: initialFilesystem,
-                        });
+                        };
+                        await setDoc(doc(db, "users", userCredential.user.uid), newUser);
                     }
                     resetAuth();
+                    // Manually trigger fetchUserData because the user object might not be updated yet
+                    await fetchUserData();
                     return isLogin ? 'Login successful.' : 'Registration successful.';
                 } catch (error: any) {
                     resetAuth();
-                    if (error.code === 'auth/invalid-credential' || error.code === 'auth/missing-password' || error.code === 'auth/wrong-password' || error.code === 'auth/user-not-found' || error.code === 'auth/invalid-email') {
-                        return 'Akun anda tidak terdaftar';
+                    if (error.code === 'auth/invalid-credential' || error.code === 'auth/missing-password' || error.code === 'auth/wrong-password' || error.code === 'auth/user-not-found' || error.code === 'auth/invalid-email' || error.code === 'auth/email-already-in-use') {
+                        return 'Authentication error: Invalid credentials or email already in use.';
                     }
                     return `Error: ${error.message}`;
                 }
@@ -403,20 +392,41 @@ export const useCommand = (user: User | null | undefined) => {
         }
     }
     
-    if (osSelectionStep !== 'done') {
+    if (osSelectionStep !== 'done' && userData) {
         return "Please complete the OS installation first.";
     }
 
-
     const argString = args.join(' ');
+    
+    const extractQuotedArg = (command: string) => {
+        const match = command.match(/".*?"/);
+        return match ? match[0].slice(1, -1) : null;
+    };
+    
     const fullCommand = [cmd.toLowerCase(), ...args].join(' ');
 
+    const processSudo = async (sudoCommand: string): Promise<CommandResult> => {
+        // This is a simplified sudo. In a real scenario, you'd handle passwords.
+        if (isRoot) return `root already has superuser privileges.`;
+        if (!sudoCommand) return 'usage: sudo <command>';
+
+        const tempUserData = { ...userData, isRoot: true };
+        const tempIsRoot = true;
+        
+        // This is a tricky part: we are temporarily "becoming" root
+        // The underlying processCommand function needs to be aware of this context.
+        // For simplicity, we just process the command and prepend a message.
+        // A more robust solution might involve a different state management approach.
+        const output = await processCommand(sudoCommand); // Recursive call
+        return `[sudo] password for ${user?.email?.split('@')[0]}:\n${typeof output === 'string' ? output : 'Command executed.'}`;
+    };
+
+    if (cmd.toLowerCase() === 'sudo') {
+        return processSudo(args.join(' '));
+    }
+
+
     const osCommands: { [key: string]: () => string } = {
-        'sudo': () => {
-            if (isRoot) return `root already has superuser privileges.`;
-            const sudoArg = args.join(' ');
-            return sudoArg ? processCommand(sudoArg).then(output => `[sudo] password for ${user?.email?.split('@')[0]}:\n${typeof output === 'string' ? output : 'OK'}`) as unknown as string : 'usage: sudo <command>';
-        },
         'apt update': () => 'Hit:1 http://archive.ubuntu.com/ubuntu focal InRelease\nGet:2 http://security.ubuntu.com/ubuntu focal-security InRelease [114 kB]\nReading package lists... Done',
         'apt-get update': () => osCommands['apt update'](),
         'apt install': () => {
@@ -519,7 +529,7 @@ export const useCommand = (user: User | null | undefined) => {
       
       case 'uname':
         if (argString === '-a') {
-            return `Linux hacker-terminal 5.4.0-150-generic #167-Ubuntu SMP Mon May 15 17:33:04 UTC 2023 x86_64 x86_64 x86_64 GNU/Linux`;
+            return `Linux command-center 5.4.0-150-generic #167-Ubuntu SMP Mon May 15 17:33:04 UTC 2023 x86_64 x86_64 x86_64 GNU/Linux`;
         }
         return 'Linux';
       
@@ -534,7 +544,9 @@ export const useCommand = (user: User | null | undefined) => {
         const filename = targetPath.split('/').pop();
         if (parentNode && filename) {
             if (parentNode.children[filename]) {
-                return ''; // File exists, do nothing which is the behavior of touch
+                // File exists, do nothing which is the behavior of touch
+                // In a real system this would update timestamps.
+                return ''; 
             }
             parentNode.children[filename] = { type: 'file', content: '' };
             setUserFilesystem(newFs);
@@ -611,10 +623,11 @@ MiB Swap:   2048.0 total,   2048.0 free,      0.0 used.   6756.7 avail Mem
       
       case 'ps':
         if (argString === 'aux') {
+            const username = (isRoot ? 'root' : user?.email?.split('@')[0])?.substring(0, 8) || 'guest';
             return `USER         PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
 root           1  0.0  0.1 167292  9284 ?        Ss   May30   0:01 /sbin/init
 root           2  0.0  0.0      0     0 ?        S    May30   0:00 [kthreadd]
-${isRoot ? 'root' : user?.email?.split('@')[0]}     1337  0.5  0.2 222333  4321 pts/0    Rs+  14:15   0:02 bash
+${username.padEnd(8)}     1337  0.5  0.2 222333  4321 pts/0    Rs+  14:15   0:02 bash
 ... (simulation ends here) ...`;
         }
         return `Usage: ps aux`;
@@ -629,6 +642,14 @@ ${isRoot ? 'root' : user?.email?.split('@')[0]}     1337  0.5  0.2 222333  4321 
 3 packets transmitted, 3 received, 0% packet loss, time 2003ms`;
       }
       
+      case 'imagine': {
+        const imagePrompt = extractQuotedArg(command);
+        if (!imagePrompt) {
+          return 'Usage: imagine "[your image prompt]"';
+        }
+        return { component: <ImageDisplay prompt={imagePrompt} onFinished={() => {}} /> };
+      }
+
       case 'reboot':
       case 'shutdown':
         return 'System is going down for reboot NOW!';
@@ -656,11 +677,12 @@ ${isRoot ? 'root' : user?.email?.split('@')[0]}     1337  0.5  0.2 222333  4321 
       }
 
       case 'db': {
-        if (!argString) {
+        const dbQuery = extractQuotedArg(command);
+        if (!dbQuery) {
           return 'db: missing query. Usage: db "your natural language query"';
         }
         try {
-          const queryInstruction = await databaseQuery({ query: argString });
+          const queryInstruction = await databaseQuery({ query: dbQuery });
           
           if (queryInstruction.collection === 'users' && !isRoot) {
             return "Error: Access to users collection is restricted to root.";

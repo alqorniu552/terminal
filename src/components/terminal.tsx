@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { useCommand } from '@/hooks/use-command';
+import { useCommand } from '@/hooks/use-command.tsx';
 import Typewriter from './typewriter';
 import { User } from 'firebase/auth';
 import { Progress } from "@/components/ui/progress"
@@ -148,20 +148,23 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
   
   // This effect handles resetting the terminal and auth state on logout.
   useEffect(() => {
-      if (!user && osSelectionStep === 'none' && authStep === 'none') {
-          setHistory([]);
-          loadWelcomeMessage();
-          resetAuth();
-      }
-  }, [user, osSelectionStep, authStep, loadWelcomeMessage, resetAuth]);
+    if (!user) {
+        if (osSelectionStep !== 'none' || authStep !== 'none' || history.length > 0) {
+            setHistory([]);
+            setOsSelectionStep('none');
+            resetAuth();
+        }
+    }
+  }, [user, osSelectionStep, authStep, history.length, setOsSelectionStep, resetAuth]);
 
   // This effect handles loading the welcome message when the user state or osSelectionStep changes.
   useEffect(() => {
     const shouldShowWelcome = 
       osSelectionStep === 'prompt' || 
       (user && osSelectionStep === 'done') ||
-      (!user && osSelectionStep === 'none' && authStep === 'none');
+      (!user && authStep === 'none');
 
+    // Only show welcome if history is empty to avoid re-showing it on every render
     if (shouldShowWelcome && history.length === 0) {
       loadWelcomeMessage();
     }
@@ -187,7 +190,8 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
         const shouldShowWelcome = 
           osSelectionStep === 'prompt' || 
           (user && osSelectionStep === 'done') ||
-          (!user && osSelectionStep === 'none');
+          (!user && authStep === 'none');
+
         if (shouldShowWelcome) {
           loadWelcomeMessage();
         }
@@ -204,24 +208,37 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     setHistory(prev => [...prev, newHistoryItem]);
     setCommand('');
     
+    setIsTyping(true);
     const result = await processCommand(currentCommand);
     
     let output;
 
-    if (typeof result === 'object' && result !== null && 'type' in result && result.type === 'install') {
-        setIsTyping(true);
-        output = <OSInstaller os={result.os} onFinished={async () => {
-            if (user) {
-                await updateDoc(doc(db, 'users', user.uid), { osInstalled: true });
-            }
-            setIsTyping(false);
-            setOsSelectionStep('done');
-        }} />;
+    if (result && typeof result === 'object') {
+        if ('type' in result && result.type === 'install') {
+             output = <OSInstaller os={result.os} onFinished={async () => {
+                if (user) {
+                    await updateDoc(doc(db, 'users', user.uid), { osInstalled: true });
+                }
+                setOsSelectionStep('done');
+                // After installation, clear history and show new welcome message.
+                setHistory([]); 
+                loadWelcomeMessage();
+                setIsTyping(false);
+            }} />;
+        } else if ('component' in result && React.isValidElement(result.component)) {
+             output = React.cloneElement(result.component, { onFinished: () => setIsTyping(false) });
+        } else {
+             output = <Typewriter text={JSON.stringify(result, null, 2)} onFinished={() => setIsTyping(false)} />;
+        }
     } else if (typeof result === 'string') {
-        setIsTyping(true);
         output = <Typewriter text={result} onFinished={() => setIsTyping(false)} />;
     } else {
         output = '';
+    }
+    
+    // Don't set isTyping to false if there's no output, as the prompt might change (e.g., auth flow)
+    if (!output) {
+      setIsTyping(false);
     }
     
     const updatedHistoryItem = { ...newHistoryItem, output };
