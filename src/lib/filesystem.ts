@@ -1,3 +1,4 @@
+
 export interface File {
   type: 'file';
   content: string;
@@ -52,69 +53,53 @@ Ch@ll3ng3`;
 export const initialFilesystem: Directory = {
   type: 'directory',
   children: {
+    // Root-level user files (for user-specific challenges)
     '.bashrc': {
         type: 'file',
         path: '/.bashrc',
-        content: '# Add your custom aliases here\nalias ll=\'ls -l\'\nalias c=\'clear\'\n'
+        content: '# Add your custom aliases here\nalias ll=\'ls -alF\'\nalias c=\'clear\'\n'
     },
     'welcome.txt': {
         type: 'file',
         path: '/welcome.txt',
-        content: 'Welcome to your personal filesystem! Use CTF tools to find secrets.'
+        content: 'Welcome to your personal command center! Use CTF tools to find secrets.'
     },
-    'projects': {
+
+    // Standard Linux Directories
+    'bin': {
         type: 'directory',
-        children: {}
+        children: {
+            'bash': { type: 'file', content: 'Binary file' },
+            'ls': { type: 'file', content: 'Binary file' },
+            'cat': { type: 'file', content: 'Binary file' },
+            'rm': { type: 'file', content: 'Binary file' },
+            'python': { type: 'file', content: 'Binary file' },
+        }
     },
-    'secret.jpg': {
-        type: 'file',
-        path: '/secret.jpg',
-        content: 'This is not a real image file, but you can run `strings` on it to find a secret. FLAG{3X1F_M3T4D4T4_H1DD3N_S3CR3T}'
+    'etc': {
+        type: 'directory',
+        children: {
+            'passwd': { type: 'file', path: '/etc/passwd', content: 'root:x:0:0:root:/root:/bin/bash\ndaemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin\nbin:x:2:2:bin:/bin:/usr/sbin/nologin\nuser:x:1000:1000:user:/home/user:/bin/bash\n' },
+            'group': { type: 'file', path: '/etc/group', content: 'root:x:0:\nbin:x:2:\nuser:x:1000:\n' },
+            'hosts': { type: 'file', path: '/etc/hosts', content: '127.0.0.1\tlocalhost\n::1\tlocalhost\n' },
+            'shadow.bak': {
+                type: 'file',
+                path: '/etc/shadow.bak',
+                content: 'root:5f4dcc3b5aa765d61d8327deb882cf99' // md5 for 'password'
+            },
+            'ssh': {
+                type: 'directory',
+                children: {
+                    'sshd_config': { type: 'file', content: '# SSH Server Configuration\nPermitRootLogin no\nPasswordAuthentication yes\n' }
+                }
+            }
+        }
     },
-    'mission_image.jpg': {
-        type: 'file',
-        path: '/mission_image.jpg',
-        content: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='
-    },
-    'shadow.bak': {
-        type: 'file',
-        path: '/shadow.bak',
-        content: 'root:5f4dcc3b5aa765d61d8327deb882cf99' // md5 for 'password'
-    },
-    'a.out': {
-        type: 'file',
-        path: '/a.out',
-        content: 'ELF 64-bit LSB executable... not stripped. Maybe try `strings`? FLAG{B4S1C_R3V3RS1NG_W1TH_STR1NGS}'
-    },
-    'linpeas.sh': {
-        type: 'file',
-        path: '/linpeas.sh',
-        content: 'DYNAMIC_CONTENT::LINPEAS'
-    },
-    'gobuster.txt': {
-        type: 'file',
-        path: '/gobuster.txt',
-        content: `
-===============================================================
-Gobuster v3.1.0
-===============================================================
-[+] Url:            http://10.10.1.2
-[+] Threads:        10
-[+] Wordlist:       /usr/share/wordlists/dirb/common.txt
-[+] Status codes:   200,204,301,302,307,401,403
-[+] User Agent:     gobuster/3.1.0
-[+] Timeout:        10s
-===============================================================
-2024/05/20 10:30:00 Starting gobuster
-===============================================================
-/images (Status: 301)
-/uploads (Status: 301)
-/config.php.bak (Status: 200)
-/admin (Status: 403)
-===============================================================
-2024/05/20 10:31:00 Finished
-===============================================================
-        `
+    'home': {
+        type: 'directory',
+        children: {
+            // User home directories could be dynamically added here in a more complex setup
+        }
     },
     'lib': {
         type: 'directory',
@@ -126,25 +111,51 @@ Gobuster v3.1.0
             }
         }
     },
-     'var': {
+    'opt': {
+        type: 'directory',
+        children: {
+            'linpeas.sh': {
+                type: 'file',
+                path: '/opt/linpeas.sh',
+                content: 'DYNAMIC_CONTENT::LINPEAS'
+            },
+        }
+    },
+    'root': {
+        type: 'directory',
+        children: {
+            '.secret_root_file.txt': { type: 'file', content: 'This is a secret file only accessible by root.' }
+        }
+    },
+    'tmp': {
+        type: 'directory',
+        children: {}
+    },
+    'usr': {
+        type: 'directory',
+        children: {
+            'bin': { 
+                type: 'directory',
+                children: {
+                    'nmap': { type: 'file', content: 'Binary file' },
+                    'gobuster': { type: 'file', content: 'Binary file' },
+                    'strings': { type: 'file', content: 'Binary file' },
+                }
+            },
+            'lib': { type: 'directory', children: {} },
+            'share': { type: 'directory', children: {} },
+        }
+    },
+    'var': {
       type: 'directory',
       children: {
-        'lib': {
-          type: 'directory',
-          children: {
-            'warlock.core': {
-              type: 'file',
-              path: '/var/lib/warlock.core',
-              content: 'Warlock Active Defense System v1.0\nSTATUS: ACTIVE\nTHREAT LEVEL: DANGEROUS\nDO NOT DELETE'
-            }
-          }
-        }
-      }
-    },
-    'auth.log': {
-        type: 'file',
-        path: '/auth.log',
-        content: `May 10 10:00:01 server sshd[1234]: Accepted password for user1 from 192.168.1.10 port 1234 ssh2
+        'log': {
+            type: 'directory',
+            children: {
+                'auth.log': {
+                    type: 'file',
+                    path: '/var/log/auth.log',
+                    content: `May 10 10:00:01 server sshd[1234]: Accepted password for user1 from 192.168.1.10 port 1234 ssh2
 May 10 10:00:02 server sshd[1234]: pam_unix(sshd:session): session opened for user user1 by (uid=0)
 May 10 10:01:00 server sshd[1238]: Failed password for invalid user admin from 10.0.0.5 port 54321 ssh2
 May 10 10:01:05 server sshd[1238]: Failed password for invalid user admin from 10.0.0.5 port 54321 ssh2
@@ -167,15 +178,89 @@ May 10 10:07:02 server su: pam_unix(su:session): session opened for user root by
 May 10 10:08:00 server sshd[1275]: Strange situation: user guest attempted to log in with a password but is not in the system. The secret is FLAG{L0G_F0R3NS1CS_R0CKS}
 May 10 10:09:00 server systemd: SERVICE_START pid=1 uid=0 auid=4294967295 ses=4294967295 msg='unit=badactor_service comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=failed' data='vigenerekey'
 `
+                },
+                'syslog': {
+                    type: 'file',
+                    path: '/var/log/syslog',
+                    content: 'May 10 10:00:01 server systemd[1]: Starting system... \nMay 10 10:09:00 server systemd: badactor_service failed to start.'
+                }
+            }
+        },
+        'lib': {
+          type: 'directory',
+          children: {
+            'warlock.core': {
+              type: 'file',
+              path: '/var/lib/warlock.core',
+              content: 'Warlock Active Defense System v1.0\nSTATUS: ACTIVE\nTHREAT LEVEL: DANGEROUS\nDO NOT DELETE'
+            }
+          }
+        },
+        'www': {
+            type: 'directory',
+            children: {
+                'html': {
+                    type: 'directory',
+                    children: {
+                        'index.html': { type: 'file', content: '<html><body><h1>It works!</h1></body></html>'},
+                        'secret.jpg': {
+                            type: 'file',
+                            path: '/var/www/html/secret.jpg',
+                            content: 'This is not a real image file, but you can run `strings` on it to find a secret. FLAG{3X1F_M3T4D4T4_H1DD3N_S3CR3T}'
+                        },
+                        'mission_image.jpg': {
+                            type: 'file',
+                            path: '/var/www/html/mission_image.jpg',
+                            content: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='
+                        },
+                         'gobuster.txt': {
+                            type: 'file',
+                            path: '/var/www/html/gobuster.txt',
+                            content: `
+===============================================================
+Gobuster v3.1.0
+===============================================================
+[+] Url:            http://10.10.1.2
+[+] Threads:        10
+[+] Wordlist:       /usr/share/wordlists/dirb/common.txt
+[+] Status codes:   200,204,301,302,307,401,403
+[+] User Agent:     gobuster/3.1.0
+[+] Timeout:        10s
+===============================================================
+2024/05/20 10:30:00 Starting gobuster
+===============================================================
+/images (Status: 301)
+/uploads (Status: 301)
+/config.php.bak (Status: 200)
+/admin (Status: 403)
+===============================================================
+2024/05/20 10:31:00 Finished
+===============================================================
+                            `
+                        },
+                    }
+                }
+            }
+        }
+      }
+    },
+     // Deprecated root-level challenge files for backward compatibility, moved to realistic paths
+    'a.out': {
+        type: 'file',
+        path: '/a.out',
+        content: 'ELF 64-bit LSB executable... not stripped. Maybe try `strings`? FLAG{B4S1C_R3V3RS1NG_W1TH_STR1NGS}'
     },
   },
 };
 
-export const getDynamicContent = (placeholder: string, path: string): string => {
-    if (placeholder === 'DYNAMIC_CONTENT::LINPEAS') {
+export const getDynamicContent = (content: string | (() => string), path: string): string => {
+    if (typeof content === 'function') {
+        return content();
+    }
+    if (content === 'DYNAMIC_CONTENT::LINPEAS') {
         return linpeasOutput();
     }
     // Return original content if no dynamic key matches
     // This also handles cases where content is just a regular string
-    return placeholder;
+    return content;
 }
