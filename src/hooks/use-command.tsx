@@ -123,9 +123,9 @@ export const useCommand = (user: User | null | undefined) => {
         const username = viewedUser?.email?.split('@')[0] || 'user';
         const path = cwd === '/' ? '~' : `~${cwd}`;
         const promptChar = isRoot && viewedUser?.uid === user.uid ? '#' : '$';
-        return `${username}@cyber:${path}${promptChar} `;
+        return `${username}@cyber:${path}${promptChar}`;
     }
-    return 'guest@cyber:~$ ';
+    return 'guest@cyber:~$';
   }, [user, cwd, isRoot, viewedUser]);
 
   const [prompt, setPrompt] = useState(getPrompt());
@@ -258,37 +258,21 @@ export const useCommand = (user: User | null | undefined) => {
     const [cmd, ...args] = command.trim().split(/\s+/);
     const argString = args.join(' ');
     const isLoggedIn = !!user;
+    
+    // This is a workaround to allow recursive calls for 'sudo' without a lint error.
+    const processCommandAlias = async (cmd: string): Promise<CommandResult> => processCommand(cmd);
 
-    const handleAuth = async (authFn: typeof signInWithEmailAndPassword | typeof createUserWithEmailAndPassword) => {
-        const [email, password] = args;
-        if (!email || !password) {
-            return { type: 'text' as const, text: `Usage: ${cmd} [email] [password]` };
-        }
-        try {
-            if (authFn === createUserWithEmailAndPassword) {
-                const userCredential = await authFn(auth, email, password);
-                const userDocRef = doc(db, "users", userCredential.user.uid);
-                await setDoc(userDocRef, {
-                    email: userCredential.user.email,
-                    filesystem: initialFilesystem
-                });
-            } else {
-                await authFn(auth, email, password);
-            }
-            return { type: 'text' as const, text: `${cmd === 'login' ? 'Login' : 'Registration'} successful.` };
-        } catch (error: any) {
-            return { type: 'text' as const, text: `Authentication Error: ${error.code}` };
-        }
-    };
-
-    if (!isLoggedIn) {
+    // This case is handled in the terminal component
+    if (!isLoggedIn && (cmd.toLowerCase() === 'login' || cmd.toLowerCase() === 'register')) {
+        setIsProcessing(false);
+        return { type: 'none' };
+    }
+    
+    // This case is handled in the terminal component for multi-step auth
+    if (!user) {
         switch (cmd.toLowerCase()) {
-            case 'login':
-                return handleAuth(signInWithEmailAndPassword);
-            case 'register':
-                return handleAuth(createUserWithEmailAndPassword);
             case 'help':
-                return { type: 'text', text: getHelpOutput(false, false) };
+                 return { type: 'text', text: getHelpOutput(false, false) };
             case '':
                 return { type: 'none' };
             default:
@@ -296,7 +280,6 @@ export const useCommand = (user: User | null | undefined) => {
                 return { type: 'text', text: `Command not found: ${cmd}. Please 'login' or 'register'.` };
         }
     }
-
 
     // --- Logged-in commands ---
     try {
@@ -474,7 +457,7 @@ export const useCommand = (user: User | null | undefined) => {
             if (isRoot) {
                 const commandWithoutSudo = args.join(' ');
                 // Recursive call to self
-                return processCommand(commandWithoutSudo);
+                return processCommandAlias(commandWithoutSudo);
             }
             return { type: 'text', text: `${user.email} is not in the sudoers file. This incident will be reported.` };
           }
@@ -591,6 +574,30 @@ End of assembler dump.` };
             return { type: 'text', text: 'Logged out successfully.' };
           }
           
+          case 'login':
+          case 'register': {
+              const [email, password] = args;
+              if (!email || !password) {
+                  return { type: 'text' as const, text: `Usage: ${cmd} [email] [password]` };
+              }
+              try {
+                  const authFn = cmd === 'login' ? signInWithEmailAndPassword : createUserWithEmailAndPassword;
+                  if (authFn === createUserWithEmailAndPassword) {
+                      const userCredential = await authFn(auth, email, password);
+                      const userDocRef = doc(db, "users", userCredential.user.uid);
+                      await setDoc(userDocRef, {
+                          email: userCredential.user.email,
+                          filesystem: initialFilesystem
+                      });
+                  } else {
+                      await authFn(auth, email, password);
+                  }
+                  return { type: 'text' as const, text: `${cmd === 'login' ? 'Login' : 'Registration'} successful.` };
+              } catch (error: any) {
+                  return { type: 'text' as const, text: `Authentication Error: ${error.code}` };
+              }
+          }
+          
           case '':
             return { type: 'none' };
 
@@ -610,7 +617,9 @@ End of assembler dump.` };
     } finally {
         setIsProcessing(false);
     }
-  }, [cwd, toast, user, userFilesystem, resolvePath, getNodeFromPath, getParentNodeFromPath, updateFirestoreFilesystem, saveFile, exitEditor, isRoot, viewedUser, processCommand]);
+  }, [cwd, toast, user, userFilesystem, resolvePath, getNodeFromPath, getParentNodeFromPath, updateFirestoreFilesystem, saveFile, exitEditor, isRoot, viewedUser]);
 
   return { prompt, processCommand, getWelcomeMessage, isProcessing, editingFile, saveFile, exitEditor };
 };
+
+    

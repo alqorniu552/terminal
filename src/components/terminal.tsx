@@ -6,6 +6,10 @@ import Typewriter from './typewriter';
 import { User } from 'firebase/auth';
 import NanoEditor from './nano-editor';
 import { Skeleton } from './ui/skeleton';
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
+import { auth, db } from '@/lib/firebase';
+import { doc, setDoc } from 'firebase/firestore';
+import { initialFilesystem } from '@/lib/filesystem';
 
 interface HistoryItem {
   id: number;
@@ -32,7 +36,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
   const [authData, setAuthData] = useState<{ email?: string; password?: string }>({});
   
   const { 
-    prompt: commandPrompt, 
+    prompt,
     processCommand, 
     getWelcomeMessage,
     editingFile,
@@ -81,8 +85,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
   
   useEffect(() => {
     loadWelcomeMessage();
-    setAuthStep('idle');
-    setAuthCommand(null);
+    resetAuthFlow();
   }, [user, loadWelcomeMessage]);
 
   useEffect(() => {
@@ -93,6 +96,43 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     setAuthStep('idle');
     setAuthCommand(null);
     setAuthData({});
+  };
+  
+  const handleAuthSubmit = async (finalAuthData: { email?: string; password?: string }) => {
+      const { email, password } = finalAuthData;
+      if (!email || !password || !authCommand) return;
+      
+      const newHistoryItem: HistoryItem = { 
+          id: history.length + 1,
+          command: '', 
+          output: <Skeleton className="h-4 w-32" />,
+          prompt: ''
+      };
+      setHistory(prev => [...prev, newHistoryItem]);
+      setIsTyping(true);
+
+      let resultText = '';
+      try {
+          const authFn = authCommand === 'login' ? signInWithEmailAndPassword : createUserWithEmailAndPassword;
+          if (authFn === createUserWithEmailAndPassword) {
+              const userCredential = await authFn(auth, email, password);
+              const userDocRef = doc(db, "users", userCredential.user.uid);
+              await setDoc(userDocRef, {
+                  email: userCredential.user.email,
+                  filesystem: initialFilesystem
+              });
+          } else {
+              await signInWithEmailAndPassword(auth, email, password);
+          }
+           resultText = `${authCommand === 'login' ? 'Login' : 'Registration'} successful.`;
+      } catch (error: any) {
+          resultText = `Authentication Error: ${error.code || error.message}`;
+      }
+      
+      const updatedHistoryItem = { ...newHistoryItem, output: <Typewriter text={resultText} onFinished={() => setIsTyping(false)}/> };
+      setHistory(prev => prev.map(h => h.id === updatedHistoryItem.id ? updatedHistoryItem : h));
+      
+      resetAuthFlow();
   };
 
   const handleCommandSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -111,36 +151,24 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
         if (authStep === 'email') {
             setAuthData({ email: currentInput });
             setAuthStep('password');
-        } else if (authStep === 'password' && authCommand) {
+        } else if (authStep === 'password') {
             const finalAuthData = { ...authData, password: currentInput };
-            const fullCommand = `${authCommand} ${finalAuthData.email} ${finalAuthData.password}`;
-            
-            const newHistoryItem: HistoryItem = { 
-                id: history.length + 1,
-                command: '', 
-                output: <Skeleton className="h-4 w-32" />,
-                prompt: ''
-            };
-            setHistory(prev => [...prev, newHistoryItem]);
-
-            const result = await processCommand(fullCommand);
-            const updatedHistoryItem = { ...newHistoryItem, output: <Typewriter text={result.text} onFinished={() => setIsTyping(false)}/> };
-            setHistory(prev => prev.map(h => h.id === updatedHistoryItem.id ? updatedHistoryItem : h));
-            resetAuthFlow();
+            await handleAuthSubmit(finalAuthData);
         }
         return;
     }
 
     // --- Standard Command Processing ---
     if (currentInput.toLowerCase() === 'clear') {
-        setHistory([]);
+        loadWelcomeMessage();
         return;
     }
 
     // Intercept login/register to start the flow
-    if (!user && (currentInput.toLowerCase() === 'login' || currentInput.toLowerCase() === 'register')) {
-        setHistory(prev => [...prev, { id: Date.now(), command: currentInput, output: null, prompt: `${commandPrompt} ` }]);
-        setAuthCommand(currentInput.toLowerCase() as 'login' | 'register');
+    const [cmd] = currentInput.toLowerCase().split(/\s+/);
+    if (!user && (cmd === 'login' || cmd === 'register')) {
+        setHistory(prev => [...prev, { id: Date.now(), command: currentInput, output: null, prompt: `${prompt} ` }]);
+        setAuthCommand(cmd as 'login' | 'register');
         setAuthStep('email');
         return;
     }
@@ -148,9 +176,12 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     const newHistoryItem: HistoryItem = { 
         id: history.length + 1,
         command: currentInput, 
-        output: <Skeleton className="h-4 w-32" />,
-        prompt: `${commandPrompt} ` 
+        output: null,
+        prompt: `${prompt} ` 
     };
+    if (!isProcessing) {
+      newHistoryItem.output = <Skeleton className="h-4 w-32" />;
+    }
     setHistory(prev => [...prev, newHistoryItem]);
     
     const result = await processCommand(currentInput);
@@ -212,10 +243,9 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
 
       {isProcessing && authStep === 'idle' && (
          <div className="flex items-center">
-            <span className="text-accent">{commandPrompt}</span>
+            <span className="text-accent">{prompt}</span>
             <span>{command}</span>
-            <Skeleton className="h-4 w-32 ml-2" />
-        </div>
+         </div>
       )}
 
       {authStep === 'email' && (
@@ -225,6 +255,20 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
                 <span className="text-shadow-glow">{command}</span>
                 <BlinkingCursor />
             </div>
+            <input
+                ref={inputRef}
+                id="command-input"
+                type="email"
+                value={command}
+                onChange={(e) => setCommand(e.target.value)}
+                autoComplete="off"
+                autoCapitalize="off"
+                autoCorrect="off"
+                className="absolute top-0 left-0 w-full h-full bg-transparent border-none outline-none text-transparent caret-transparent"
+                aria-label="email input"
+                onFocus={(e) => e.currentTarget.setSelectionRange(e.currentTarget.value.length, e.currentTarget.value.length)}
+                autoFocus
+            />
         </form>
       )}
       
@@ -235,46 +279,48 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
                 <span className="text-shadow-glow">{'*'.repeat(command.length)}</span>
                 <BlinkingCursor />
             </div>
+             <input
+                ref={passwordInputRef}
+                id="password-input"
+                type="password"
+                value={command}
+                onChange={(e) => setCommand(e.target.value)}
+                autoComplete="new-password"
+                className="absolute top-0 left-0 w-full h-full bg-transparent border-none outline-none text-transparent caret-transparent"
+                aria-label="password input"
+                onFocus={(e) => e.currentTarget.setSelectionRange(e.currentTarget.value.length, e.currentTarget.value.length)}
+                autoFocus
+            />
         </form>
       )}
 
       {showInput && (
         <form onSubmit={handleCommandSubmit} className="flex items-center">
-          <label htmlFor="command-input" className="flex-shrink-0 text-accent">{commandPrompt}</label>
+          <label htmlFor="command-input-main" className="flex-shrink-0 text-accent">{prompt}</label>
           <div className="flex-grow relative">
             <span className="text-shadow-glow">{command}</span>
             <BlinkingCursor />
           </div>
+           <input
+                ref={inputRef}
+                id="command-input-main"
+                type="text"
+                value={command}
+                onChange={(e) => setCommand(e.target.value)}
+                autoComplete="off"
+                autoCapitalize="off"
+                autoCorrect="off"
+                className="absolute top-0 left-0 w-full h-full bg-transparent border-none outline-none text-transparent caret-transparent"
+                aria-label="command input"
+                onFocus={(e) => e.currentTarget.setSelectionRange(e.currentTarget.value.length, e.currentTarget.value.length)}
+                disabled={!showInput}
+            />
         </form>
       )}
-      
-      {/* Hidden Inputs */}
-      <input
-        ref={inputRef}
-        id="command-input"
-        type="text"
-        value={command}
-        onChange={(e) => setCommand(e.target.value)}
-        autoComplete="off"
-        autoCapitalize="off"
-        autoCorrect="off"
-        className="absolute top-0 left-0 w-full h-full bg-transparent border-none outline-none text-transparent caret-transparent"
-        aria-label="command input"
-        disabled={authStep !== 'idle' && authStep !== 'email'}
-      />
-      <input
-        ref={passwordInputRef}
-        id="password-input"
-        type="password"
-        value={command}
-        onChange={(e) => setCommand(e.target.value)}
-        autoComplete="off"
-        className="absolute top-0 left-0 w-full h-full bg-transparent border-none outline-none text-transparent caret-transparent"
-        aria-label="password input"
-        disabled={authStep !== 'password'}
-      />
 
       <div ref={endOfHistoryRef} />
     </div>
   );
 }
+
+    
