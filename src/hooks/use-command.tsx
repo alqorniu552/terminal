@@ -53,30 +53,32 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean) => {
 
     const formatCommandsToTable = (title: string, commands: { command: string, args: string, description: string }[]) => {
         if (commands.length === 0) return '';
+
+        const headers = { command: 'Command', args: 'Arguments', description: 'Description' };
         
         const colWidths = {
-            command: Math.max(...commands.map(c => c.command.length), 'Command'.length),
-            args: Math.max(...commands.map(c => c.args.length), 'Arguments'.length),
-            description: Math.max(...commands.map(c => c.description.length), 'Description'.length)
+            command: Math.max(headers.command.length, ...commands.map(c => c.command.length)),
+            args: Math.max(headers.args.length, ...commands.map(c => c.args.length)),
+            description: Math.max(headers.description.length, ...commands.map(c => c.description.length))
         };
 
         const pad = (str: string, width: number) => str.padEnd(width);
 
         const drawLine = (left: string, mid1: string, mid2: string, right: string) =>
-            ` ${left}${'─'.repeat(colWidths.command + 2)}${mid1}${'─'.repeat(colWidths.args + 2)}${mid2}${'─'.repeat(colWidths.description + 2)}${right}`;
+            `${left}${'─'.repeat(colWidths.command + 2)}${mid1}${'─'.repeat(colWidths.args + 2)}${mid2}${'─'.repeat(colWidths.description + 2)}${right}`;
 
         let output = '\n';
 
-        const totalWidth = colWidths.command + colWidths.args + colWidths.description + 10;
+        const totalWidth = colWidths.command + colWidths.args + colWidths.description + 7;
         const titlePadding = Math.floor((totalWidth - title.length) / 2);
-        output += `${' '.repeat(Math.max(0, titlePadding))}\x1b[1m${title}\x1b[0m\n`;
+        output += `${' '.repeat(Math.max(0, titlePadding))}${title}\n`;
 
         output += drawLine('┌', '┬', '┬', '┐') + '\n';
-        output += ` │ \x1b[1m${pad('Command', colWidths.command)}\x1b[0m │ \x1b[1m${pad('Arguments', colWidths.args)}\x1b[0m │ \x1b[1m${pad('Description', colWidths.description)}\x1b[0m │\n`;
+        output += `│ ${pad(headers.command, colWidths.command)} │ ${pad(headers.args, colWidths.args)} │ ${pad(headers.description, colWidths.description)} │\n`;
         output += drawLine('├', '┼', '┼', '┤') + '\n';
 
         commands.forEach(c => {
-            output += ` │ ${pad(c.command, colWidths.command)} │ ${pad(c.args, colWidths.args)} │ ${pad(c.description, colWidths.description)} │\n`;
+            output += `│ ${pad(c.command, colWidths.command)} │ ${pad(c.args, colWidths.args)} │ ${pad(c.description, colWidths.description)} │\n`;
         });
 
         output += drawLine('└', '┴', '┴', '┘') + '\n';
@@ -331,7 +333,7 @@ export const useCommand = (user: User | null | undefined) => {
               const content = Object.keys(node.children);
               if (content.length === 0) return { type: 'text', text: '' };
               const output = content.map(key => {
-                return node.children[key].type === 'directory' ? `\x1b[1;34m${key}/\x1b[0m` : key;
+                return node.children[key].type === 'directory' ? `${key}/` : key;
               }).join('\n');
               return { type: 'text', text: output };
             }
@@ -364,7 +366,7 @@ export const useCommand = (user: User | null | undefined) => {
           }
           
           case 'nano': {
-            if (viewedUser?.uid !== user.uid) {
+            if (viewedUser?.uid !== user?.uid) {
                 return { type: 'text', text: `nano: You can only edit your own files.` };
             }
             if (!argString) return { type: 'text', text: 'Usage: nano <filename>' };
@@ -379,7 +381,7 @@ export const useCommand = (user: User | null | undefined) => {
           }
 
           case 'mkdir': {
-            if (viewedUser?.uid !== user.uid) return { type: 'text', text: `mkdir: Permission denied.` };
+            if (viewedUser?.uid !== user?.uid) return { type: 'text', text: `mkdir: Permission denied.` };
             if (!argString) return { type: 'text', text: 'mkdir: missing operand' };
             const newFs = JSON.parse(JSON.stringify(userFilesystem));
             const targetPath = resolvePath(argString);
@@ -398,7 +400,7 @@ export const useCommand = (user: User | null | undefined) => {
           }
 
           case 'touch': {
-            if (viewedUser?.uid !== user.uid) return { type: 'text', text: `touch: Permission denied.` };
+            if (viewedUser?.uid !== user?.uid) return { type: 'text', text: `touch: Permission denied.` };
             if (!argString) return { type: 'text', text: 'touch: missing file operand' };
             const newFs = JSON.parse(JSON.stringify(userFilesystem));
             const targetPath = resolvePath(argString);
@@ -417,7 +419,7 @@ export const useCommand = (user: User | null | undefined) => {
           }
 
           case 'rm': {
-            if (viewedUser?.uid !== user.uid) return { type: 'text', text: `rm: Permission denied.` };
+            if (viewedUser?.uid !== user?.uid) return { type: 'text', text: `rm: Permission denied.` };
             if (!argString) return { type: 'text', text: 'rm: missing operand' };
             const newFs = JSON.parse(JSON.stringify(userFilesystem));
             const targetPath = resolvePath(argString);
@@ -493,7 +495,7 @@ export const useCommand = (user: User | null | undefined) => {
                 const commandWithoutSudo = args.join(' ');
                 return processCommandAlias(commandWithoutSudo);
             }
-            return { type: 'text', text: `${user.email} is not in the sudoers file. This incident will be reported.` };
+            return { type: 'text', text: `${user?.email} is not in the sudoers file. This incident will be reported.` };
           }
 
           case 'exiftool': {
@@ -632,4 +634,5 @@ End of assembler dump.` };
   return { prompt, processCommand, getWelcomeMessage, isProcessing, editingFile, saveFile, exitEditor };
 };
 
+    
     
