@@ -15,15 +15,15 @@ export type FilesystemNode = File | Directory;
 
 const linpeasOutput = () => {
     return `
-\x1b[1;33mPEASS-NG\x1b[0m - \x1b[1;36mPrivilege Escalation Awesome Scripts SUITE new generation\x1b[0m
+PEASS-NG - Privilege Escalation Awesome Scripts SUITE new generation
 
-\x1b[1;34m[+] \x1b[0m\x1b[1;33mSYSTEM INFORMATION\x1b[0m
-\x1b[1;32m... (lots of system info) ...\x1b[0m
+[+] SYSTEM INFORMATION
+... (lots of system info) ...
 
-\x1b[1;34m[+] \x1b[0m\x1b[1;33mINTERESTING FILES\x1b[0m
-\x1b[1;31;40mHighly probable interesting files\x1b[0m
-  - \x1b[1;32m/var/backups/password.bak\x1b[0m
-    \x1b[0;36mFLAG{P3A_55_15_4W3S0M3}\x1b[0m
+[+] INTERESTING FILES
+Highly probable interesting files
+  - /var/backups/password.bak
+    FLAG{P3A_55_15_4W3S0M3}
 `;
 }
 

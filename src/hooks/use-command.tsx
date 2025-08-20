@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useCallback, useEffect } from 'react';
@@ -371,7 +372,7 @@ export const useCommand = (user: User | null | undefined, isMobile: boolean) => 
               const content = Object.keys(node.children);
               if (content.length === 0) return { type: 'text', text: '' };
               const output = content.map(key => {
-                return node.children[key].type === 'directory' ? `\x1b[1;34m${key}/\x1b[0m` : key;
+                return node.children[key].type === 'directory' ? `${key}/` : key;
               }).join('\n');
               return { type: 'text', text: output };
             }
