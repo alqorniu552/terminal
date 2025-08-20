@@ -99,6 +99,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     setAuthStep('idle');
     setAuthCommand(null);
     setAuthData({});
+    setCommand('');
   };
   
   const handleAuthSubmit = async (finalAuthData: { email?: string; password?: string }) => {
@@ -181,10 +182,9 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
         output: null,
         prompt: prompt 
     };
-    if (!isProcessing) {
-      newHistoryItem.output = <Skeleton className="h-4 w-32" />;
-    }
-    setHistory(prev => [...prev, newHistoryItem]);
+
+    // Show command in history immediately, with a processing indicator
+    setHistory(prev => [...prev, { ...newHistoryItem, output: <Skeleton className="h-4 w-32" /> }]);
     
     const result = await processCommand(currentInput);
     
@@ -199,8 +199,10 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
       outputNode = <Typewriter text={result.text} onFinished={() => setIsTyping(false)} />;
     } else { // 'none'
       outputNode = null;
+      setIsTyping(false); // If no output, stop typing indicator immediately
     }
     
+    // Update the history item with the actual output
     const updatedHistoryItem = { ...newHistoryItem, output: outputNode };
     setHistory(prev => prev.map(h => h.id === updatedHistoryItem.id ? updatedHistoryItem : h));
   };
@@ -325,5 +327,3 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     </div>
   );
 }
-
-    

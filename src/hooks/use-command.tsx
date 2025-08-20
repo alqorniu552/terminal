@@ -6,7 +6,7 @@ import { databaseQuery } from '@/ai/flows/database-query-flow';
 import { askSidekick } from '@/ai/flows/ai-sidekick-flow';
 import { initialFilesystem, Directory, FilesystemNode } from '@/lib/filesystem';
 import { db, auth } from '@/lib/firebase';
-import { collection, query, where, getDocs, WhereFilterOp, doc, setDoc, getDoc, updateDoc, collectionGroup, writeBatch, increment, orderBy, limit } from 'firebase/firestore';
+import { collection, query, where, getDocs, WhereFilterOp, doc, setDoc, getDoc, updateDoc, writeBatch, orderBy, limit } from 'firebase/firestore';
 import { User } from 'firebase/auth';
 import ImageDisplay from '@/components/image-display';
 import { generateCommandHelp } from '@/ai/flows/generate-command-help';
@@ -93,7 +93,7 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean, isMobile: boolean) 
     
     const formatFn = isMobile ? formatCommandsToList : formatCommandsToTable;
 
-    let output = skullIcon + '\n';
+    let output = '';
 
     if (isLoggedIn) {
         const userCommands = [
@@ -151,78 +151,83 @@ const virtualHosts: Record<string, string> = {
     '192.168.1.100': 'Open Ports: 8080 (web-proxy)\nProxy seems to be misconfigured.',
 };
 
-export const useCommand = (user: User | null | undefined) => {
+export const useCommand = (user: User | null | undefined, isMobile: boolean) => {
   const [cwd, setCwd] = useState('/');
   const [isProcessing, setIsProcessing] = useState(false);
   const [userFilesystem, setUserFilesystem] = useState<Directory>(initialFilesystem);
   const [editingFile, setEditingFile] = useState<EditingFile>(null);
   const [isRoot, setIsRoot] = useState(false);
   const [viewedUser, setViewedUser] = useState<{uid: string, email: string} | null>(null);
-  const isMobile = useIsMobile();
   
-  useEffect(() => {
-    if (user) {
-        const isUserRoot = user.email === ROOT_EMAIL;
-        setIsRoot(isUserRoot);
-        setViewedUser({ uid: user.uid, email: user.email! });
-    } else {
-        setIsRoot(false);
-        setViewedUser(null);
-    }
-  }, [user]);
-
   const getPrompt = useCallback(() => {
-    if (user) {
-        const username = viewedUser?.email?.split('@')[0] || 'user';
+    if (viewedUser) {
+        const username = viewedUser.email.split('@')[0] || 'user';
         const path = cwd === '/' ? '~' : `~${cwd}`;
-        const promptChar = (isRoot && viewedUser?.uid === user.uid) ? '#' : '$';
+        const promptChar = (isRoot && viewedUser.uid === user?.uid) ? '#' : '$';
         return `${username}@cyber:${path}${promptChar} `;
     }
     return 'guest@cyber:~$ ';
   }, [user, cwd, isRoot, viewedUser]);
-
+  
   const [prompt, setPrompt] = useState(getPrompt());
   const { toast } = useToast();
   
-  useEffect(() => {
-    setPrompt(getPrompt());
-  }, [user, cwd, getPrompt, isRoot, viewedUser]);
-  
   const fetchUserFilesystem = useCallback(async (uid: string | null) => {
+    setIsProcessing(true);
     if (uid) {
-        setIsProcessing(true);
         const userDocRef = doc(db, 'users', uid);
         const userDoc = await getDoc(userDocRef);
         if (userDoc.exists() && userDoc.data().filesystem) {
             setUserFilesystem(userDoc.data().filesystem);
-        } else if (user) {
+        } else if (user) { // If user exists but has no filesystem, create one
             const userDocData = userDoc.exists() ? userDoc.data() : { email: user.email };
             const newUserDoc = { ...userDocData, filesystem: initialFilesystem };
             await setDoc(userDocRef, newUserDoc, { merge: true });
             setUserFilesystem(initialFilesystem);
         }
-        setCwd('/');
-        setIsProcessing(false);
     } else {
         setUserFilesystem(initialFilesystem);
-        setCwd('/');
     }
+    setCwd('/');
+    setIsProcessing(false);
   }, [user]);
 
   useEffect(() => {
-    fetchUserFilesystem(viewedUser?.uid ?? null);
-  }, [viewedUser, fetchUserFilesystem]);
+    if (user) {
+        const isUserRoot = user.email === ROOT_EMAIL;
+        setIsRoot(isUserRoot);
+        // If the user's view hasn't been set, or if the logged-in user changes, default to self-view.
+        if (!viewedUser || viewedUser.uid !== user.uid) {
+            setViewedUser({ uid: user.uid, email: user.email! });
+        }
+    } else {
+        setIsRoot(false);
+        setViewedUser(null);
+    }
+  }, [user, viewedUser]);
 
+  useEffect(() => {
+    setPrompt(getPrompt());
+  }, [getPrompt]);
+
+  useEffect(() => {
+    if (viewedUser?.uid) {
+      fetchUserFilesystem(viewedUser.uid);
+    } else {
+      setUserFilesystem(initialFilesystem);
+      setCwd('/');
+    }
+  }, [viewedUser, fetchUserFilesystem]);
 
   const getWelcomeMessage = useCallback(() => {
     if (user) {
-        if (user.email === ROOT_EMAIL) {
+        if (isRoot) {
             return `Welcome, root. System privileges granted. Type 'help' for a list of commands.`;
         }
         return `Welcome back, ${user.email}! Type 'help' for a list of commands.`;
     }
     return `Welcome to Cyber! Please 'login' or 'register' to continue.`;
-  }, [user]);
+  }, [user, isRoot]);
 
   const resolvePath = useCallback((path: string): string => {
     if (path.startsWith('/')) {
@@ -255,35 +260,33 @@ export const useCommand = (user: User | null | undefined) => {
 
   const getParentNodeFromPath = useCallback((path: string, fs: Directory): Directory | null => {
       const parts = path.split('/').filter(p => p && p !== '~');
-      if (parts.length < 1) return null;
-       if (parts.length === 1) return fs; // Parent is root
+      if (parts.length === 0) return null; // Can't get parent of root
+      if (parts.length === 1) return fs; // Parent is root
       const parentPath = '/' + parts.slice(0, -1).join('/');
       const node = getNodeFromPath(parentPath, fs);
       return node?.type === 'directory' ? node : null;
   }, [getNodeFromPath]);
 
   const updateFirestoreFilesystem = useCallback(async (newFilesystem: Directory) => {
-    if (viewedUser?.uid !== user?.uid) {
+    if (!viewedUser || !user || viewedUser.uid !== user.uid) {
         toast({ title: "Permission Denied", description: "You are in read-only mode for this user's filesystem." });
         return;
     }
-    if (viewedUser) {
-        try {
-            const userDocRef = doc(db, 'users', viewedUser.uid);
-            await updateDoc(userDocRef, { filesystem: newFilesystem });
-        } catch (error) {
-            console.error("Error updating filesystem in Firestore:", error);
-            toast({
-                variant: "destructive",
-                title: "Filesystem Error",
-                description: "Could not save file changes to the cloud.",
-            });
-        }
+    try {
+        const userDocRef = doc(db, 'users', viewedUser.uid);
+        await updateDoc(userDocRef, { filesystem: newFilesystem });
+    } catch (error) {
+        console.error("Error updating filesystem in Firestore:", error);
+        toast({
+            variant: "destructive",
+            title: "Filesystem Error",
+            description: "Could not save file changes to the cloud.",
+        });
     }
   }, [viewedUser, user, toast]);
 
   const saveFile = useCallback(async (path: string, content: string): Promise<string> => {
-      if (viewedUser?.uid !== user?.uid) {
+      if (!viewedUser || !user || viewedUser.uid !== user.uid) {
         return "Error: Permission Denied. You are in read-only mode.";
       }
       const newFs = JSON.parse(JSON.stringify(userFilesystem));
@@ -315,20 +318,19 @@ export const useCommand = (user: User | null | undefined) => {
     const isLoggedIn = !!user;
 
     if (!isLoggedIn) {
-        switch (cmd.toLowerCase()) {
-            case 'help':
-                 return { type: 'text', text: getHelpOutput(false, false, isMobile) };
-            case '':
-                 setIsProcessing(false);
-                 return { type: 'none' };
-            default:
-                if (!cmd.toLowerCase().startsWith('login') && !cmd.toLowerCase().startsWith('register')) {
-                    setIsProcessing(false);
-                    return { type: 'text', text: `Command not found: ${cmd}. Please 'login' or 'register'.` };
-                }
-                setIsProcessing(false);
-                return { type: 'none' }; 
-        }
+      setIsProcessing(false); // Stop processing early for guests
+      switch (cmd.toLowerCase()) {
+        case 'help':
+          return { type: 'text', text: getHelpOutput(false, false, isMobile) };
+        case '':
+          return { type: 'none' };
+        case 'login':
+        case 'register':
+          // These are handled by the terminal component's auth flow
+          return { type: 'none' };
+        default:
+          return { type: 'text', text: `Command not found: ${cmd}. Please 'login' or 'register'.` };
+      }
     }
 
     try {
@@ -336,7 +338,7 @@ export const useCommand = (user: User | null | undefined) => {
           case 'help':
             return { type: 'text', text: getHelpOutput(true, isRoot, isMobile) };
           case 'neofetch':
-            return { type: 'text', text: getNeofetchOutput(user) };
+            return { type: 'text', text: getNeofetchOutput(viewedUser) };
           
           case 'ls': {
             const targetPath = argString ? resolvePath(argString) : cwd;
@@ -378,7 +380,7 @@ export const useCommand = (user: User | null | undefined) => {
           }
           
           case 'nano': {
-            if (viewedUser?.uid !== user?.uid) {
+            if (!user || viewedUser?.uid !== user.uid) {
                 return { type: 'text', text: `nano: You can only edit your own files.` };
             }
             if (!argString) return { type: 'text', text: 'Usage: nano <filename>' };
@@ -393,16 +395,16 @@ export const useCommand = (user: User | null | undefined) => {
           }
 
           case 'mkdir': {
-            if (viewedUser?.uid !== user?.uid) return { type: 'text', text: `mkdir: Permission denied.` };
+            if (!user || viewedUser?.uid !== user.uid) return { type: 'text', text: `mkdir: Permission denied.` };
             if (!argString) return { type: 'text', text: 'mkdir: missing operand' };
             const newFs = JSON.parse(JSON.stringify(userFilesystem));
             const targetPath = resolvePath(argString);
+            if (getNodeFromPath(targetPath, newFs)) {
+              return { type: 'text', text: `mkdir: cannot create directory ‘${argString}’: File exists` };
+            }
             const parentNode = getParentNodeFromPath(targetPath, newFs);
             const dirname = targetPath.split('/').pop();
             if (parentNode && dirname) {
-                if (parentNode.children[dirname]) {
-                    return { type: 'text', text: `mkdir: cannot create directory ‘${argString}’: File exists` };
-                }
                 parentNode.children[dirname] = { type: 'directory', children: {} };
                 setUserFilesystem({ ...newFs });
                 await updateFirestoreFilesystem(newFs);
@@ -412,16 +414,17 @@ export const useCommand = (user: User | null | undefined) => {
           }
 
           case 'touch': {
-            if (viewedUser?.uid !== user?.uid) return { type: 'text', text: `touch: Permission denied.` };
+            if (!user || viewedUser?.uid !== user.uid) return { type: 'text', text: `touch: Permission denied.` };
             if (!argString) return { type: 'text', text: 'touch: missing file operand' };
             const newFs = JSON.parse(JSON.stringify(userFilesystem));
             const targetPath = resolvePath(argString);
+            if (getNodeFromPath(targetPath, newFs)) {
+                // In unix, touch on existing file updates timestamp, here we do nothing.
+                return { type: 'none' };
+            }
             const parentNode = getParentNodeFromPath(targetPath, newFs);
             const filename = targetPath.split('/').pop();
             if (parentNode && filename) {
-                if (parentNode.children[filename]) {
-                    return { type: 'none' };
-                }
                 parentNode.children[filename] = { type: 'file', content: '' };
                 setUserFilesystem({ ...newFs });
                 await updateFirestoreFilesystem(newFs);
@@ -431,16 +434,17 @@ export const useCommand = (user: User | null | undefined) => {
           }
 
           case 'rm': {
-            if (viewedUser?.uid !== user?.uid) return { type: 'text', text: `rm: Permission denied.` };
+            if (!user || viewedUser?.uid !== user.uid) return { type: 'text', text: `rm: Permission denied.` };
             if (!argString) return { type: 'text', text: 'rm: missing operand' };
             const newFs = JSON.parse(JSON.stringify(userFilesystem));
             const targetPath = resolvePath(argString);
+            if (targetPath === '/') return { type: 'text', text: `rm: cannot remove '/': Is a directory` };
             const parentNode = getParentNodeFromPath(targetPath, newFs);
             const nodeName = targetPath.split('/').pop();
             if (parentNode && nodeName && parentNode.children[nodeName]) {
                 const nodeToRemove = parentNode.children[nodeName];
-                if (nodeToRemove.type === 'directory' && Object.keys(nodeToRemove.children).length > 0 && !args.includes('-r')) {
-                    return { type: 'text', text: `rm: cannot remove '${argString}': Is a directory (and not empty)` };
+                if (nodeToRemove.type === 'directory' && Object.keys(nodeToRemove.children).length > 0 && args[0] !== '-r') {
+                    return { type: 'text', text: `rm: cannot remove '${argString}': Directory not empty` };
                 }
                 delete parentNode.children[nodeName];
                 setUserFilesystem({ ...newFs });
@@ -514,6 +518,7 @@ export const useCommand = (user: User | null | undefined) => {
                     completed_missions: [...(userProgressSnap.data()?.completed_missions || []), missionId],
                     score: newScore,
                     last_completed: new Date(),
+                    email: user.email, // Add email to progress for consistency
                 };
                 
                 if (userProgressSnap.exists()) {
@@ -623,7 +628,7 @@ export const useCommand = (user: User | null | undefined) => {
     } finally {
         setIsProcessing(false);
     }
-  }, [cwd, toast, user, userFilesystem, resolvePath, getNodeFromPath, getParentNodeFromPath, updateFirestoreFilesystem, saveFile, exitEditor, isRoot, viewedUser, isMobile, getPrompt]);
+  }, [cwd, toast, user, userFilesystem, resolvePath, getNodeFromPath, getParentNodeFromPath, updateFirestoreFilesystem, saveFile, exitEditor, isRoot, viewedUser, isMobile, getPrompt, fetchUserFilesystem]);
 
   return { prompt, processCommand, getWelcomeMessage, isProcessing, editingFile, saveFile, exitEditor };
 };
