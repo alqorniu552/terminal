@@ -131,6 +131,9 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
 
   useEffect(() => {
     focusInput();
+    const clickHandler = () => focusInput();
+    window.addEventListener('click', clickHandler);
+    return () => window.removeEventListener('click', clickHandler);
   }, [focusInput]);
 
   const loadWelcomeMessage = useCallback(() => {
@@ -157,8 +160,11 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     if (!user) {
         setHistory([]);
         if (resetAuth) resetAuth();
+    } else {
+        setHistory([]);
+        loadWelcomeMessage();
     }
-  }, [user, resetAuth]);
+  }, [user, resetAuth, loadWelcomeMessage]);
 
   useEffect(() => {
     endOfHistoryRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -221,15 +227,13 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
   const isPasswordInput = authStep && authStep.includes('password');
   const showInput = !isTyping && (!osSelectionStep || osSelectionStep !== 'installing') && !editingFile;
 
-  if (editingFile) {
+  if (editingFile && saveFile && exitEditor) {
     return (
       <NanoEditor
         filename={editingFile.path}
         initialContent={editingFile.content}
         onSave={async (newContent) => {
-            if(saveFile) {
-                await saveFile(editingFile.path, newContent);
-            }
+            await saveFile(editingFile.path, newContent);
             const saveMessage = `File saved: ${editingFile.path}`;
             const newHistoryItem: HistoryItem = { 
                 id: history.length + 1,

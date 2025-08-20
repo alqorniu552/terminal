@@ -160,7 +160,7 @@ export const useCommand = (user: User | null | undefined) => {
   const isRoot = userData?.isRoot;
   const currentFilesystem = impersonatedUser ? impersonatedUser.filesystem : userFilesystem;
 
-  const getInitialPrompt = useCallback(() => {
+  const getPrompt = useCallback(() => {
     if (authStep === 'login_email' || authStep === 'register_email') {
       return 'Email:';
     }
@@ -192,9 +192,13 @@ export const useCommand = (user: User | null | undefined) => {
     return 'guest@hacker:~$';
   }, [user, isRoot, cwd, osSelectionStep, authStep, impersonatedUser, sessionState]);
 
-  const [prompt, setPrompt] = useState(getInitialPrompt());
+  const [prompt, setPrompt] = useState('guest@hacker:~$');
   const { toast } = useToast();
   
+  useEffect(() => {
+    setPrompt(getPrompt());
+  }, [getPrompt]);
+
   const resolvePath = (path: string): string => {
     if (path.startsWith('/')) {
       const newParts = path.split('/').filter(p => p);
@@ -237,7 +241,7 @@ export const useCommand = (user: User | null | undefined) => {
       return node?.type === 'directory' ? node : null;
   }
   
-  const updateFirestoreFilesystem = async (newFilesystem: Directory) => {
+  const updateFirestoreFilesystem = useCallback(async (newFilesystem: Directory) => {
     const targetUser = impersonatedUser || user;
     if (targetUser) {
         try {
@@ -255,7 +259,7 @@ export const useCommand = (user: User | null | undefined) => {
             });
         }
     }
-  };
+  }, [impersonatedUser, user, toast]);
 
   const fetchUserData = useCallback(async () => {
     if (user) {
@@ -277,7 +281,6 @@ export const useCommand = (user: User | null | undefined) => {
                 uid: user.uid,
                 os: null,
                 osInstalled: false,
-                // Exclusive root access for this specific email.
                 isRoot: user.email === 'alqorniu552@gmail.com',
                 filesystem: initialFilesystem,
             };
@@ -300,10 +303,6 @@ export const useCommand = (user: User | null | undefined) => {
   useEffect(() => {
     fetchUserData();
   }, [user, fetchUserData]);
-
-  useEffect(() => {
-    setPrompt(getInitialPrompt());
-  }, [getInitialPrompt]);
 
   const resetAuth = useCallback(() => {
     setAuthStep('none');
@@ -331,15 +330,15 @@ export const useCommand = (user: User | null | undefined) => {
     return '';
   }, [user, isRoot, osSelectionStep, authStep]);
   
-  const startOSInstallation = async (selectedOS: string) => {
+  const startOSInstallation = useCallback(async (selectedOS: string) => {
     setOsSelectionStep('installing');
     if(user) {
       await updateDoc(doc(db, 'users', user.uid), { os: selectedOS });
       setUserData((prev: any) => ({ ...prev, os: selectedOS }));
     }
-  };
+  }, [user]);
   
-    const saveFile = async (path: string, content: string) => {
+    const saveFile = useCallback(async (path: string, content: string) => {
         const newFs = JSON.parse(JSON.stringify(currentFilesystem));
         const targetPath = resolvePath(path);
         const parentNode = getParentNodeFromPath(targetPath, newFs);
@@ -371,11 +370,11 @@ export const useCommand = (user: User | null | undefined) => {
                 description: "Could not save file to the specified path.",
             });
         }
-    };
+    }, [currentFilesystem, impersonatedUser, toast, updateFirestoreFilesystem]);
 
-    const exitEditor = () => {
+    const exitEditor = useCallback(() => {
         setEditingFile(null);
-    };
+    }, []);
 
 
   const processCommand = useCallback(async (command: string): Promise<CommandResult> => {
@@ -384,8 +383,8 @@ export const useCommand = (user: User | null | undefined) => {
 
     if (sessionState === 'vulnerable_login') {
         const password = command.trim();
-        setSessionState('terminal'); // Exit after one attempt
-        if (password.length > 32) { // Buffer size simulation
+        setSessionState('terminal'); 
+        if (password.length > 32) { 
             return `*** stack smashing detected ***: terminated
 FLAG{8UFF3R_0V3RFL0W_SUCC3SS}
 `;
@@ -1128,7 +1127,7 @@ Reading symbols from ${fileToDebug}...
         if (file === 'image_with_secret.png' && pass === 'opensesame') {
             
             const newFs = JSON.parse(JSON.stringify(currentFilesystem));
-            const secretFilePath = '/secret_flag.txt';
+            const secretFilePath = resolvePath('secret_flag.txt');
             
             const parentNode = getParentNodeFromPath(secretFilePath, newFs);
             const filename = secretFilePath.split('/').pop();
@@ -1138,7 +1137,7 @@ Reading symbols from ${fileToDebug}...
                 if (!impersonatedUser) {
                   setUserFilesystem(newFs);
                 }
-                updateFirestoreFilesystem(newFs);
+                await updateFirestoreFilesystem(newFs);
                 return `wrote extracted data to "secret_flag.txt".`;
             }
             return 'Error: could not write extracted file.'
@@ -1219,7 +1218,7 @@ HelpAssistant:1000:long_hash_value:FLAG{H45H_DUMP3D_FR0M_M3M0RY}:::
         }
         const node = getNodeFromPath(resolvePath(filename), currentFilesystem);
         if (node && node.type === 'file') {
-            const content = typeof node.content === 'function' ? node.content() : node.content;
+            const content = typeof node.content === 'function' ? node.content() : node.content as string;
             const lines = content.split('\n');
             const matchedLines = lines.filter(line => line.includes(pattern));
             if (matchedLines.length > 0) {
@@ -1240,7 +1239,7 @@ HelpAssistant:1000:long_hash_value:FLAG{H45H_DUMP3D_FR0M_M3M0RY}:::
         const forumNode = getNodeFromPath(forumFilePath, newFs);
         if (forumNode && forumNode.type === 'file' && typeof forumNode.content === 'string') {
             const newContent = `${forumNode.content}\n[user] ${comment}`;
-            forumNode.content = newContent;
+            (forumNode as File).content = newContent;
             if (!impersonatedUser) {
               setUserFilesystem(newFs);
             }
@@ -1395,9 +1394,7 @@ Using binary mode to transfer files.
         }
       }
     }
-  }, [cwd, toast, user, authStep, authCredentials, resetAuth, isRoot, osSelectionStep, userData, fetchUserData, userFilesystem, impersonatedUser, currentFilesystem, sessionState]);
+  }, [cwd, toast, user, authStep, authCredentials, resetAuth, isRoot, osSelectionStep, userData, fetchUserData, userFilesystem, impersonatedUser, currentFilesystem, sessionState, startOSInstallation, updateFirestoreFilesystem]);
 
   return { prompt, processCommand, getWelcomeMessage, authStep, resetAuth, osSelectionStep, setOsSelectionStep, editingFile, saveFile, exitEditor };
 };
-
-    
