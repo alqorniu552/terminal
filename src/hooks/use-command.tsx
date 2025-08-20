@@ -90,6 +90,8 @@ const getNodeFromPath = (path: string): FilesystemNode | null => {
 
 export const useCommand = (user: User | null | undefined) => {
   const [cwd, setCwd] = useState('/');
+  const [warlockMessages, setWarlockMessages] = useState<any[]>([]);
+
   const getInitialPrompt = useCallback(() => {
     if (user) {
         return `${user.email?.split('@')[0]}@command-center:~$`;
@@ -115,7 +117,11 @@ export const useCommand = (user: User | null | undefined) => {
     return `Welcome to Command Center! Please 'login' or 'register' to continue.`;
   }, [user]);
 
-  const processCommand = useCallback(async (command: string): Promise<string> => {
+  const clearWarlockMessages = useCallback(() => {
+    setWarlockMessages([]);
+  }, []);
+
+  const processCommand = useCallback(async (command: string): Promise<string | React.ReactNode> => {
     const [cmd, ...args] = command.trim().split(/\s+/);
     const isLoggedIn = !!user;
 
@@ -160,7 +166,7 @@ export const useCommand = (user: User | null | undefined) => {
         const node = getNodeFromPath(targetPath);
         if (node && node.type === 'directory') {
           return Object.keys(node.children).map(key => {
-            return node.children[key].type === 'directory' ? `\x1b[1;34m${key}/\x1b[0m` : key;
+            return node.children[key].type === 'directory' ? `${key}/` : key;
           }).join('\n');
         }
         return `ls: cannot access '${arg || '.'}': No such file or directory`;
@@ -252,5 +258,17 @@ export const useCommand = (user: User | null | undefined) => {
     }
   }, [cwd, toast, user, prompt]);
 
-  return { prompt, setPrompt, processCommand, resetPrompt, getWelcomeMessage };
+  return { 
+    prompt, 
+    setPrompt, 
+    processCommand, 
+    resetPrompt, 
+    getWelcomeMessage, 
+    warlockMessages, 
+    clearWarlockMessages,
+    editingFile: null,
+    exitEditor: () => {},
+    saveFile: async () => "not implemented",
+    isProcessing: false,
+ };
 };
