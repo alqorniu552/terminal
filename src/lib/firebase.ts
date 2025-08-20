@@ -29,6 +29,8 @@ const seedMissions = async () => {
             { id: 'mission2', title: 'Privilege Escalation', description: 'An automated script might reveal more than it should.', flag: 'FLAG{P3A_55_15_4W3S0M3}', points: 20 },
             { id: 'mission3', title: 'Metadata Exfiltration', description: 'Secrets can hide in plain sight. Check the file\'s metadata.', flag: 'FLAG{3X1F_M3T4D4T4_H1DD3N_S3CR3T}', points: 15 },
             { id: 'mission4', title: 'Basic Reversing', description: 'Sometimes, you just need to look at the strings.', flag: 'FLAG{B4S1C_R3V3RS1NG_W1TH_STR1NGS}', points: 10 },
+            { id: 'mission5', title: 'Password Cracking', description: 'Crack the password hash found in shadow.bak.', flag: 'FLAG{D1CT10NARY_BRU73_F0RC3}', points: 25 },
+            { id: 'mission6', title: 'Steganography', description: 'There is a message hidden in mission_image.jpg.', flag: 'FLAG{ST3G4N0GRAPHY_1S_C00L}', points: 30 },
         ];
 
         missions.forEach(mission => {

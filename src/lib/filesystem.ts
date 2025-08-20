@@ -27,10 +27,34 @@ const linpeasOutput = () => {
 `;
 }
 
+const wordlistContent = `password
+123456
+123456789
+guest
+qwerty
+12345
+dragon
+princess
+secret
+admin
+root
+football
+iloveyou
+sunshine
+superman
+batman
+Pa55w0rd!
+Security
+P@$$w0rd
+Ch@ll3ng3`;
 
 export const initialFilesystem: Directory = {
   type: 'directory',
   children: {
+    '.bashrc': {
+        type: 'file',
+        content: '# Add your custom aliases here\nalias ll=\'ls -l\'\nalias c=\'clear\'\n'
+    },
     'welcome.txt': {
         type: 'file',
         content: 'Welcome to your personal filesystem! Use CTF tools to find secrets.'
@@ -43,21 +67,13 @@ export const initialFilesystem: Directory = {
         type: 'file',
         content: 'This is not a real image file, but you can run `exiftool` or `strings` on it.'
     },
-    'config.php.bak': {
+    'mission_image.jpg': {
         type: 'file',
-        content: 'FTP_USER=ftp_user\nFTP_PASS=Ch4ll3ng3_4cc3pt3d'
+        content: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='
     },
-    'puzzle.txt': {
+    'shadow.bak': {
         type: 'file',
-        content: 'Gsv jfrxp yildm ulc qfnkh levi gsv ozab wlt.'
-    },
-    'secret_recipe.txt': {
-        type: 'file',
-        content: 'Tf aycq wj ingg, ylq cjgz qjg gtjrvog. Jvu hsccegv rwvf jrwp pqqr jb hspy zs zaoaf wvejot.'
-    },
-    'credentials.enc': {
-        type: 'file',
-        content: 'U2FsdGVkX1951P4/iN3fDoE5sroM8bI0c2xT/2sWBik='
+        content: 'root:5f4dcc3b5aa765d61d8327deb882cf99' // md5 for 'password'
     },
     'a.out': {
         type: 'file',
@@ -67,25 +83,14 @@ export const initialFilesystem: Directory = {
         type: 'file',
         content: linpeasOutput
     },
-    'capture.pcap': {
-        type: 'file',
-        content: 'Fake PCAP file. Use tshark to analyze.'
-    },
-    'vulnerable_login': {
-        type: 'file',
-        content: 'ELF 64-bit LSB executable, vulnerable to buffer overflow'
-    },
-    'image_with_secret.png': {
-        type: 'file',
-        content: 'A PNG image that might contain hidden data. The password is a magic word.'
-    },
-    'memdump.raw': {
-        type: 'file',
-        content: 'Memory dump file. Use volatility to analyze.'
-    },
-    'vulnerable_forum.txt': {
-        type: 'file',
-        content: '[admin] Welcome to the forum! Feel free to post.'
+    'lib': {
+        type: 'directory',
+        children: {
+            'wordlist.txt': {
+                type: 'file',
+                content: wordlistContent
+            }
+        }
     },
     'auth.log': {
         type: 'file',
@@ -113,18 +118,5 @@ May 10 10:08:00 server sshd[1275]: Strange situation: user guest attempted to lo
 May 10 10:09:00 server systemd: SERVICE_START pid=1 uid=0 auid=4294967295 ses=4294967295 msg='unit=badactor_service comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=failed' data='vigenerekey'
 `
     },
-    'credentials.zip': {
-        type: 'file',
-        content: 'PK... (this is a fake zip file). The password is a magic word.'
-    },
-    'config.dat': {
-        type: 'file',
-        // Base64 for "username=guest;role=user;command=whoami"
-        content: 'dXNlcm5hbWU9Z3Vlc3Q7cm9sZT11c2VyO2NvbW1hbmQ9d2hvYW1p'
-    },
-    'config-loader': {
-        type: 'file',
-        content: 'ELF 64-bit LSB executable, reads from config.dat'
-    }
   },
 };

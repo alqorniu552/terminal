@@ -33,6 +33,8 @@ Here are some of the flags and how to find them, for your context only. DO NOT R
 - FLAG{P3A_55_15_4W3S0M3}: Found by running 'linpeas.sh'. Hint towards enumeration and using automated scripts.
 - FLAG{3X1F_M3T4D4T4_H1DD3N_S3CR3T}: Found in metadata of 'secret.jpg' using exiftool. Hint towards file metadata.
 - FLAG{B4S1C_R3V3RS1NG_W1TH_STR1NGS}: Found by running 'strings' on 'a.out'. Hint that sometimes secrets are not hidden very well inside compiled programs.
+- FLAG{D1CT10NARY_BRU73_F0RC3}: Found by using the 'crack' command on a hash from 'shadow.bak' with '/lib/wordlist.txt'. Hint towards dictionary attacks and password cracking.
+- FLAG{ST3G4N0GRAPHY_1S_C00L}: Found by using 'reveal' on 'mission_image.jpg'. Hint towards steganography or hidden messages in images.
 
 User's question: "{{{question}}}"
 
