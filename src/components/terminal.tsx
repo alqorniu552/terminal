@@ -10,6 +10,8 @@ import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'fire
 import { auth, db } from '@/lib/firebase';
 import { doc, setDoc } from 'firebase/firestore';
 import { initialFilesystem } from '@/lib/filesystem';
+import { useIsMobile } from '@/hooks/use-mobile';
+
 
 interface HistoryItem {
   id: number;
@@ -29,6 +31,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [command, setCommand] = useState('');
   const [isTyping, setIsTyping] = useState(true);
+  const isMobile = useIsMobile();
 
   // State for multi-step auth
   const [authStep, setAuthStep] = useState<AuthStep>('idle');
@@ -43,7 +46,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     saveFile,
     exitEditor,
     isProcessing,
-  } = useCommand(user);
+  } = useCommand(user, isMobile);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const passwordInputRef = useRef<HTMLInputElement>(null);
@@ -284,6 +287,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
                 id="password-input"
                 type="password"
                 value={command}
+                onChange={(e) => setCommand(e.target.value)}
                 autoComplete="new-password"
                 className="absolute top-0 left-0 w-full h-full bg-transparent border-none outline-none text-transparent caret-transparent"
                 aria-label="password input"
@@ -321,5 +325,3 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     </div>
   );
 }
-
-    

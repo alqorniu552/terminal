@@ -37,7 +37,7 @@ Shell: bash
 `;
 };
 
-const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean) => {
+const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean, isMobile: boolean) => {
     const skullIcon = `
                       .-.
                      (o.o)
@@ -51,40 +51,42 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean) => {
                     \`-------\`
 `;
 
-    const formatCommandsToTable = (title: string, commands: { command: string, args: string, description: string }[]) => {
+    const formatCommandsToTable = (title: string, commands: { command: string, args: string, description: string }[]): string => {
         if (commands.length === 0) return '';
-
         const headers = { command: 'Command', args: 'Arguments', description: 'Description' };
-        
         const colWidths = {
             command: Math.max(headers.command.length, ...commands.map(c => c.command.length)),
             args: Math.max(headers.args.length, ...commands.map(c => c.args.length)),
             description: Math.max(headers.description.length, ...commands.map(c => c.description.length))
         };
-
         const pad = (str: string, width: number) => str.padEnd(width);
-
         const drawLine = (left: string, mid1: string, mid2: string, right: string) =>
             `${left}${'─'.repeat(colWidths.command + 2)}${mid1}${'─'.repeat(colWidths.args + 2)}${mid2}${'─'.repeat(colWidths.description + 2)}${right}`;
-
         let output = '\n';
-
         const totalWidth = colWidths.command + colWidths.args + colWidths.description + 7;
         const titlePadding = Math.floor((totalWidth - title.length) / 2);
         output += `${' '.repeat(Math.max(0, titlePadding))}${title}\n`;
-
         output += drawLine('┌', '┬', '┬', '┐') + '\n';
         output += `│ ${pad(headers.command, colWidths.command)} │ ${pad(headers.args, colWidths.args)} │ ${pad(headers.description, colWidths.description)} │\n`;
         output += drawLine('├', '┼', '┼', '┤') + '\n';
-
         commands.forEach(c => {
             output += `│ ${pad(c.command, colWidths.command)} │ ${pad(c.args, colWidths.args)} │ ${pad(c.description, colWidths.description)} │\n`;
         });
-
         output += drawLine('└', '┴', '┴', '┘') + '\n';
-
         return output;
     };
+    
+    const formatCommandsToList = (title: string, commands: { command: string, args: string, description: string }[]): string => {
+        if (commands.length === 0) return '';
+        let output = `\n${title}\n`;
+        commands.forEach(c => {
+            const commandStr = c.command + (c.args ? ` ${c.args}` : '');
+            output += `- ${commandStr}: ${c.description}\n`;
+        });
+        return output;
+    };
+    
+    const formatFn = isMobile ? formatCommandsToList : formatCommandsToTable;
 
     let output = skullIcon + '\n';
 
@@ -120,11 +122,11 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean) => {
             { command: 'chuser', args: '<email>', description: 'Switch to another user\'s filesystem view.'},
         ];
 
-        output += formatCommandsToTable('BASIC COMMANDS', userCommands);
-        output += formatCommandsToTable('CTF TOOLS', ctfTools);
+        output += formatFn('BASIC COMMANDS', userCommands);
+        output += formatFn('CTF TOOLS', ctfTools);
 
         if (isRoot) {
-            output += formatCommandsToTable('ROOT COMMANDS', rootCommands);
+            output += formatFn('ROOT COMMANDS', rootCommands);
         }
 
         return output;
@@ -136,12 +138,12 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean) => {
       { command: 'register', args: '', description: 'Create a new account.' },
       { command: 'clear', args: '', description: 'Clear the terminal screen.' },
     ];
-    output += formatCommandsToTable('AVAILABLE COMMANDS', loggedOutCommands);
+    output += formatFn('AVAILABLE COMMANDS', loggedOutCommands);
     return output;
 };
 
 
-export const useCommand = (user: User | null | undefined) => {
+export const useCommand = (user: User | null | undefined, isMobile: boolean) => {
   const [cwd, setCwd] = useState('/');
   const [isProcessing, setIsProcessing] = useState(false);
   const [userFilesystem, setUserFilesystem] = useState<Directory>(initialFilesystem);
@@ -305,7 +307,7 @@ export const useCommand = (user: User | null | undefined) => {
     if (!isLoggedIn) {
         switch (cmd.toLowerCase()) {
             case 'help':
-                 return { type: 'text', text: getHelpOutput(false, false) };
+                 return { type: 'text', text: getHelpOutput(false, false, isMobile) };
             case '':
                 return { type: 'none' };
             default:
@@ -321,7 +323,7 @@ export const useCommand = (user: User | null | undefined) => {
     try {
         switch (cmd.toLowerCase()) {
           case 'help':
-            return { type: 'text', text: getHelpOutput(true, isRoot) };
+            return { type: 'text', text: getHelpOutput(true, isRoot, isMobile) };
           case 'neofetch':
             return { type: 'text', text: getNeofetchOutput(user) };
           
@@ -613,8 +615,7 @@ End of assembler dump.` };
             return { type: 'none' };
 
           default: {
-            const result = await generateCommandHelp({ command: cmd });
-            return { type: 'text', text: result.helpMessage };
+            return { type: 'text', text: `bash: command not found: ${cmd}`};
           }
         }
     } catch (error: any) {
@@ -628,10 +629,7 @@ End of assembler dump.` };
     } finally {
         setIsProcessing(false);
     }
-  }, [cwd, toast, user, userFilesystem, resolvePath, getNodeFromPath, getParentNodeFromPath, updateFirestoreFilesystem, saveFile, exitEditor, isRoot, viewedUser]);
+  }, [cwd, toast, user, userFilesystem, resolvePath, getNodeFromPath, getParentNodeFromPath, updateFirestoreFilesystem, saveFile, exitEditor, isRoot, viewedUser, isMobile]);
 
   return { prompt, processCommand, getWelcomeMessage, isProcessing, editingFile, saveFile, exitEditor };
 };
-
-    
-    
