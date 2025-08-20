@@ -15,3 +15,4 @@ import '@/ai/flows/analyze-image-flow.ts';
 import '@/ai/flows/osint-investigation-flow.ts';
 import '@/ai/flows/craft-phish-flow.ts';
 import '@/ai/flows/forge-tool-flow.ts';
+import '@/ai/flows/craft-worm-flow.ts';

@@ -1,7 +1,7 @@
 
 export interface File {
   type: 'file';
-  content: string;
+  content: string | (() => string);
   path?: string;
   logicBomb?: boolean;
 }
@@ -14,6 +14,13 @@ export interface Directory {
 }
 
 export type FilesystemNode = File | Directory;
+
+interface WormState {
+    scriptName: string;
+    payload: 'data_exfil' | 'corruption' | 'replication_only';
+    infectedDirs: string[];
+    corruptionLevel: number;
+}
 
 const linpeasOutput = () => {
     return `
@@ -253,14 +260,34 @@ Gobuster v3.1.0
   },
 };
 
-export const getDynamicContent = (content: string | (() => string), path: string): string => {
+const applyCorruption = (content: string, level: number): string => {
+    if (level <= 0) return content;
+    const corruptionChar = '';
+    const corruptionAmount = Math.floor(content.length * (level / 100));
+    const chars = content.split('');
+    for (let i = 0; i < corruptionAmount; i++) {
+        const randomIndex = Math.floor(Math.random() * content.length);
+        if (chars[randomIndex] !== '\n') {
+           chars[randomIndex] = corruptionChar;
+        }
+    }
+    return chars.join('');
+}
+
+
+export const getDynamicContent = (content: string | (() => string), path: string, worm: WormState | null): string => {
+    let rawContent: string;
     if (typeof content === 'function') {
-        return content();
+        rawContent = content();
+    } else if (content === 'DYNAMIC_CONTENT::LINPEAS') {
+        rawContent = linpeasOutput();
+    } else {
+        rawContent = content;
     }
-    if (content === 'DYNAMIC_CONTENT::LINPEAS') {
-        return linpeasOutput();
+
+    if (worm && worm.payload === 'corruption') {
+        return applyCorruption(rawContent, worm.corruptionLevel);
     }
-    // Return original content if no dynamic key matches
-    // This also handles cases where content is just a regular string
-    return content;
+    
+    return rawContent;
 }
