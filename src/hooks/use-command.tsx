@@ -1,17 +1,14 @@
-'use client';
+"use client";
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useToast } from "@/hooks/use-toast";
 import { databaseQuery } from '@/ai/flows/database-query-flow';
 import { askSidekick } from '@/ai/flows/ai-sidekick-flow';
-import { concealMessage, revealMessage } from '@/ai/flows/steganography-flow';
-import { initialFilesystem, Directory, FilesystemNode } from '@/lib/filesystem';
+import { initialFilesystem, getDynamicContent, Directory, FilesystemNode } from '@/lib/filesystem';
 import { db, auth } from '@/lib/firebase';
 import { collection, query, where, getDocs, WhereFilterOp, doc, setDoc, getDoc, updateDoc, writeBatch, orderBy, limit } from 'firebase/firestore';
 import { User } from 'firebase/auth';
 import ImageDisplay from '@/components/image-display';
-import { generateCommandHelp } from '@/ai/flows/generate-command-help';
-import md5 from 'md5';
 import { scanFile } from '@/ai/flows/scan-file-flow';
 import { generateAttackPlan } from '@/ai/flows/attack-planner-flow';
 import { generateWarlockTaunt } from '@/ai/flows/warlock-threat-flow';
@@ -19,6 +16,9 @@ import { analyzeImage } from '@/ai/flows/analyze-image-flow';
 import { investigateTarget } from '@/ai/flows/osint-investigation-flow';
 import { craftPhish } from '@/ai/flows/craft-phish-flow';
 import { forgeTool } from '@/ai/flows/forge-tool-flow';
+import { concealMessage, revealMessage } from '@/ai/flows/steganography-flow';
+import md5 from 'md5';
+
 
 // --- Type Definitions ---
 export type EditingFile = { path: string; content: string } | null;
@@ -165,6 +165,8 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean, isMobile: boolean) 
           { command: 'neofetch', args: '', description: 'Display system information.' },
           { command: 'clear', args: '', description: 'Clear the terminal screen.' },
           { command: 'logout', args: '', description: 'Log out from the application.' },
+          { command: 'python', args: '<file.py>', description: 'Execute a Python script.' },
+          { command: 'bash', args: '<file.sh>', description: 'Execute a shell script.' },
         ];
         
         const ctfTools = [
@@ -293,8 +295,8 @@ export const useCommand = (
     const newAliases: Record<string, string> = {};
     const bashrcNode = getNodeFromPath('/.bashrc', fs);
     if (bashrcNode && bashrcNode.type === 'file') {
-        const content = typeof bashrcNode.content === 'function' ? bashrcNode.content() : bashrcNode.content;
-        const lines = (content as string).split('\n');
+        const content = getDynamicContent(bashrcNode.content);
+        const lines = content.split('\n');
         lines.forEach(line => {
             if (line.trim().startsWith('alias ')) {
                 const match = line.match(/alias\s+([^=]+)='([^']+)'/);
@@ -501,175 +503,133 @@ export const useCommand = (
       setEditingFile(null);
   }, []);
   
-  // --- Command Processors ---
-  // This function is defined here so it can be used by `processCommand`
-  const executeCommandsSequentially = useCallback(async (commandsToExecute: { command: string, args: string[] }[]) => {
-      setIsProcessing(true);
-      // We need to reference processCommand, but it's defined below.
-      // This is a common pattern in hooks. We will pass it in the call.
-      const run = async (cmd: string) => {
-          // eslint-disable-next-line @typescript-eslint/no-use-before-define
-          return await processCommand(cmd, true);
-      };
-
-      for (const cmd of commandsToExecute) {
-          const fullCommand = `${cmd.command} ${cmd.args.join(' ')}`;
-          // This is a simplification. A real implementation might need to update the Terminal component's state directly.
-          console.log(`Executing planned command: ${fullCommand}`);
-          await run(fullCommand);
+  const executeFile = useCallback((fileNode: FilesystemNode): CommandResult => {
+      if (fileNode.type === 'directory') {
+          return { type: 'text', text: 'Error: Cannot execute a directory.' };
       }
-      setIsProcessing(false);
-  }, []); // `processCommand` will be added via a ref or passed in if needed.
+      return { type: 'text', text: getDynamicContent(fileNode.content) };
+  }, []);
 
-  const processCommand = useCallback(async (command: string, isPlannedExecution: boolean = false): Promise<CommandResult> => {
-    setIsProcessing(true);
-    
-    const [cmdCandidate, ...initialArgs] = command.trim().split(/\s+/);
-    let finalCmd = cmdCandidate;
-    let finalArgs = initialArgs;
-
-    if (aliases[cmdCandidate]) {
-        const aliasParts = aliases[cmdCandidate].split(/\s+/);
-        finalCmd = aliasParts[0];
-        finalArgs = [...aliasParts.slice(1), ...initialArgs];
-    }
-    
-    const argString = finalArgs.join(' ');
-    const isLoggedIn = !!user;
-
-    if (!isLoggedIn) {
-      setIsProcessing(false); 
-      switch (finalCmd.toLowerCase()) {
-        case 'help': return { type: 'text', text: getHelpOutput(false, false, isMobile) };
-        case '': return { type: 'none' };
-        case 'login': case 'register': return { type: 'none' };
-        default: 
-            updateWarlockAwareness(5, `invalid command: ${finalCmd}`);
-            return { type: 'text', text: `Command not found: ${finalCmd}. Please 'login' or 'register'.` };
+  const handleFileSystemCommands = async (cmd: string, args: string[], argString: string): Promise<CommandResult | null> => {
+    switch(cmd) {
+      case 'ls': {
+        const targetPath = argString ? resolvePath(argString) : cwd;
+        const node = getNodeFromPath(targetPath, userFilesystem);
+        if (node && node.type === 'directory') {
+          const content = Object.keys(node.children);
+          if (content.length === 0) return { type: 'text', text: '' };
+          const output = content.map(key => {
+            const childNode = node.children[key];
+            const isLocked = key.endsWith('.locked');
+            const displayName = isLocked ? `\x1b[31m${key}\x1b[0m` : (childNode.type === 'directory' ? `\x1b[1;34m${key}/\x1b[0m` : key);
+            return displayName;
+          }).join('  ');
+          return { type: 'text', text: output };
+        }
+        return { type: 'text', text: `ls: cannot access '${argString || '.'}': No such file or directory` };
       }
-    }
-    
-    try {
-        const filePathArg = resolvePath(argString);
-        if (filePathArg.endsWith('.locked')) {
-            updateWarlockAwareness(15, `attempted to access locked file ${filePathArg}`);
-            return { type: 'text', text: `Error: Access to ${argString} is blocked by an active security agent.`};
+      case 'cd': {
+        if (!argString || argString === '~' || argString === '/') { setCwd('/'); return { type: 'none' }; }
+        const newPath = resolvePath(argString);
+        const node = getNodeFromPath(newPath, userFilesystem);
+        if (node && node.type === 'directory') { setCwd(newPath); return { type: 'none' }; }
+        return { type: 'text', text: `cd: no such file or directory: ${argString}` };
+      }
+      case 'cat': {
+        if (!argString) return { type: 'text', text: 'cat: missing operand' };
+        if (argString.includes('auth.log')) updateWarlockAwareness(10, 'accessed auth.log');
+        if (argString.includes('shadow.bak')) updateWarlockAwareness(15, 'accessed shadow.bak');
+        const targetPath = resolvePath(argString);
+        const node = getNodeFromPath(targetPath, userFilesystem);
+        if (node && node.type === 'file') {
+            return { type: 'text', text: getDynamicContent(node.content) };
+        }
+        return { type: 'text', text: `cat: ${argString}: No such file or directory` };
+      }
+      case 'nano': {
+        if (!user || viewedUser?.uid !== user.uid) return { type: 'text', text: `nano: You can only edit your own files.` };
+        if (!argString) return { type: 'text', text: 'Usage: nano <filename>' };
+        const targetPath = resolvePath(argString);
+        const node = getNodeFromPath(targetPath, userFilesystem);
+        if (node && node.type === 'directory') return { type: 'text', text: `nano: ${argString}: Is a directory` };
+        const content = (node && node.type === 'file') ? getDynamicContent(node.content) : '';
+        setEditingFile({ path: targetPath, content: content as string });
+        return { type: 'none' };
+      }
+      case 'mkdir': {
+        if (!user || viewedUser?.uid !== user.uid) return { type: 'text', text: `mkdir: Permission denied.` };
+        if (!argString) return { type: 'text', text: 'mkdir: missing operand' };
+        const newFs = JSON.parse(JSON.stringify(userFilesystem));
+        const targetPath = resolvePath(argString);
+        if (getNodeFromPath(targetPath, newFs)) return { type: 'text', text: `mkdir: cannot create directory ‘${argString}’: File exists` };
+        const parentNode = getParentNodeFromPath(targetPath, newFs);
+        const dirname = targetPath.split('/').pop();
+        if (parentNode && dirname) {
+            parentNode.children[dirname] = { type: 'directory', children: {} };
+            setUserFilesystem({ ...newFs });
+            await updateFirestoreFilesystem(newFs);
+            return { type: 'none' };
+        }
+        return { type: 'text', text: `mkdir: cannot create directory ‘${argString}’: No such file or directory` };
+      }
+      case 'touch': {
+        if (!user || viewedUser?.uid !== user.uid) return { type: 'text', text: `touch: Permission denied.` };
+        if (!argString) return { type: 'text', text: 'touch: missing file operand' };
+        const newFs = JSON.parse(JSON.stringify(userFilesystem));
+        const targetPath = resolvePath(argString);
+        if (getNodeFromPath(targetPath, newFs)) return { type: 'none' };
+        const parentNode = getParentNodeFromPath(targetPath, newFs);
+        const filename = targetPath.split('/').pop();
+        if (parentNode && filename) {
+            parentNode.children[filename] = { type: 'file', content: '' };
+            setUserFilesystem({ ...newFs });
+            await updateFirestoreFilesystem(newFs);
+            return { type: 'none' };
+        }
+        return { type: 'text', text: `touch: cannot touch '${argString}': No such file or directory` };
+      }
+      case 'rm': {
+        if (!user || viewedUser?.uid !== user.uid) return { type: 'text', text: `rm: Permission denied.` };
+        if (!argString) return { type: 'text', text: 'rm: missing operand' };
+        
+        if (resolvePath(argString) === '/var/lib/warlock.core') {
+             updateWarlockAwareness(50, 'attempted to delete warlock.core');
         }
 
-        switch (finalCmd.toLowerCase()) {
-          case 'help': return { type: 'text', text: getHelpOutput(true, isRoot, isMobile) };
-          case 'neofetch': return { type: 'text', text: getNeofetchOutput(viewedUser) };
-          case 'ls': {
-            const targetPath = argString ? resolvePath(argString) : cwd;
-            const node = getNodeFromPath(targetPath, userFilesystem);
-            if (node && node.type === 'directory') {
-              const content = Object.keys(node.children);
-              if (content.length === 0) return { type: 'text', text: '' };
-              const output = content.map(key => {
-                const childNode = node.children[key];
-                const isLocked = key.endsWith('.locked');
-                const displayName = isLocked ? key : (childNode.type === 'directory' ? `${key}/` : key);
-                return displayName;
-              }).join('\n');
-              return { type: 'text', text: output };
+        const newFs = JSON.parse(JSON.stringify(userFilesystem));
+        const targetPath = resolvePath(argString);
+        if (targetPath === '/') return { type: 'text', text: `rm: cannot remove '/': Is a directory` };
+        const parentNode = getParentNodeFromPath(targetPath, newFs);
+        const nodeName = targetPath.split('/').pop();
+        if (parentNode && nodeName && parentNode.children[nodeName]) {
+            const nodeToRemove = parentNode.children[nodeName];
+            if (nodeToRemove.type === 'directory' && Object.keys(nodeToRemove.children).length > 0 && args[0] !== '-r') {
+                return { type: 'text', text: `rm: cannot remove '${argString}': Directory not empty` };
             }
-            return { type: 'text', text: `ls: cannot access '${argString || '.'}': No such file or directory` };
-          }
-          case 'cd': {
-            if (!argString || argString === '~' || argString === '/') { setCwd('/'); return { type: 'none' }; }
-            const newPath = resolvePath(argString);
-            const node = getNodeFromPath(newPath, userFilesystem);
-            if (node && node.type === 'directory') { setCwd(newPath); return { type: 'none' }; }
-            return { type: 'text', text: `cd: no such file or directory: ${argString}` };
-          }
-          case 'cat': {
-            if (!argString) return { type: 'text', text: 'cat: missing operand' };
-            if (argString.includes('auth.log')) updateWarlockAwareness(10, 'accessed auth.log');
-            if (argString.includes('shadow.bak')) updateWarlockAwareness(15, 'accessed shadow.bak');
-            const targetPath = resolvePath(argString);
-            const node = getNodeFromPath(targetPath, userFilesystem);
-            if (node && node.type === 'file') {
-                const content = typeof node.content === 'function' ? node.content() : node.content;
-                return { type: 'text', text: content as string };
+            delete parentNode.children[nodeName];
+            setUserFilesystem({ ...newFs });
+            await updateFirestoreFilesystem(newFs);
+             if (resolvePath(argString) === '/var/lib/warlock.core') {
+                warlockIsActive.current = false;
+                setWarlockAwareness(0);
+                if (warlockTimeoutRef.current) clearTimeout(warlockTimeoutRef.current);
+                return { type: 'text', text: `SYSTEM INTEGRITY COMPROMISED. WARLOCK CORE OFFLINE.`};
             }
-            return { type: 'text', text: `cat: ${argString}: No such file or directory` };
-          }
-          case 'nano': {
-            if (!user || viewedUser?.uid !== user.uid) return { type: 'text', text: `nano: You can only edit your own files.` };
-            if (!argString) return { type: 'text', text: 'Usage: nano <filename>' };
-            const targetPath = resolvePath(argString);
-            const node = getNodeFromPath(targetPath, userFilesystem);
-            if (node && node.type === 'directory') return { type: 'text', text: `nano: ${argString}: Is a directory` };
-            const content = (node && node.type === 'file') ? (typeof node.content === 'function' ? node.content() : node.content) : '';
-            setEditingFile({ path: targetPath, content: content as string });
             return { type: 'none' };
-          }
-          case 'mkdir': {
-            if (!user || viewedUser?.uid !== user.uid) return { type: 'text', text: `mkdir: Permission denied.` };
-            if (!argString) return { type: 'text', text: 'mkdir: missing operand' };
-            const newFs = JSON.parse(JSON.stringify(userFilesystem));
-            const targetPath = resolvePath(argString);
-            if (getNodeFromPath(targetPath, newFs)) return { type: 'text', text: `mkdir: cannot create directory ‘${argString}’: File exists` };
-            const parentNode = getParentNodeFromPath(targetPath, newFs);
-            const dirname = targetPath.split('/').pop();
-            if (parentNode && dirname) {
-                parentNode.children[dirname] = { type: 'directory', children: {} };
-                setUserFilesystem({ ...newFs });
-                await updateFirestoreFilesystem(newFs);
-                return { type: 'none' };
-            }
-            return { type: 'text', text: `mkdir: cannot create directory ‘${argString}’: No such file or directory` };
-          }
-          case 'touch': {
-            if (!user || viewedUser?.uid !== user.uid) return { type: 'text', text: `touch: Permission denied.` };
-            if (!argString) return { type: 'text', text: 'touch: missing file operand' };
-            const newFs = JSON.parse(JSON.stringify(userFilesystem));
-            const targetPath = resolvePath(argString);
-            if (getNodeFromPath(targetPath, newFs)) return { type: 'none' };
-            const parentNode = getParentNodeFromPath(targetPath, newFs);
-            const filename = targetPath.split('/').pop();
-            if (parentNode && filename) {
-                parentNode.children[filename] = { type: 'file', content: '' };
-                setUserFilesystem({ ...newFs });
-                await updateFirestoreFilesystem(newFs);
-                return { type: 'none' };
-            }
-            return { type: 'text', text: `touch: cannot touch '${argString}': No such file or directory` };
-          }
-          case 'rm': {
-            if (!user || viewedUser?.uid !== user.uid) return { type: 'text', text: `rm: Permission denied.` };
-            if (!argString) return { type: 'text', text: 'rm: missing operand' };
-            
-            if (resolvePath(argString) === '/var/lib/warlock.core') {
-                 updateWarlockAwareness(50, 'attempted to delete warlock.core');
-            }
+        }
+        return { type: 'text', text: `rm: cannot remove '${argString}': No such file or directory` };
+      }
+      default:
+        return null;
+    }
+  }
 
-            const newFs = JSON.parse(JSON.stringify(userFilesystem));
-            const targetPath = resolvePath(argString);
-            if (targetPath === '/') return { type: 'text', text: `rm: cannot remove '/': Is a directory` };
-            const parentNode = getParentNodeFromPath(targetPath, newFs);
-            const nodeName = targetPath.split('/').pop();
-            if (parentNode && nodeName && parentNode.children[nodeName]) {
-                const nodeToRemove = parentNode.children[nodeName];
-                if (nodeToRemove.type === 'directory' && Object.keys(nodeToRemove.children).length > 0 && finalArgs[0] !== '-r') {
-                    return { type: 'text', text: `rm: cannot remove '${argString}': Directory not empty` };
-                }
-                delete parentNode.children[nodeName];
-                setUserFilesystem({ ...newFs });
-                await updateFirestoreFilesystem(newFs);
-                 if (resolvePath(argString) === '/var/lib/warlock.core') {
-                    warlockIsActive.current = false;
-                    setWarlockAwareness(0);
-                    if (warlockTimeoutRef.current) clearTimeout(warlockTimeoutRef.current);
-                    return { type: 'text', text: `SYSTEM INTEGRITY COMPROMISED. WARLOCK CORE OFFLINE.`};
-                }
-                return { type: 'none' };
-            }
-            return { type: 'text', text: `rm: cannot remove '${argString}': No such file or directory` };
-          }
-          case 'imagine': {
-            if (!argString) return { type: 'text', text: 'Usage: imagine <your prompt>' };
-            return { component: <ImageDisplay prompt={argString} onFinished={() => {}} />, type: 'component' };
+  const handleCtfCommands = async (cmd: string, args: string[], argString: string, isPlannedExecution: boolean): Promise<CommandResult | null> => {
+    switch (cmd) {
+        case 'imagine': {
+            const prompt = argString.startsWith('"') && argString.endsWith('"') ? argString.slice(1, -1) : argString;
+            if (!prompt) return { type: 'text', text: 'Usage: imagine "<your prompt>"' };
+            return { component: <ImageDisplay prompt={prompt} onFinished={() => {}} />, type: 'component' };
           }
           case 'nmap': {
               if (!argString) return { type: 'text', text: 'Usage: nmap <ip_address>' };
@@ -682,14 +642,14 @@ export const useCommand = (
                  updateWarlockAwareness(10, 'gobuster execution');
                  const gobusterNode = getNodeFromPath('/gobuster.txt', userFilesystem);
                  if (gobusterNode && gobusterNode.type === 'file') {
-                     return { type: 'text', text: (typeof gobusterNode.content === 'function' ? gobusterNode.content() : gobusterNode.content) as string };
+                     return { type: 'text', text: getDynamicContent(gobusterNode.content) };
                  }
               }
               return { type: 'text', text: 'gobuster: command not found' };
           }
           case 'ask': {
-            const question = argString.startsWith('"') && argString.endsWith('"') ? argString.slice(1, -1) : argString;
-            if (!question) return { type: 'text', text: 'Usage: ask "<your question>"' };
+            if (!argString.startsWith('"') || !argString.endsWith('"')) return { type: 'text', text: 'Usage: ask "<your question>"' };
+            const question = argString.slice(1, -1);
             const currentNode = getNodeFromPath(cwd, userFilesystem);
             const files = (currentNode?.type === 'directory') ? Object.keys(currentNode.children) : [];
             const { answer } = await askSidekick({ question, cwd, files });
@@ -702,36 +662,34 @@ export const useCommand = (
             if (!node) {
               return { type: 'text', text: `scan: file not found: ${argString}` };
             }
-            const content = (node.type === 'file' && typeof node.content === 'function') 
-              ? node.content() 
-              : (node.type === 'file' ? node.content : 'This is a directory.');
-            const { report } = await scanFile({ filename: argString, content: content as string });
+            const content = (node.type === 'file') ? getDynamicContent(node.content) : 'This is a directory.';
+            const { report } = await scanFile({ filename: argString, content });
             return { type: 'text', text: report };
           }
           case 'crack': {
             updateWarlockAwareness(25, `started password cracking`);
-            const hashArgIndex = finalArgs.findIndex(a => a.length === 32); // Simple md5 check
-            const wordlistFlagIndex = finalArgs.findIndex(a => a === '--wordlist');
+            const hashArgIndex = args.findIndex(a => a.length === 32); // Simple md5 check
+            const wordlistFlagIndex = args.findIndex(a => a === '--wordlist');
             
-            if (hashArgIndex === -1 || wordlistFlagIndex === -1 || wordlistFlagIndex + 1 >= finalArgs.length) {
+            if (hashArgIndex === -1 || wordlistFlagIndex === -1 || wordlistFlagIndex + 1 >= args.length) {
               return { type: 'text', text: 'Usage: crack <hash> --wordlist <file_path>' };
             }
             
-            const hash = finalArgs[hashArgIndex];
-            const wordlistPath = finalArgs[wordlistFlagIndex + 1];
+            const hash = args[hashArgIndex];
+            const wordlistPath = args[wordlistFlagIndex + 1];
             const wordlistNode = getNodeFromPath(wordlistPath, userFilesystem);
             
             if (!wordlistNode || wordlistNode.type !== 'file') {
               return { type: 'text', text: `crack: wordlist file not found: ${wordlistPath}` };
             }
             
-            const wordlistContent = typeof wordlistNode.content === 'function' ? wordlistNode.content() : wordlistNode.content as string;
+            const wordlistContent = getDynamicContent(wordlistNode.content);
             const words = wordlistContent.split('\n');
             
             for (const word of words) {
               if (md5(word.trim()) === hash) {
                 updateWarlockAwareness(30, `successfully cracked password`);
-                return { type: 'text', text: `Password found: ${word.trim()}\n\nHint: You can now submit this as a flag!` };
+                return { type: 'text', text: `Password found: ${word.trim()}\n\nHint: You can now submit this as a flag: FLAG{D1CT10NARY_BRU73_F0RC3}` };
               }
             }
             
@@ -744,36 +702,36 @@ export const useCommand = (
             if (!imageNode || imageNode.type !== 'file') {
               return { type: 'text', text: `reveal: file not found: ${argString}` };
             }
-            const imageData = (typeof imageNode.content === 'function' ? imageNode.content() : imageNode.content) as string;
+            const imageData = getDynamicContent(imageNode.content);
             const { revealedMessage } = await revealMessage({ imageDataUri: imageData });
             return { type: 'text', text: revealedMessage };
           }
           case 'conceal': {
             if (!isRoot) return { type: 'text', text: `bash: command not found: conceal` };
-            const imageFlagIndex = finalArgs.findIndex(a => a === '--image');
-            const msgFlagIndex = finalArgs.findIndex(a => a === '--msg');
-            if (imageFlagIndex === -1 || msgFlagIndex === -1 || imageFlagIndex + 1 >= finalArgs.length || msgFlagIndex + 1 >= finalArgs.length) {
+            const imageFlagIndex = args.findIndex(a => a === '--image');
+            const msgFlagIndex = args.findIndex(a => a === '--msg');
+            if (imageFlagIndex === -1 || msgFlagIndex === -1 || imageFlagIndex + 1 >= args.length || msgFlagIndex + 1 >= args.length) {
                 return { type: 'text', text: 'Usage: conceal --image <file_path> --msg "<message>"' };
             }
-            const imagePath = finalArgs[imageFlagIndex + 1];
+            const imagePath = args[imageFlagIndex + 1];
             const message = argString.split('--msg')[1]?.trim().slice(1, -1) || '';
             const imageNode = getNodeFromPath(imagePath, userFilesystem);
             if (!imageNode || imageNode.type !== 'file') return { type: 'text', text: `conceal: file not found: ${imagePath}` };
 
-            const imageData = (typeof imageNode.content === 'function' ? imageNode.content() : imageNode.content) as string;
+            const imageData = getDynamicContent(imageNode.content);
             const { newImageDataUri } = await concealMessage({ imageDataUri: imageData, message });
             
             const saveResult = await saveFile(imagePath, newImageDataUri);
             return { type: 'text', text: `Message concealed. ${saveResult}` };
           }
           case 'attack': {
-              const targetIndex = finalArgs.findIndex(arg => !arg.startsWith('--'));
-              const objectiveIndex = finalArgs.findIndex(arg => arg === '--objective' || arg === '--obj');
+              const targetIndex = args.findIndex(arg => !arg.startsWith('--'));
+              const objectiveIndex = args.findIndex(arg => arg === '--objective' || arg === '--obj');
 
-              if (targetIndex === -1 || objectiveIndex === -1 || objectiveIndex + 1 >= finalArgs.length) {
+              if (targetIndex === -1 || objectiveIndex === -1 || objectiveIndex + 1 >= args.length) {
                   return { type: 'text', text: 'Usage: attack <target> --obj[ective] "<goal>"' };
               }
-              const target = finalArgs[targetIndex];
+              const target = args[targetIndex];
               const objective = argString.split(/--obj(?:ective)?/)[1].trim().slice(1, -1);
               
               updateWarlockAwareness(30, `planned attack on ${target}`);
@@ -886,13 +844,13 @@ export const useCommand = (
             return { type: 'text', text: `OSINT Report:\n${report}` };
           }
           case 'craft-phish': {
-            const toIndex = finalArgs.findIndex(arg => arg === '--to');
-            const topicIndex = finalArgs.findIndex(arg => arg === '--topic');
-            if (toIndex === -1 || toIndex + 1 >= finalArgs.length) {
+            const toIndex = args.findIndex(arg => arg === '--to');
+            const topicIndex = args.findIndex(arg => arg === '--topic');
+            if (toIndex === -1 || toIndex + 1 >= args.length) {
               return { type: 'text', text: 'Usage: craft-phish --to <email> [--topic "<topic>"]' };
             }
-            const targetEmail = finalArgs[toIndex + 1];
-            const topic = topicIndex !== -1 && topicIndex + 1 < finalArgs.length
+            const targetEmail = args[toIndex + 1];
+            const topic = topicIndex !== -1 && topicIndex + 1 < args.length
               ? argString.split(/--topic/)[1].trim().slice(1, -1)
               : 'Action Required';
             updateWarlockAwareness(25, `crafted phish for ${targetEmail}`);
@@ -900,12 +858,12 @@ export const useCommand = (
             return { type: 'text', text: `Phishing Email Draft:\n\n${phishingEmail}` };
           }
           case 'forge': {
-            const promptIndex = finalArgs.findIndex(arg => arg === '--prompt');
-            const filenameIndex = finalArgs.findIndex(arg => !arg.startsWith('--'));
-            if (promptIndex === -1 || filenameIndex === -1 || promptIndex + 1 >= finalArgs.length) {
+            const promptIndex = args.findIndex(arg => arg === '--prompt');
+            const filenameIndex = args.findIndex(arg => !arg.startsWith('--'));
+            if (promptIndex === -1 || filenameIndex === -1 || promptIndex + 1 >= args.length) {
               return { type: 'text', text: 'Usage: forge <filename> --prompt "<description>"' };
             }
-            const filename = finalArgs[filenameIndex];
+            const filename = args[filenameIndex];
             const prompt = argString.split(/--prompt/)[1]?.trim().slice(1, -1);
             if (!prompt) {
               return { type: 'text', text: 'Error: Prompt description cannot be empty.' };
@@ -915,8 +873,15 @@ export const useCommand = (
             const saveResult = await saveFile(resolvePath(filename), code);
             return { type: 'text', text: `Ghost: Tool '${filename}' has been forged.\n${saveResult}` };
           }
-          case 'db': {
-            if (!isRoot) return { type: 'text', text: `bash: command not found: db` };
+          default:
+            return null;
+    }
+  }
+
+  const handleAdminCommands = async (cmd: string, argString: string): Promise<CommandResult | null> => {
+    if (!isRoot) return null;
+    switch(cmd) {
+        case 'db': {
             if (!argString.startsWith('"') || !argString.endsWith('"')) return { type: 'text', text: 'db: query must be enclosed in quotes. Usage: db "your natural language query"' };
             updateWarlockAwareness(5, `queried database`);
             const queryText = argString.slice(1, -1);
@@ -927,37 +892,118 @@ export const useCommand = (
             if (querySnapshot.empty) return { type: 'text', text: "No documents found." };
             const results = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             return { type: 'text', text: JSON.stringify(results, null, 2) };
-          }
-          case 'list-users': {
-              if (!isRoot) return { type: 'text', text: `bash: command not found: ${finalCmd}` };
-              updateWarlockAwareness(10, `listed users`);
-              const usersCollection = collection(db, 'users');
-              const userSnapshot = await getDocs(usersCollection);
-              const userList = userSnapshot.docs.map(doc => doc.data().email);
-              return { type: 'text', text: userList.join('\n') };
-          }
-          case 'chuser': {
-              if (!isRoot) return { type: 'text', text: `bash: command not found: ${finalCmd}` };
-              if (!argString) return { type: 'text', text: 'Usage: chuser <email>' };
-              if (user && argString === user.email) {
-                  setViewedUser({ uid: user.uid, email: user.email! });
-                  return { type: 'none' };
-              }
-              const q = query(collection(db, 'users'), where("email", "==", argString));
-              const querySnapshot = await getDocs(q);
-              if (querySnapshot.empty) return { type: 'text', text: `User ${argString} not found.` };
-              const targetUserDoc = querySnapshot.docs[0];
-              setViewedUser({ uid: targetUserDoc.id, email: targetUserDoc.data().email });
-              return { type: 'none' };
-          }
-          case 'logout': { await auth.signOut(); return { type: 'text', text: 'Logged out successfully.' }; }
-          case '': return { type: 'none' };
-          default: {
-            updateWarlockAwareness(5, `failed command: ${finalCmd}`);
-            const result = await generateCommandHelp({ command: finalCmd });
-            return { type: 'text', text: `bash: command not found: ${finalCmd}\n\n${result.helpMessage}`};
-          }
         }
+        case 'list-users': {
+            updateWarlockAwareness(10, `listed users`);
+            const usersCollection = collection(db, 'users');
+            const userSnapshot = await getDocs(usersCollection);
+            const userList = userSnapshot.docs.map(doc => doc.data().email);
+            return { type: 'text', text: userList.join('\n') };
+        }
+        case 'chuser': {
+            if (!argString) return { type: 'text', text: 'Usage: chuser <email>' };
+            if (user && argString === user.email) {
+                setViewedUser({ uid: user.uid, email: user.email! });
+                return { type: 'none' };
+            }
+            const q = query(collection(db, 'users'), where("email", "==", argString));
+            const querySnapshot = await getDocs(q);
+            if (querySnapshot.empty) return { type: 'text', text: `User ${argString} not found.` };
+            const targetUserDoc = querySnapshot.docs[0];
+            setViewedUser({ uid: targetUserDoc.id, email: targetUserDoc.data().email });
+            return { type: 'none' };
+        }
+        default:
+            return null;
+    }
+  }
+
+  const executeCommandsSequentially = useCallback(async (commandsToExecute: { command: string, args: string[] }[]) => {
+      setIsProcessing(true);
+      for (const cmd of commandsToExecute) {
+          const fullCommand = `${cmd.command} ${cmd.args.join(' ')}`;
+          console.log(`Executing planned command: ${fullCommand}`);
+          // eslint-disable-next-line @typescript-eslint/no-use-before-define
+          await processCommand(fullCommand, true); 
+      }
+      setIsProcessing(false);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const processCommand = useCallback(async (command: string, isPlannedExecution: boolean = false): Promise<CommandResult> => {
+    setIsProcessing(true);
+    
+    let [cmdCandidate, ...initialArgs] = command.trim().split(/\s+/);
+    let finalCmd = cmdCandidate;
+    let finalArgs = initialArgs;
+
+    if (aliases[cmdCandidate]) {
+        const aliasParts = aliases[cmdCandidate].split(/\s+/);
+        finalCmd = aliasParts[0];
+        finalArgs = [...aliasParts.slice(1), ...initialArgs];
+    }
+    
+    const argString = finalArgs.join(' ');
+    const lowerCaseCmd = finalCmd.toLowerCase();
+
+    if (!user) {
+      setIsProcessing(false); 
+      switch (lowerCaseCmd) {
+        case 'help': return { type: 'text', text: getHelpOutput(false, false, isMobile) };
+        case '': return { type: 'none' };
+        case 'login': case 'register': return { type: 'none' };
+        default: 
+            updateWarlockAwareness(5, `invalid command: ${lowerCaseCmd}`);
+            return { type: 'text', text: `Command not found: ${finalCmd}. Please 'login' or 'register'.` };
+      }
+    }
+    
+    try {
+        const filePathArg = resolvePath(argString);
+        if (filePathArg.endsWith('.locked')) {
+            updateWarlockAwareness(15, `attempted to access locked file ${filePathArg}`);
+            return { type: 'text', text: `Error: Access to ${argString} is blocked by an active security agent.`};
+        }
+
+        if (lowerCaseCmd === 'python' || lowerCaseCmd === 'bash' || lowerCaseCmd === 'sh') {
+            let filename = finalArgs[0];
+            if (!filename) {
+                return { type: 'text', text: `Usage: ${lowerCaseCmd} <filename>` };
+            }
+
+            const extension = lowerCaseCmd === 'python' ? '.py' : '.sh';
+            if (!filename.endsWith(extension)) {
+                filename += extension;
+            }
+
+            const node = getNodeFromPath(filename, userFilesystem);
+            if (!node) {
+                return { type: 'text', text: `${lowerCaseCmd}: cannot access '${finalArgs[0]}': No such file or directory` };
+            }
+            return executeFile(node);
+        }
+
+        if (lowerCaseCmd === 'help') return { type: 'text', text: getHelpOutput(true, isRoot, isMobile) };
+        if (lowerCaseCmd === 'neofetch') return { type: 'text', text: getNeofetchOutput(viewedUser) };
+        if (lowerCaseCmd === 'logout') { await auth.signOut(); return { type: 'text', text: 'Logged out successfully.' }; }
+        if (lowerCaseCmd === '') return { type: 'none' };
+
+        let result: CommandResult | null = null;
+        
+        result = await handleFileSystemCommands(lowerCaseCmd, finalArgs, argString);
+        if (result) return result;
+        
+        result = await handleCtfCommands(lowerCaseCmd, finalArgs, argString, isPlannedExecution);
+        if (result) return result;
+
+        result = await handleAdminCommands(lowerCaseCmd, argString);
+        if (result) return result;
+
+        // If no command was matched
+        updateWarlockAwareness(5, `failed command: ${finalCmd}`);
+        const helpResult = await generateCommandHelp({ command: finalCmd });
+        return { type: 'text', text: `bash: command not found: ${finalCmd}\n\n${helpResult.helpMessage}`};
+
     } catch (error: any) {
         console.error('Command processing error:', error);
         toast({
@@ -969,7 +1015,7 @@ export const useCommand = (
     } finally {
         setIsProcessing(false);
     }
-  }, [aliases, cwd, getParentNodeFromPath, getPrompt, getNodeFromPath, isMobile, isRoot, resolvePath, saveFile, setAwaitingConfirmation, toast, updateWarlockAwareness, user, userFilesystem, viewedUser, fetchUserFilesystem, executeCommandsSequentially]);
+  }, [aliases, cwd, executeCommandsSequentially, fetchUserFilesystem, getParentNodeFromPath, getPrompt, getNodeFromPath, isMobile, isRoot, resolvePath, saveFile, setAwaitingConfirmation, toast, updateWarlockAwareness, user, userFilesystem, viewedUser, executeFile]);
   
   return { 
       prompt, 
