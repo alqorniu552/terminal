@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { useCommand, AuthStep, AuthCommand, WarlockMessage, CommandResult } from '@/hooks/use-command';
+import { useCommand, EditingFile, WarlockMessage, AuthStep, AuthCommand } from '@/hooks/use-command';
 import Typewriter from './typewriter';
 import { User } from 'firebase/auth';
 import NanoEditor from './nano-editor';
