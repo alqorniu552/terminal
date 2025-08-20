@@ -11,16 +11,10 @@ export interface Directory {
   children: {
     [key: string]: File | Directory;
   };
+  path?: string;
 }
 
 export type FilesystemNode = File | Directory;
-
-interface WormState {
-    scriptName: string;
-    payload: 'data_exfil' | 'corruption' | 'replication_only';
-    infectedDirs: string[];
-    corruptionLevel: number;
-}
 
 const linpeasOutput = () => {
     return `
@@ -59,8 +53,8 @@ Ch@ll3ng3`;
 
 export const initialFilesystem: Directory = {
   type: 'directory',
+  path: '/',
   children: {
-    // Root-level user files (for user-specific challenges)
     '.bashrc': {
         type: 'file',
         path: '/.bashrc',
@@ -71,20 +65,20 @@ export const initialFilesystem: Directory = {
         path: '/welcome.txt',
         content: 'Welcome to your personal command center! Use CTF tools to find secrets.'
     },
-
-    // Standard Linux Directories
     'bin': {
         type: 'directory',
+        path: '/bin',
         children: {
-            'bash': { type: 'file', content: 'Binary file' },
-            'ls': { type: 'file', content: 'Binary file' },
-            'cat': { type: 'file', content: 'Binary file' },
-            'rm': { type: 'file', content: 'Binary file' },
-            'python': { type: 'file', content: 'Binary file' },
+            'bash': { type: 'file', path: '/bin/bash', content: 'Binary file' },
+            'ls': { type: 'file', path: '/bin/ls', content: 'Binary file' },
+            'cat': { type: 'file', path: '/bin/cat', content: 'Binary file' },
+            'rm': { type: 'file', path: '/bin/rm', content: 'Binary file' },
+            'python': { type: 'file', path: '/bin/python', content: 'Binary file' },
         }
     },
     'etc': {
         type: 'directory',
+        path: '/etc',
         children: {
             'passwd': { type: 'file', path: '/etc/passwd', content: 'root:x:0:0:root:/root:/bin/bash\ndaemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin\nbin:x:2:2:bin:/bin:/usr/sbin/nologin\nuser:x:1000:1000:user:/home/user:/bin/bash\n' },
             'group': { type: 'file', path: '/etc/group', content: 'root:x:0:\nbin:x:2:\nuser:x:1000:\n' },
@@ -96,20 +90,22 @@ export const initialFilesystem: Directory = {
             },
             'ssh': {
                 type: 'directory',
+                path: '/etc/ssh',
                 children: {
-                    'sshd_config': { type: 'file', content: '# SSH Server Configuration\nPermitRootLogin no\nPasswordAuthentication yes\n' }
+                    'sshd_config': { type: 'file', path: '/etc/ssh/sshd_config', content: '# SSH Server Configuration\nPermitRootLogin no\nPasswordAuthentication yes\n' }
                 }
             }
         }
     },
     'home': {
         type: 'directory',
+        path: '/home',
         children: {
-            // User home directories could be dynamically added here in a more complex setup
         }
     },
     'lib': {
         type: 'directory',
+        path: '/lib',
         children: {
             'wordlist.txt': {
                 type: 'file',
@@ -120,6 +116,7 @@ export const initialFilesystem: Directory = {
     },
     'opt': {
         type: 'directory',
+        path: '/opt',
         children: {
             'linpeas.sh': {
                 type: 'file',
@@ -130,34 +127,40 @@ export const initialFilesystem: Directory = {
     },
     'root': {
         type: 'directory',
+        path: '/root',
         children: {
-            '.secret_root_file.txt': { type: 'file', content: 'This is a secret file only accessible by root.' }
+            '.secret_root_file.txt': { type: 'file', path: '/root/.secret_root_file.txt', content: 'This is a secret file only accessible by root.' }
         }
     },
     'tmp': {
         type: 'directory',
+        path: '/tmp',
         children: {}
     },
     'usr': {
         type: 'directory',
+        path: '/usr',
         children: {
             'bin': { 
                 type: 'directory',
+                path: '/usr/bin',
                 children: {
-                    'nmap': { type: 'file', content: 'Binary file' },
-                    'gobuster': { type: 'file', content: 'Binary file' },
-                    'strings': { type: 'file', content: 'Binary file' },
+                    'nmap': { type: 'file', path: '/usr/bin/nmap', content: 'Binary file' },
+                    'gobuster': { type: 'file', path: '/usr/bin/gobuster', content: 'Binary file' },
+                    'strings': { type: 'file', path: '/usr/bin/strings', content: 'Binary file' },
                 }
             },
-            'lib': { type: 'directory', children: {} },
-            'share': { type: 'directory', children: {} },
+            'lib': { type: 'directory', path: '/usr/lib', children: {} },
+            'share': { type: 'directory', path: '/usr/share', children: {} },
         }
     },
     'var': {
       type: 'directory',
+      path: '/var',
       children: {
         'log': {
             type: 'directory',
+            path: '/var/log',
             children: {
                 'auth.log': {
                     type: 'file',
@@ -195,6 +198,7 @@ May 10 10:09:00 server systemd: SERVICE_START pid=1 uid=0 auid=4294967295 ses=42
         },
         'lib': {
           type: 'directory',
+          path: '/var/lib',
           children: {
             'warlock.core': {
               type: 'file',
@@ -205,11 +209,13 @@ May 10 10:09:00 server systemd: SERVICE_START pid=1 uid=0 auid=4294967295 ses=42
         },
         'www': {
             type: 'directory',
+            path: '/var/www',
             children: {
                 'html': {
                     type: 'directory',
+                    path: '/var/www/html',
                     children: {
-                        'index.html': { type: 'file', content: '<html><body><h1>It works!</h1></body></html>'},
+                        'index.html': { type: 'file', path: '/var/www/html/index.html', content: '<html><body><h1>It works!</h1></body></html>'},
                         'secret.jpg': {
                             type: 'file',
                             path: '/var/www/html/secret.jpg',
@@ -251,7 +257,6 @@ Gobuster v3.1.0
         }
       }
     },
-     // Deprecated root-level challenge files for backward compatibility, moved to realistic paths
     'a.out': {
         type: 'file',
         path: '/a.out',
@@ -260,22 +265,7 @@ Gobuster v3.1.0
   },
 };
 
-const applyCorruption = (content: string, level: number): string => {
-    if (level <= 0) return content;
-    const corruptionChar = '';
-    const corruptionAmount = Math.floor(content.length * (level / 100));
-    const chars = content.split('');
-    for (let i = 0; i < corruptionAmount; i++) {
-        const randomIndex = Math.floor(Math.random() * content.length);
-        if (chars[randomIndex] !== '\n') {
-           chars[randomIndex] = corruptionChar;
-        }
-    }
-    return chars.join('');
-}
-
-
-export const getDynamicContent = (content: string | (() => string), path: string, worm: WormState | null): string => {
+export const getDynamicContent = (content: string | (() => string)): string => {
     let rawContent: string;
     if (typeof content === 'function') {
         rawContent = content();
@@ -284,10 +274,5 @@ export const getDynamicContent = (content: string | (() => string), path: string
     } else {
         rawContent = content;
     }
-
-    if (worm && worm.payload === 'corruption') {
-        return applyCorruption(rawContent, worm.corruptionLevel);
-    }
-    
     return rawContent;
 }

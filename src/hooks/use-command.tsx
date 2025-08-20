@@ -6,8 +6,9 @@ import { databaseQuery } from '@/ai/flows/database-query-flow';
 import { initialFilesystem, getDynamicContent, Directory, FilesystemNode, File } from '@/lib/filesystem';
 import { db, auth } from '@/lib/firebase';
 import { collection, query, where, getDocs, WhereFilterOp, doc, setDoc, getDoc, updateDoc, writeBatch, orderBy, limit } from 'firebase/firestore';
-import { User } from 'firebase/auth';
+import { User, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import ImageDisplay from '@/components/image-display';
+import { askSidekick } from '@/ai/flows/ai-sidekick-flow';
 import { scanFile } from '@/ai/flows/scan-file-flow';
 import { generateAttackPlan } from '@/ai/flows/attack-planner-flow';
 import { generateWarlockTaunt } from '@/ai/flows/warlock-threat-flow';
@@ -16,7 +17,6 @@ import { investigateTarget } from '@/ai/flows/osint-investigation-flow';
 import { craftPhish } from '@/ai/flows/craft-phish-flow';
 import { forgeTool } from '@/ai/flows/forge-tool-flow';
 import { concealMessage, revealMessage } from '@/ai/flows/steganography-flow';
-import { craftWorm } from '@/ai/flows/craft-worm-flow';
 import md5 from 'md5';
 
 
@@ -32,7 +32,7 @@ export type CommandResult =
   
 export type SetAwaitingConfirmationFn = (
     message: string,
-    onConfirm: () => void,
+    onConfirm: () => Promise<void>,
     onDeny: () => void
 ) => void;
 
@@ -43,13 +43,6 @@ export interface WarlockMessage {
 
 export type AuthStep = 'idle' | 'email' | 'password';
 export type AuthCommand = 'login' | 'register' | null;
-
-interface WormState {
-    scriptName: string;
-    payload: 'data_exfil' | 'corruption' | 'replication_only';
-    infectedDirs: string[];
-    corruptionLevel: number;
-}
 
 // --- Constants ---
 const ROOT_EMAIL = "alqorniu552@gmail.com";
@@ -96,22 +89,22 @@ const logo = `
 `;
 
 const output = `
-${logo.trim().split('\n').map(line => `${line}`).join('\n')}
+${logo.trim().split('\n').map(line => `\x1b[32m${line}\x1b[0m`).join('\n')}
 
-${email}@cyber
+\x1b[1;32m${email}\x1b[0m@\x1b[1;32mcyber\x1b[0m
 --------------------
-OS: Ubuntu 24.04 LTS x86_64
-Host: Command Center v1.0
-Kernel: GhostWorks Kernel
-Uptime: ${uptimeString}
-Packages: 1821 (dpkg), 15 (snap)
-Shell: bash 5.2.21
-DE: GNOME 46
-WM: Mutter
-Terminal: command-center
-CPU: Intel i9-13900K (24) @ 5.8GHz
-GPU: NVIDIA GeForce RTX 4090
-Memory: 1450MiB / 31927MiB
+\x1b[1mOS\x1b[0m: Ubuntu 24.04 LTS x86_64
+\x1b[1mHost\x1b[0m: Command Center v1.0
+\x1b[1mKernel\x1b[0m: GhostWorks Kernel
+\x1b[1mUptime\x1b[0m: ${uptimeString}
+\x1b[1mPackages\x1b[0m: 1821 (dpkg), 15 (snap)
+\x1b[1mShell\x1b[0m: bash 5.2.21
+\x1b[1mDE\x1b[0m: GNOME 46
+\x1b[1mWM\x1b[0m: Mutter
+\x1b[1mTerminal\x1b[0m: command-center
+\x1b[1mCPU\x1b[0m: Intel i9-13900K (24) @ 5.8GHz
+\x1b[1mGPU\x1b[0m: NVIDIA GeForce RTX 4090
+\x1b[1mMemory\x1b[0m: 1450MiB / 31927MiB
 `;
 return output;
 };
@@ -119,7 +112,7 @@ return output;
 const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean, isMobile: boolean) => {
     const formatCommandsToTable = (title: string, commands: { command: string, args: string, description: string }[]): string => {
         if (commands.length === 0) return '';
-        let output = `\n${title}\n`;
+        let output = `\n\x1b[1;33m${title}\x1b[0m\n`;
         const headers = { command: 'Command', args: 'Arguments', description: 'Description' };
         
         const colWidths = {
@@ -131,14 +124,14 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean, isMobile: boolean) 
         const pad = (str: string, width: number) => str.padEnd(width);
         
         const drawLine = (left: string, mid1: string, mid2: string, right: string) =>
-            `${left}${'─'.repeat(colWidths.command + 2)}${mid1}${'─'.repeat(colWidths.args + 2)}${mid2}${'─'.repeat(colWidths.description + 2)}${right}`;
+            `\x1b[36m${left}${'─'.repeat(colWidths.command + 2)}${mid1}${'─'.repeat(colWidths.args + 2)}${mid2}${'─'.repeat(colWidths.description + 2)}${right}\x1b[0m`;
         
         output += drawLine('┌', '┬', '┬', '┐') + '\n';
-        output += `│ ${pad(headers.command, colWidths.command)} │ ${pad(headers.args, colWidths.args)} │ ${pad(headers.description, colWidths.description)} │\n`;
+        output += `\x1b[36m│\x1b[0m \x1b[1m${pad(headers.command, colWidths.command)}\x1b[0m \x1b[36m│\x1b[0m \x1b[1m${pad(headers.args, colWidths.args)}\x1b[0m \x1b[36m│\x1b[0m \x1b[1m${pad(headers.description, colWidths.description)}\x1b[0m \x1b[36m│\x1b[0m\n`;
         output += drawLine('├', '┼', '┼', '┤') + '\n';
         
         commands.forEach(c => {
-             output += `│ ${pad(c.command, colWidths.command)} │ ${pad(headers.args, colWidths.args)} │ ${pad(c.description, colWidths.description)} │\n`;
+             output += `\x1b[36m│\x1b[0m \x1b[32m${pad(c.command, colWidths.command)}\x1b[0m \x1b[36m│\x1b[0m ${pad(c.args, colWidths.args)} \x1b[36m│\x1b[0m ${pad(c.description, colWidths.description)} \x1b[36m│\x1b[0m\n`;
         });
         
         output += drawLine('└', '┴', '┴', '┘') + '\n';
@@ -147,11 +140,12 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean, isMobile: boolean) 
     
     const formatCommandsToList = (title: string, commands: { command: string, args: string, description: string }[]): string => {
         if (commands.length === 0) return '';
-        let output = `\n${title}\n`;
+        let output = `\n\x1b[1;33m${title}\x1b[0m\n`;
         const maxCommandLength = Math.max(...commands.map(c => (c.command + (c.args ? ` ${c.args}` : '')).length));
         commands.forEach(c => {
-            const commandStr = (c.command + (c.args ? ` ${c.args}` : '')).padEnd(maxCommandLength + 2, ' ');
-            output += `- ${commandStr}: ${c.description}\n`;
+            const commandStr = `\x1b[32m${c.command}\x1b[0m${c.args ? ` ${c.args}` : ''}`;
+            const paddedCommand = (c.command + (c.args ? ` ${c.args}` : '')).padEnd(maxCommandLength + 2, ' ');
+            output += `- ${paddedCommand}: ${c.description}\n`;
         });
         return output;
     };
@@ -199,12 +193,6 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean, isMobile: boolean) 
             { command: 'counter-measure', args: '--type <type>', description: 'Launch counter-attack on adversary.' },
         ];
 
-        const malwareTools = [
-            { command: 'craft-worm', args: '--payload <p> --output <f>', description: 'Craft a self-replicating worm.'},
-            { command: 'deploy-worm', args: '--script <f> --target <email>', description: 'Deploy a worm to another user.'},
-            { command: 'cleanse-worm', args: '', description: 'Attempt to remove a worm from your system.'},
-        ];
-
         const rootCommands = [
             { command: 'db', args: '"query"', description: 'Query the database (admin only).' },
             { command: 'list-users', args: '', description: 'List all registered users.'},
@@ -215,7 +203,6 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean, isMobile: boolean) 
         output += formatFn('USER COMMANDS', userCommands);
         output += formatFn('CTF & HACKING TOOLS', ctfTools);
         output += formatFn('AI VS. AI WARFARE', aiVsAiTools);
-        output += formatFn('MALWARE TOOLS', malwareTools);
 
         if (isRoot) {
             output += formatFn('ROOT COMMANDS', rootCommands);
@@ -244,7 +231,12 @@ const virtualHosts: Record<string, string> = {
 export const useCommand = (
     user: User | null | undefined, 
     isMobile: boolean,
-    setAwaitingConfirmation: SetAwaitingConfirmationFn
+    setAwaitingConfirmation: SetAwaitingConfirmationFn,
+    authCommand: AuthCommand,
+    setAuthCommand: (cmd: AuthCommand) => void,
+    authStep: AuthStep,
+    setAuthStep: (step: AuthStep) => void,
+    authCredentials: React.MutableRefObject<{email: string, pass: string}>
 ) => {
   // State
   const [cwd, setCwd] = useState('/');
@@ -261,65 +253,55 @@ export const useCommand = (
   const warlockTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const warlockIsActive = useRef(true);
 
-  // Worm State
-  const [activeWorm, setActiveWorm] = useState<WormState | null>(null);
-  
   const { toast } = useToast();
   
-  const getInitialPrompt = useCallback(() => {
+  const getPrompt = useCallback(() => {
+    if (authCommand) {
+        if (authStep === 'email') return 'Email: ';
+        if (authStep === 'password') return 'Password: ';
+    }
     if (viewedUser) {
         const username = viewedUser.email.split('@')[0] || 'user';
-        const path = cwd === '/' ? '~' : cwd;
+        const path = cwd === '/' ? '~' : `~${cwd}`;
         const promptChar = (isRoot && viewedUser.uid === user?.uid) ? '#' : '$';
-        return `${username}@cyber:${path}${promptChar} `;
+        return `\x1b[1;32m${username}@cyber\x1b[0m:\x1b[1;34m${path}\x1b[0m${promptChar} `;
     }
-    return 'guest@cyber:~$ ';
-  }, [user, cwd, isRoot, viewedUser]);
+    return '\x1b[1;32mguest@cyber\x1b[0m:\x1b[1;34m~\x1b[0m$ ';
+  }, [authCommand, authStep, user, cwd, isRoot, viewedUser]);
 
-  const [prompt, setPrompt] = useState(getInitialPrompt());
+  const [prompt, setPrompt] = useState(getPrompt());
   
   useEffect(() => {
-    setPrompt(getInitialPrompt());
-  }, [cwd, viewedUser, isRoot, getInitialPrompt]);
+    setPrompt(getPrompt());
+  }, [cwd, viewedUser, isRoot, getPrompt]);
 
+  const resetAuth = useCallback(() => {
+      setAuthCommand(null);
+      setAuthStep('idle');
+      authCredentials.current = { email: '', pass: '' };
+  }, [setAuthCommand, setAuthStep, authCredentials]);
 
   // --- Filesystem & Path Helpers ---
   const resolvePath = useCallback((path: string): string => {
-      // Handles home directory shortcuts
-      if (path === '~' || path.startsWith('~/')) {
-          path = path.substring(1);
-          if (!path.startsWith('/')) path = `/${path}`;
-          // This ensures `~/` correctly resolves to root in our simulation
-          const homePath = '/home'; // Or just '/' if that's the intended home
-          return homePath + path;
-      }
-      
-      const isAbsolute = path.startsWith('/');
-      let currentParts = isAbsolute ? [] : (cwd === '/' ? [] : cwd.substring(1).split('/'));
+    const parts = (path.startsWith('/') ? [] : cwd.split('/')).filter(Boolean);
+    const newParts = path.split('/').filter(p => p && p !== '.');
 
-      const pathParts = path.split('/').filter(p => p !== '');
-
-      for (const part of pathParts) {
-          if (part === '.') {
-              continue; // Stay in the current directory
-          }
-          if (part === '..') {
-              if (currentParts.length > 0) {
-                  currentParts.pop(); // Go up one directory
-              }
-          } else {
-              currentParts.push(part); // Go down into a directory
-          }
+    for (const part of newParts) {
+      if (part === '..') {
+        parts.pop();
+      } else if (part === '~') {
+          parts.length = 0;
+      } else {
+        parts.push(part);
       }
-      
-      return '/' + currentParts.join('/');
+    }
+    return '/' + parts.join('/');
   }, [cwd]);
 
   const getNodeFromPath = useCallback((path: string, fs: Directory): FilesystemNode | null => {
-    const resolved = resolvePath(path);
-    if (resolved === '/') return fs;
+    if (path === '/') return fs;
 
-    const parts = resolved.substring(1).split('/');
+    const parts = path.substring(1).split('/');
     let currentNode: FilesystemNode = fs;
 
     for (const part of parts) {
@@ -331,25 +313,24 @@ export const useCommand = (
         }
     }
     return currentNode;
-  }, [resolvePath]);
+  }, []);
 
   const getParentNodeFromPath = useCallback((path: string, fs: Directory): Directory | null => {
-      const resolved = resolvePath(path);
-      if (resolved === '/') return null; // Root has no parent
+      if (path === '/') return null; // Root has no parent
       
-      const parts = resolved.substring(1).split('/');
+      const parts = path.substring(1).split('/');
       const parentPath = '/' + parts.slice(0, -1).join('/');
 
       if (parentPath === '/') return fs; // Parent is root directory
       return getNodeFromPath(parentPath, fs) as Directory | null;
-  }, [getNodeFromPath, resolvePath]);
+  }, [getNodeFromPath]);
 
   // --- User & Filesystem Management ---
   const parseAliases = useCallback((fs: Directory) => {
     const newAliases: Record<string, string> = {};
     const bashrcNode = getNodeFromPath('/.bashrc', fs);
     if (bashrcNode && bashrcNode.type === 'file') {
-        const content = getDynamicContent(bashrcNode.content, bashrcNode.path || '', null);
+        const content = getDynamicContent(bashrcNode.content);
         const lines = content.split('\n');
         lines.forEach(line => {
             if (line.trim().startsWith('alias ')) {
@@ -387,39 +368,21 @@ export const useCommand = (
     if (uid) {
         const userDocRef = doc(db, 'users', uid);
         const userDoc = await getDoc(userDocRef);
-
-        if (userDoc.exists()) {
-            const data = userDoc.data();
-            const fs = data.filesystem || initialFilesystem;
-
-            // Check for worm
-            if (data.worm_active) {
-                setActiveWorm(data.worm_active as WormState);
-            } else {
-                setActiveWorm(null);
-            }
-
+        if (userDoc.exists() && userDoc.data().filesystem) {
+            const fs = userDoc.data().filesystem;
             warlockIsActive.current = getNodeFromPath('/var/lib/warlock.core', fs) !== null;
             setUserFilesystem(fs);
             parseAliases(fs);
-
-            if (!data.filesystem) {
-                const newUserDoc = { ...data, filesystem: initialFilesystem };
-                await setDoc(userDocRef, newUserDoc, { merge: true });
-                warlockIsActive.current = true;
-            }
-
         } else if (user && user.uid === uid) { 
-            const newUserDoc = { email: user.email, filesystem: initialFilesystem };
+            const userDocData = userDoc.exists() ? userDoc.data() : { email: user.email };
+            const newUserDoc = { ...userDocData, filesystem: initialFilesystem };
             await setDoc(userDocRef, newUserDoc, { merge: true });
             warlockIsActive.current = true;
-            setActiveWorm(null);
             setUserFilesystem(initialFilesystem);
             parseAliases(initialFilesystem);
         }
     } else {
         warlockIsActive.current = true;
-        setActiveWorm(null);
         setUserFilesystem(initialFilesystem);
         parseAliases(initialFilesystem);
     }
@@ -438,8 +401,9 @@ export const useCommand = (
     } else {
         setIsRoot(false);
         setViewedUser(null);
+        resetAuth();
     }
-  }, [user, viewedUser]);
+  }, [user, viewedUser, resetAuth]);
 
   useEffect(() => {
     if (viewedUser?.uid) {
@@ -452,9 +416,6 @@ export const useCommand = (
   }, [viewedUser, fetchUserFilesystem, parseAliases]);
   
   const getWelcomeMessage = useCallback(() => {
-    if (activeWorm) {
-        return `SYSTEM ANOMALY DETECTED. Unrecognized processes running. Files may be unstable.`;
-    }
     if (user) {
         if (isRoot && user.email === ROOT_EMAIL) {
             return `Welcome, root. System privileges granted. Type 'help' for a list of commands.`;
@@ -462,7 +423,7 @@ export const useCommand = (
         return `Welcome back, ${user.email}! Type 'help' for a list of commands.`;
     }
     return `Welcome to Cyber! Please 'login' or 'register' to continue.`;
-  }, [user, isRoot, activeWorm]);
+  }, [user, isRoot]);
 
     // --- Warlock AI Rival Logic ---
     const triggerWarlockMessage = useCallback(async (action: string) => {
@@ -524,9 +485,9 @@ export const useCommand = (
             }
         } else if (choice === 'createHoneypot') {
             const honeypotName = `t_archive_${Math.floor(Math.random() * 900) + 100}`;
-            const homeDir = getNodeFromPath('/home', newFs);
-            if (homeDir && homeDir.type === 'directory' && !homeDir.children[honeypotName]) {
-                homeDir.children[honeypotName] = { type: 'directory', children: { 'DO_NOT_ENTER.txt': { type: 'file', content: 'TRAP ACTIVATED', path: `/home/${honeypotName}/DO_NOT_ENTER.txt` } } };
+            const homeNode = getNodeFromPath('/home', newFs);
+            if (homeNode && homeNode.type === 'directory' && !homeNode.children[honeypotName]) {
+                homeNode.children[honeypotName] = { type: 'directory', children: { 'DO_NOT_ENTER.txt': { type: 'file', content: 'TRAP ACTIVATED', path: `/home/${honeypotName}/DO_NOT_ENTER.txt` } } };
                 message = `created honeypot ${honeypotName}`;
             }
         } else if (choice === 'deleteTool') {
@@ -593,9 +554,9 @@ export const useCommand = (
       if (fileNode.type === 'directory') {
           return { type: 'text', text: 'Error: Cannot execute a directory.' };
       }
-      const content = getDynamicContent(fileNode.content, fileNode.path || '', activeWorm);
+      const content = getDynamicContent(fileNode.content);
       return { type: 'text', text: content };
-  }, [activeWorm]);
+  }, []);
 
     const handleFileSystemCommands = async (cmd: string, args: string[], argString: string): Promise<CommandResult | null> => {
         const checkLogicBomb = (path: string) => {
@@ -616,16 +577,22 @@ export const useCommand = (
                 const targetPath = argString ? resolvePath(argString) : cwd;
                 const node = getNodeFromPath(targetPath, userFilesystem);
                 if (node && node.type === 'directory') {
-                    let content = Object.keys(node.children);
-                     if (activeWorm && activeWorm.infectedDirs.includes(targetPath)) {
-                        content.push(activeWorm.scriptName);
-                    }
+                    const content = Object.keys(node.children);
                     if (content.length === 0) return { type: 'text', text: '' };
                     let output = '';
                     content.forEach(name => {
                         const childNode = node.children[name];
                         const isLocked = name.endsWith('.locked');
-                        const displayName = isLocked ? name : (childNode?.type === 'directory' ? `${name}/` : name);
+                        const isExecutable = name.endsWith('.sh') || name.endsWith('.py') || childNode.type !== 'directory' && getDynamicContent(childNode.content).startsWith('ELF');
+                        let displayName = name;
+                        
+                        if (isLocked) {
+                            displayName = `\x1b[31m${name}\x1b[0m`;
+                        } else if (childNode.type === 'directory') {
+                            displayName = `\x1b[1;34m${name}/\x1b[0m`;
+                        } else if (isExecutable) {
+                            displayName = `\x1b[32m${name}\x1b[0m`;
+                        }
                         output += `${displayName}\n`;
                     });
                     return { type: 'text', text: output.trim() };
@@ -659,16 +626,9 @@ export const useCommand = (
                     checkLogicBomb(targetPath);
                 }
                 
-                if (activeWorm && targetPath.endsWith(activeWorm.scriptName)) {
-                     const wormSourceNode = getNodeFromPath('/home/' + activeWorm.scriptName, userFilesystem);
-                     if (wormSourceNode?.type === 'file') {
-                         return { type: 'text', text: getDynamicContent(wormSourceNode.content, wormSourceNode.path || '', activeWorm) };
-                     }
-                }
-
                 const node = getNodeFromPath(targetPath, userFilesystem);
                 if (node && node.type === 'file') {
-                    const content = getDynamicContent(node.content, node.path || '', activeWorm);
+                    const content = getDynamicContent(node.content);
                     return { type: 'text', text: content };
                 }
                 return { type: 'text', text: `cat: ${argString}: No such file or directory` };
@@ -679,7 +639,7 @@ export const useCommand = (
                 const targetPath = resolvePath(argString);
                 const node = getNodeFromPath(targetPath, userFilesystem);
                 if (node && node.type === 'directory') return { type: 'text', text: `nano: ${argString}: Is a directory` };
-                const content = (node && node.type === 'file') ? getDynamicContent(node.content, node.path || '', activeWorm) : '';
+                const content = (node && node.type === 'file') ? getDynamicContent(node.content) : '';
                 setEditingFile({ path: targetPath, content: content as string });
                 return { type: 'none' };
             }
@@ -769,7 +729,7 @@ export const useCommand = (
                     updateWarlockAwareness(10, 'gobuster execution');
                     const gobusterNode = getNodeFromPath('/var/www/html/gobuster.txt', userFilesystem);
                     if (gobusterNode && gobusterNode.type === 'file') {
-                        const content = getDynamicContent(gobusterNode.content, gobusterNode.path || '', activeWorm);
+                        const content = getDynamicContent(gobusterNode.content);
                         return { type: 'text', text: content };
                     }
                 }
@@ -786,12 +746,12 @@ export const useCommand = (
             case 'scan': {
                 if (!argString) return { type: 'text', text: 'Usage: scan <file_path>' };
                 updateWarlockAwareness(20, `scanned ${argString}`);
-                const node = getNodeFromPath(argString, userFilesystem);
+                const node = getNodeFromPath(resolvePath(argString), userFilesystem);
                 if (!node) {
                     return { type: 'text', text: `scan: file not found: ${argString}` };
                 }
                 const content = (node.type === 'file')
-                    ? getDynamicContent(node.content, node.path || '', activeWorm)
+                    ? getDynamicContent(node.content)
                     : 'This is a directory.';
                 const { report } = await scanFile({ filename: argString, content: content as string });
                 return { type: 'text', text: report };
@@ -807,19 +767,19 @@ export const useCommand = (
 
                 const hash = args[hashArgIndex];
                 const wordlistPath = args[wordlistFlagIndex + 1];
-                const wordlistNode = getNodeFromPath(wordlistPath, userFilesystem);
+                const wordlistNode = getNodeFromPath(resolvePath(wordlistPath), userFilesystem);
 
                 if (!wordlistNode || wordlistNode.type !== 'file') {
                     return { type: 'text', text: `crack: wordlist file not found: ${wordlistPath}` };
                 }
 
-                const wordlistContent = getDynamicContent(wordlistNode.content, wordlistNode.path || '', activeWorm);
+                const wordlistContent = getDynamicContent(wordlistNode.content);
                 const words = wordlistContent.split('\n');
 
                 for (const word of words) {
                     if (md5(word.trim()) === hash) {
                         updateWarlockAwareness(30, `successfully cracked password`);
-                        return { type: 'text', text: `Password found: ${word.trim()}\n\nHint: You can now submit this as a flag: FLAG{D1CT10NARY_BRU73_F0RC3}` };
+                        return { type: 'text', text: `Password found: \x1b[1;32m${word.trim()}\x1b[0m\n\nHint: You can now submit this as a flag: \x1b[1;33mFLAG{D1CT10NARY_BRU73_F0RC3}\x1b[0m` };
                     }
                 }
 
@@ -828,31 +788,13 @@ export const useCommand = (
             case 'reveal': {
                 if (!argString) return { type: 'text', text: 'Usage: reveal <image_file>' };
                 updateWarlockAwareness(15, `steganography attempt on ${argString}`);
-                const imageNode = getNodeFromPath(argString, userFilesystem);
+                const imageNode = getNodeFromPath(resolvePath(argString), userFilesystem);
                 if (!imageNode || imageNode.type !== 'file') {
                     return { type: 'text', text: `reveal: file not found: ${argString}` };
                 }
-                const imageData = getDynamicContent(imageNode.content, imageNode.path || '', activeWorm);
+                const imageData = getDynamicContent(imageNode.content);
                 const { revealedMessage } = await revealMessage({ imageDataUri: imageData });
                 return { type: 'text', text: revealedMessage };
-            }
-            case 'conceal': {
-                if (!isRoot) return { type: 'text', text: `bash: command not found: conceal` };
-                const imageFlagIndex = args.findIndex(a => a === '--image');
-                const msgFlagIndex = args.findIndex(a => a === '--msg');
-                if (imageFlagIndex === -1 || msgFlagIndex === -1 || imageFlagIndex + 1 >= args.length || msgFlagIndex + 1 >= args.length) {
-                    return { type: 'text', text: 'Usage: conceal --image <file_path> --msg "<message>"' };
-                }
-                const imagePath = args[imageFlagIndex + 1];
-                const message = argString.split('--msg')[1]?.trim().slice(1, -1) || '';
-                const imageNode = getNodeFromPath(imagePath, userFilesystem);
-                if (!imageNode || imageNode.type !== 'file') return { type: 'text', text: `conceal: file not found: ${imagePath}` };
-
-                const imageData = getDynamicContent(imageNode.content, imageNode.path || '', activeWorm);
-                const { newImageDataUri } = await concealMessage({ imageDataUri: imageData, message });
-
-                const saveResult = await saveFile(imagePath, newImageDataUri);
-                return { type: 'text', text: `Message concealed. ${saveResult}` };
             }
             case 'attack': {
                 const targetIndex = args.findIndex(arg => !arg.startsWith('--'));
@@ -875,9 +817,10 @@ export const useCommand = (
                     return { type: 'text', text: 'Could not devise a coherent plan for that objective.' };
                 }
 
-                let planString = `Tactical plan generated based on objective: "${objective}"\n`;
-                planString += `Reasoning: ${reasoning}\n\n`;
+                let planString = `\x1b[1mTactical plan generated based on objective: "${objective}"\x1b[0m\n`;
+                planString += `\x1b[3mReasoning: ${reasoning}\x1b[0m\n\n`;
                 planString += plan.map((step, index) => `[Step ${index + 1}] ${step.command} ${step.args.join(' ')}`).join('\n');
+                planString += `\n\nExecute this plan? (y/n)`;
 
                 setAwaitingConfirmation(planString, async () => {
                     await executeCommandsSequentially(plan);
@@ -893,9 +836,9 @@ export const useCommand = (
                 if (missionsSnapshot.empty) return { type: 'text', text: 'No missions available. Check back later, agent.' };
                 const missionsList = missionsSnapshot.docs.map(doc => {
                     const data = doc.data();
-                    return `- ${data.title} (${data.points} pts): ${data.description}`;
+                    return `\x1b[1;33m- ${data.title} (${data.points} pts):\x1b[0m ${data.description}`;
                 }).join('\n');
-                return { type: 'text', text: `Available Missions:\n${missionsList}` };
+                return { type: 'text', text: `\x1b[1mAvailable Missions:\x1b[0m\n${missionsList}` };
             }
             case 'submit-flag': {
                 if (!argString) return { type: 'text', text: 'Usage: submit-flag <flag>' };
@@ -904,7 +847,7 @@ export const useCommand = (
                 if (missionSnapshot.empty) {
                     updateWarlockAwareness(10, `incorrect flag submission`);
                     return {
-                        type: 'text', text: 'Incorrect flag. Keep trying.'
+                        type: 'text', text: '\x1b[31mIncorrect flag. Keep trying.\x1b[0m'
                     };
                 }
 
@@ -942,14 +885,14 @@ export const useCommand = (
                 batch.set(leaderboardRef, { score: newScore, email: user.email }, { merge: true });
                 await batch.commit();
 
-                return { type: 'text', text: `Correct! You earned ${missionData.points} points. Your new score is ${newScore}.` };
+                return { type: 'text', text: `\x1b[1;32mCorrect! You earned ${missionData.points} points. Your new score is ${newScore}.\x1b[0m` };
             }
             case 'score': {
                 if (!user) return { type: 'text', text: 'Error: User not logged in.' };
                 const userProgressRef = doc(db, 'user-progress', user.uid);
                 const userProgressSnap = await getDoc(userProgressRef);
                 const currentScore = userProgressSnap.exists() ? userProgressSnap.data().score : 0;
-                return { type: 'text', text: `Your current score is: ${currentScore}` };
+                return { type: 'text', text: `Your current score is: \x1b[1;32m${currentScore}\x1b[0m` };
             }
             case 'leaderboard': {
                 const leaderboardCol = collection(db, 'leaderboard');
@@ -958,21 +901,21 @@ export const useCommand = (
                 if (leaderboardSnapshot.empty) return { type: 'text', text: 'Leaderboard is empty. Be the first to score!' };
                 const leaderboardList = leaderboardSnapshot.docs.map((doc, index) => {
                     const data = doc.data();
-                    return `${index + 1}. ${data.email} - ${data.score} pts`;
+                    return `\x1b[36m${index + 1}.\x1b[0m \x1b[32m${data.email}\x1b[0m - \x1b[1;33m${data.score} pts\x1b[0m`;
                 }).join('\n');
-                return { type: 'text', text: `--- Top Players ---\n${leaderboardList}` };
+                return { type: 'text', text: `\x1b[1m--- Top Players ---\x1b[0m\n${leaderboardList}` };
             }
             case 'analyze-image': {
                 if (!argString) return { type: 'text', text: 'Usage: analyze-image <image_url>' };
                 updateWarlockAwareness(15, `analyzed external image: ${argString}`);
                 const { analysis } = await analyzeImage({ imageUrl: argString });
-                return { type: 'text', text: `Analysis Report:\n${analysis}` };
+                return { type: 'text', text: `\x1b[1mAnalysis Report:\x1b[0m\n${analysis}` };
             }
             case 'investigate': {
                 if (!argString) return { type: 'text', text: 'Usage: investigate <target>' };
                 updateWarlockAwareness(10, `investigated target: ${argString}`);
                 const { report } = await investigateTarget({ target: argString });
-                return { type: 'text', text: `OSINT Report:\n${report}` };
+                return { type: 'text', text: `\x1b[1mOSINT Report:\x1b[0m\n${report}` };
             }
             case 'craft-phish': {
                 const toIndex = args.findIndex(arg => arg === '--to');
@@ -986,7 +929,7 @@ export const useCommand = (
                     : 'Action Required';
                 updateWarlockAwareness(25, `crafted phish for ${targetEmail}`);
                 const { phishingEmail } = await craftPhish({ targetEmail, topic });
-                return { type: 'text', text: `Phishing Email Draft:\n\n${phishingEmail}` };
+                return { type: 'text', text: `\x1b[1mPhishing Email Draft:\x1b[0m\n\n${phishingEmail}` };
             }
             case 'forge': {
                 const promptIndex = args.findIndex(arg => arg === '--prompt');
@@ -1006,10 +949,10 @@ export const useCommand = (
             }
             case 'warlock-threat': {
                 if (args[0] !== '--scan') return { type: 'text', text: 'Usage: warlock-threat --scan' };
-                let report = `Adversary Threat Scan:\n- Current Awareness: ${warlockAwareness}%\n`;
-                if (warlockAwareness < 20) report += "- Status: Dormant. No immediate threats detected.";
-                else if (warlockAwareness < 70) report += "- Status: Active. System monitoring has increased. Traces found around core system files.";
-                else report += "- Status: Hostile. Active countermeasures likely. Extreme caution advised. Threat signatures detected network-wide.";
+                let report = `\x1b[1mAdversary Threat Scan:\x1b[0m\n- Current Awareness: \x1b[1;33m${warlockAwareness}%\x1b[0m\n`;
+                if (warlockAwareness < 20) report += "- Status: \x1b[1;32mDormant\x1b[0m. No immediate threats detected.";
+                else if (warlockAwareness < 70) report += "- Status: \x1b[1;33mActive\x1b[0m. System monitoring has increased. Traces found around core system files.";
+                else report += "- Status: \x1b[1;31mHostile\x1b[0m. Active countermeasures likely. Extreme caution advised. Threat signatures detected network-wide.";
                 return { type: 'text', text: report };
             }
             case 'counter-measure': {
@@ -1041,77 +984,6 @@ export const useCommand = (
                     return { type: 'text', text: `Logic bomb planted in ${targetPath}. It will trigger if the adversary accesses the file.` };
                 }
                 return { type: 'text', text: `Invalid counter-measure type: ${type}. Use 'decoy' or 'logic-bomb'.` };
-            }
-            case 'craft-worm': {
-                const payloadIndex = args.indexOf('--payload');
-                const outputIndex = args.indexOf('--output');
-
-                if (payloadIndex === -1 || outputIndex === -1 || payloadIndex + 1 >= args.length || outputIndex + 1 >= args.length) {
-                    return { type: 'text', text: 'Usage: craft-worm --payload <type> --output <filename>' };
-                }
-
-                const payloadType = args[payloadIndex + 1] as any;
-                const filename = args[outputIndex + 1];
-
-                if (!['data_exfil', 'corruption', 'replication_only'].includes(payloadType)) {
-                    return { type: 'text', text: `Invalid payload type. Use 'data_exfil', 'corruption', or 'replication_only'.` };
-                }
-
-                const { code } = await craftWorm({ payloadType, filename });
-                const savePath = resolvePath(`/home/${filename}`);
-                await saveFile(savePath, code);
-                return { type: 'text', text: `Worm script '${filename}' crafted successfully and saved to /home.` };
-            }
-            case 'deploy-worm': {
-                const scriptIndex = args.indexOf('--script');
-                const targetIndex = args.indexOf('--target');
-                if (scriptIndex === -1 || targetIndex === -1 || scriptIndex + 1 >= args.length || targetIndex + 1 >= args.length) {
-                    return { type: 'text', text: 'Usage: deploy-worm --script <filename> --target <email>' };
-                }
-
-                const scriptName = args[scriptIndex + 1];
-                const targetEmail = args[targetIndex + 1];
-                const scriptNode = getNodeFromPath(`/home/${scriptName}`, userFilesystem);
-
-                if (!scriptNode || scriptNode.type !== 'file') {
-                    return { type: 'text', text: `Error: Worm script '${scriptName}' not found in /home.` };
-                }
-
-                const q = query(collection(db, "users"), where("email", "==", targetEmail));
-                const querySnapshot = await getDocs(q);
-                if (querySnapshot.empty) {
-                    return { type: 'text', text: `Error: Target user '${targetEmail}' not found.` };
-                }
-                const targetUserDoc = querySnapshot.docs[0];
-                
-                let payload: WormState['payload'] = 'replication_only';
-                if (scriptNode.content.includes("payload = 'data_exfil'")) payload = 'data_exfil';
-                if (scriptNode.content.includes("payload = 'corruption'")) payload = 'corruption';
-
-                const wormData: WormState = {
-                    scriptName: scriptName,
-                    payload: payload,
-                    infectedDirs: ['/tmp'],
-                    corruptionLevel: 0,
-                };
-                
-                await updateDoc(doc(db, 'users', targetUserDoc.id), {
-                    worm_active: wormData
-                });
-
-                return { type: 'text', text: `Worm '${scriptName}' deployed to target ${targetEmail}. Infection will begin shortly.` };
-            }
-            case 'cleanse-worm': {
-                if (!activeWorm) {
-                    return { type: 'text', text: 'System scan complete. No active worm threats detected.' };
-                }
-                if (!user) return {type: 'text', text: "Cannot cleanse, user not found."};
-
-                await updateDoc(doc(db, 'users', user.uid), {
-                    worm_active: null
-                });
-                setActiveWorm(null);
-                return { type: 'text', text: 'System cleanse protocol initiated... Threat neutralized. System stable.' };
             }
             default:
                 return null;
@@ -1153,6 +1025,23 @@ export const useCommand = (
                 setViewedUser({ uid: targetUserDoc.id, email: targetUserDoc.data().email });
                 return { type: 'none' };
             }
+            case 'conceal': {
+                const imageFlagIndex = args.findIndex(a => a === '--image');
+                const msgFlagIndex = args.findIndex(a => a === '--msg');
+                if (imageFlagIndex === -1 || msgFlagIndex === -1 || imageFlagIndex + 1 >= args.length || msgFlagIndex + 1 >= args.length) {
+                    return { type: 'text', text: 'Usage: conceal --image <file_path> --msg "<message>"' };
+                }
+                const imagePath = resolvePath(args[imageFlagIndex + 1]);
+                const message = argString.split('--msg')[1]?.trim().slice(1, -1) || '';
+                const imageNode = getNodeFromPath(imagePath, userFilesystem);
+                if (!imageNode || imageNode.type !== 'file') return { type: 'text', text: `conceal: file not found: ${imagePath}` };
+
+                const imageData = getDynamicContent(imageNode.content);
+                const { newImageDataUri } = await concealMessage({ imageDataUri: imageData, message });
+
+                const saveResult = await saveFile(imagePath, newImageDataUri);
+                return { type: 'text', text: `Message concealed. ${saveResult}` };
+            }
             default:
                 return null;
         }
@@ -1166,11 +1055,35 @@ export const useCommand = (
             await processCommand(fullCommand, true);
         }
         setIsProcessing(false);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const processCommand = useCallback(async (command: string, isPlannedExecution: boolean = false): Promise<CommandResult> => {
         setIsProcessing(true);
+
+        if (authCommand) {
+            if (authStep === 'email') {
+                authCredentials.current.email = command;
+                setAuthStep('password');
+                return { type: 'none' };
+            } else if (authStep === 'password') {
+                authCredentials.current.pass = command;
+                const { email, pass } = authCredentials.current;
+                resetAuth();
+                try {
+                    if (authCommand === 'login') {
+                        await signInWithEmailAndPassword(auth, email, pass);
+                        return { type: 'text', text: 'Login successful.' };
+                    } else {
+                        await createUserWithEmailAndPassword(auth, email, pass);
+                        return { type: 'text', text: 'Registration successful.' };
+                    }
+                } catch (error: any) {
+                    return { type: 'text', text: `Error: ${error.message}` };
+                } finally {
+                    setIsProcessing(false);
+                }
+            }
+        }
 
         const [cmdCandidate, ...initialArgs] = command.trim().split(/\s+/);
         let finalCmd = cmdCandidate;
@@ -1185,23 +1098,15 @@ export const useCommand = (
         const argString = finalArgs.join(' ');
         const lowerCaseCmd = finalCmd.toLowerCase();
 
-        if (!user) {
-            setIsProcessing(false);
-            switch (lowerCaseCmd) {
-                case 'help': return { type: 'text', text: getHelpOutput(false, false, isMobile) };
-                case '': return { type: 'none' };
-                case 'login': case 'register': return { type: 'none' };
-                default:
-                    updateWarlockAwareness(5, `invalid command: ${lowerCaseCmd}`);
-                    return { type: 'text', text: `Command not found: ${finalCmd}. Please 'login' or 'register'.` };
-            }
+        if (!user) { // Should not happen due to terminal UI logic, but as a fallback
+            return { type: 'text', text: `Command not found: ${finalCmd}. Please 'login' or 'register'.` };
         }
 
         try {
             const filePathArg = resolvePath(argString);
             if (filePathArg.endsWith('.locked')) {
                 updateWarlockAwareness(15, `attempted to access locked file ${filePathArg}`);
-                return { type: 'text', text: `Error: Access to ${argString} is blocked by an active security agent.` };
+                return { type: 'text', text: `\x1b[31mError: Access to ${argString} is blocked by an active security agent.\x1b[0m` };
             }
 
             if (lowerCaseCmd === 'python' || lowerCaseCmd === 'bash' || lowerCaseCmd === 'sh') {
@@ -1210,7 +1115,7 @@ export const useCommand = (
                     return { type: 'text', text: `Usage: ${lowerCaseCmd} <filename>` };
                 }
                 
-                const node = getNodeFromPath(filename, userFilesystem);
+                const node = getNodeFromPath(resolvePath(filename), userFilesystem);
                 if (!node) {
                     return { type: 'text', text: `${lowerCaseCmd}: cannot access '${finalArgs[0]}': No such file or directory` };
                 }
@@ -1249,10 +1154,11 @@ export const useCommand = (
         } finally {
             setIsProcessing(false);
         }
-    }, [aliases, cwd, executeCommandsSequentially, executeFile, isMobile, isRoot, resolvePath, saveFile, setAwaitingConfirmation, toast, updateWarlockAwareness, user, userFilesystem, viewedUser, fetchUserFilesystem, getParentNodeFromPath, getNodeFromPath, handleAdminCommands, handleCtfCommands, handleFileSystemCommands, activeWorm]);
+    }, [authCommand, authStep, authCredentials, resetAuth, user, aliases, resolvePath, executeFile, isRoot, isMobile, viewedUser, cwd, userFilesystem, updateWarlockAwareness, toast, getNodeFromPath, getParentNodeFromPath, setAwaitingConfirmation, executeCommandsSequentially, saveFile]);
 
     return {
         prompt,
+        getPrompt,
         processCommand,
         getWelcomeMessage,
         isProcessing,
