@@ -2,35 +2,41 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-  
-    // Helper function to check if the user is the root admin
-    function isRoot() {
-      return request.auth != null && request.auth.token.email == 'alqorniu552@gmail.com';
+    // Helper functions
+    function isAuth() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return request.auth.uid == userId;
     }
 
-    // Missions and Leaderboard are public read-only
+    function isRoot() {
+      return request.auth.token.email == "alqorniu552@gmail.com";
+    }
+
+    // Publicly readable collections
     match /missions/{missionId} {
       allow read: if true;
-      allow write: if false; // Nobody can write to missions from the client
+      allow write: if false; // Data should be seeded manually, not from client
     }
     
     match /leaderboard/{userId} {
       allow read: if true;
-      allow write: if request.auth != null && request.auth.uid == userId; // Allow users to update their own leaderboard score
-    }
-
-    // Users can only read/write their own data, but root can read anyone's data
-    match /users/{userId} {
-      allow read: if (request.auth != null && request.auth.uid == userId) || isRoot();
-      allow create, update: if request.auth != null && request.auth.uid == userId;
-      allow delete: if false;
+      allow write: if isAuth() && isOwner(userId);
     }
     
-    // User progress can only be accessed by the user themselves
+    // User-specific data
+    match /users/{userId} {
+      allow read: if isAuth() && (isOwner(userId) || isRoot());
+      allow write: if isAuth() && isOwner(userId);
+      allow create: if isAuth() && isOwner(userId);
+    }
+    
     match /user-progress/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
-      allow create: if request.auth != null && request.auth.uid == userId;
-      allow delete: if false;
+       allow read: if isAuth() && (isOwner(userId) || isRoot());
+       allow write: if isAuth() && isOwner(userId);
+       allow create: if isAuth() && isOwner(userId);
     }
   }
 }

@@ -18,6 +18,9 @@ const auth = getAuth(app);
 
 
 // Seed missions data if it doesn't exist
+// NOTE: This client-side seeding is insecure and has been disabled.
+// Data should be seeded manually in the Firebase console or via a secure backend script.
+/*
 const seedMissions = async () => {
     const missionsCol = collection(db, 'missions');
     const snapshot = await getDocs(missionsCol);
@@ -48,6 +51,6 @@ const seedMissions = async () => {
 if (typeof window !== 'undefined') {
     seedMissions();
 }
-
+*/
 
 export { app, db, auth };
