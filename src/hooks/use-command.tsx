@@ -39,12 +39,12 @@ Shell: term-sim
 
 const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean) => {
     const formatCommandsToTable = (title: string, commands: { command: string, args: string, description: string }[]): string => {
-        let output = `\n\x1b[1;33m${title}\x1b[0m\n`;
+        let output = `\n${title}\n`;
         const maxLength = Math.max(...commands.map(c => (c.command + (c.args ? ' ' + c.args : '')).length));
         
         commands.forEach(c => {
             const commandStr = (c.command + (c.args ? ' ' + c.args : '')).padEnd(maxLength + 4, ' ');
-            output += `  \x1b[1;32m${commandStr}\x1b[0m- ${c.description}\n`;
+            output += `  ${commandStr}- ${c.description}\n`;
         });
         return output;
     };
@@ -621,5 +621,3 @@ End of assembler dump.` };
 
   return { prompt, processCommand, getWelcomeMessage, isProcessing, editingFile, saveFile, exitEditor };
 };
-
-    
