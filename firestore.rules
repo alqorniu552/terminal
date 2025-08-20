@@ -1,18 +1,11 @@
 rules_version = '2';
+
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Aturan untuk koleksi pengguna
+    // Users can only read and write their own documents.
     match /users/{userId} {
-      // Izinkan pengguna yang diautentikasi untuk membuat dokumen mereka sendiri saat mendaftar.
+      allow read, update, delete: if request.auth != null && request.auth.uid == userId;
       allow create: if request.auth != null;
-
-      // Izinkan pengguna untuk mendapatkan dan memperbarui dokumen mereka sendiri.
-      // Ini diperlukan untuk memeriksa status OS dan menyimpannya.
-      allow get, update: if request.auth != null && request.auth.uid == userId;
-
-      // Izinkan pengguna root (berdasarkan email) untuk mendaftar semua pengguna untuk perintah `list-users`.
-      // Untuk aplikasi produksi, lebih aman menggunakan klaim khusus daripada email.
-      allow list: if request.auth != null && request.auth.token.email == 'alqorniu552@gmail.com';
     }
   }
 }
