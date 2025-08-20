@@ -116,6 +116,15 @@ May 10 10:09:00 server systemd: SERVICE_START pid=1 uid=0 auid=4294967295 ses=42
     'credentials.zip': {
         type: 'file',
         content: 'PK... (this is a fake zip file). The password is a magic word.'
+    },
+    'config.dat': {
+        type: 'file',
+        // Base64 for "username=guest;role=user;command=whoami"
+        content: 'dXNlcm5hbWU9Z3Vlc3Q7cm9sZT11c2VyO2NvbW1hbmQ9d2hvYW1p'
+    },
+    'config-loader': {
+        type: 'file',
+        content: 'ELF 64-bit LSB executable, reads from config.dat'
     }
   },
 };

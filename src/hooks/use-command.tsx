@@ -115,6 +115,7 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean, osInstalled: boolea
         { command: 'zip2john', args: 'file', description: 'Extract hash from a zip file.' },
         { command: 'john', args: 'hash', description: 'Crack a password hash.' },
         { command: './vulnerable_login', args: '', description: 'Run a program with a buffer overflow flaw.' },
+        { command: './config-loader', args: '', description: 'Loads a configuration from a file.' },
         { command: 'volatility', args: '-f dump plugin', description: 'Analyze a memory dump.' },
         { command: 'aws', args: 's3 ls [bucket]', description: 'List S3 buckets or objects.' },
     ];
@@ -1070,6 +1071,31 @@ Reading symbols from ${fileToDebug}...
         return node.content;
       }
       
+      case './config-loader':
+      case 'config-loader': {
+        const configNode = getNodeFromPath(resolvePath('config.dat'), currentFilesystem);
+        if (!configNode || configNode.type !== 'file' || typeof configNode.content !== 'string') {
+            return 'Error: config.dat not found or is invalid.';
+        }
+        try {
+            const decodedConfig = atob(configNode.content);
+            const params = new URLSearchParams(decodedConfig.replace(/;/g, '&'));
+            const role = params.get('role');
+            const cmdToRun = params.get('command');
+
+            if (role === 'admin') {
+                if (cmdToRun === 'get-flag') {
+                    return `Executing privileged command...\nFLAG{D3S3R14L1Z4T10N_F0R_TH3_W1N}`;
+                }
+                return `Admin command executed: ${cmdToRun}`;
+            } else {
+                 return `User command executed: ${cmdToRun}`;
+            }
+        } catch (e) {
+            return `Error parsing config.dat: Invalid Base64 string`;
+        }
+      }
+
       case 'tshark': {
           if (args[0] !== '-r' || !args[1]) return 'Usage: tshark -r file.pcap';
           const file = args[1];
