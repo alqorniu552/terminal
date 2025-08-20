@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useCallback, useEffect } from 'react';
@@ -10,12 +9,12 @@ import { db, auth } from '@/lib/firebase';
 import { collection, query, where, getDocs, WhereFilterOp } from 'firebase/firestore';
 import { User, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 
-const getNeofetchOutput = (user: User | null | undefined) => {
+const getNeofetchOutput = (user: User | null | undefined, isRoot: boolean) => {
     let uptime = 0;
     if (typeof window !== 'undefined') {
         uptime = Math.floor(performance.now() / 1000);
     }
-    const email = user?.email || 'guest';
+    const email = isRoot ? 'root' : (user?.email || 'guest');
 
 return `
 ${email}@cyber
@@ -37,7 +36,10 @@ Available commands:
   cd [path]     - Change directory.
   cat [file]    - Display file content.
   neofetch      - Display system information.
+  prompt [value]- Set a new prompt.
   db "[query]"  - Query the database using natural language.
+  su            - Switch to root user.
+  exit          - Exit from root user session.
   clear         - Clear the terminal screen.
   logout        - Log out from the application.
 
@@ -90,6 +92,7 @@ const getNodeFromPath = (path: string): FilesystemNode | null => {
 
 export const useCommand = (user: User | null | undefined) => {
   const [cwd, setCwd] = useState('/');
+  const [isRoot, setIsRoot] = useState(false);
   
   // State for multi-step authentication
   const [authCommand, setAuthCommand] = useState<'login' | 'register' | null>(null);
@@ -100,19 +103,23 @@ export const useCommand = (user: User | null | undefined) => {
   const getInitialPrompt = useCallback(() => {
     if (authStep === 'email') return 'Email: ';
     if (authStep === 'password') return 'Password: ';
+    
+    const path = cwd === '/' ? '~' : `~${cwd}`;
+    const endChar = isRoot ? '#' : '$';
+
     if (user) {
-        const path = cwd === '/' ? '~' : `~${cwd}`;
-        return `${user.email?.split('@')[0]}@cyber:${path}$`;
+        const username = isRoot ? 'root' : user.email?.split('@')[0];
+        return `${username}@cyber:${path}${endChar}`;
     }
-    return 'guest@cyber:~$';
-  }, [user, cwd, authStep]);
+    return `guest@cyber:~${endChar}`;
+  }, [user, cwd, authStep, isRoot]);
 
   const [prompt, setPrompt] = useState(getInitialPrompt());
   const { toast } = useToast();
   
   useEffect(() => {
     setPrompt(getInitialPrompt());
-  }, [user, getInitialPrompt, authStep]);
+  }, [user, getInitialPrompt, authStep, isRoot]);
 
 
   const resetAuth = useCallback(() => {
@@ -200,7 +207,7 @@ export const useCommand = (user: User | null | undefined) => {
         return getHelpOutput(true);
       case 'neofetch':
         setIsProcessing(false);
-        return getNeofetchOutput(user);
+        return getNeofetchOutput(user, isRoot);
       
       case 'ls': {
         const targetPath = arg ? resolvePath(cwd, arg) : cwd;
@@ -224,6 +231,11 @@ export const useCommand = (user: User | null | undefined) => {
         const newPath = resolvePath(cwd, arg);
         const node = getNodeFromPath(newPath);
         if (node && node.type === 'directory') {
+          // Prevent non-root users from entering /root
+          if (newPath === '/root' && !isRoot) {
+            setIsProcessing(false);
+            return 'cd: permission denied: /root';
+          }
           setCwd(newPath);
           setIsProcessing(false);
           return '';
@@ -239,6 +251,10 @@ export const useCommand = (user: User | null | undefined) => {
         }
         const targetPath = resolvePath(cwd, arg);
         const node = getNodeFromPath(targetPath);
+        if (node?.path === '/root/.secret_root_file.txt' && !isRoot) {
+          setIsProcessing(false);
+          return 'cat: .secret_root_file.txt: Permission denied';
+        }
         if (node && node.type === 'file') {
             if (typeof node.content === 'function') {
                 setIsProcessing(false);
@@ -284,9 +300,24 @@ export const useCommand = (user: User | null | undefined) => {
         }
       }
 
+      case 'su': {
+        setIsRoot(true);
+        setIsProcessing(false);
+        return '';
+      }
+
+      case 'exit': {
+        if (isRoot) {
+          setIsRoot(false);
+        }
+        setIsProcessing(false);
+        return '';
+      }
+
       case 'logout': {
         await auth.signOut();
         resetAuth();
+        setIsRoot(false);
         setCwd('/');
         setIsProcessing(false);
         return ''; // Welcome message will be handled by the component
@@ -313,7 +344,7 @@ export const useCommand = (user: User | null | undefined) => {
         }
       }
     }
-  }, [authCommand, authStep, authCredentials, cwd, toast, user, resetAuth]);
+  }, [authCommand, authStep, authCredentials, cwd, toast, user, resetAuth, isRoot]);
 
   return { 
     prompt, 
