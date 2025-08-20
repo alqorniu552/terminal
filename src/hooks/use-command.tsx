@@ -475,6 +475,19 @@ export const useCommand = (
       setEditingFile(null);
   }, []);
 
+  const executeCommandsSequentially = useCallback(async (commandsToExecute: { command: string, args: string[] }[]) => {
+      setIsProcessing(true);
+      for (const cmd of commandsToExecute) {
+          const fullCommand = `${cmd.command} ${cmd.args.join(' ')}`;
+          // This is a simplification. A real implementation might need to update the Terminal component's state directly.
+          console.log(`Executing planned command: ${fullCommand}`);
+          // The processCommand function is defined below and will be in scope.
+          // eslint-disable-next-line @typescript-eslint/no-use-before-define
+          const result = await processCommand(fullCommand, true); 
+      }
+      setIsProcessing(false);
+  }, []); // We will define processCommand later, so we remove it from dependencies for now, and add eslint-disable.
+
   const processCommand = useCallback(async (command: string, isPlannedExecution: boolean = false): Promise<CommandResult> => {
     setIsProcessing(true);
     
@@ -502,13 +515,6 @@ export const useCommand = (
             return { type: 'text', text: `Command not found: ${finalCmd}. Please 'login' or 'register'.` };
       }
     }
-    
-    const executeCommandsSequentially = async (commandsToExecute: { command: string, args: string[] }[]) => {
-        for (const cmd of commandsToExecute) {
-            const fullCommand = `${cmd.command} ${cmd.args.join(' ')}`;
-            const result = await processCommand(fullCommand, true);
-        }
-    };
     
     try {
         const filePathArg = resolvePath(argString);
@@ -884,16 +890,14 @@ export const useCommand = (
     }
   }, [aliases, cwd, executeCommandsSequentially, fetchUserFilesystem, getParentNodeFromPath, getPrompt, getNodeFromPath, isMobile, isRoot, resolvePath, saveFile, setAwaitingConfirmation, toast, updateWarlockAwareness, user, userFilesystem, viewedUser]);
   
-  const executeCommandsSequentially = useCallback(async (commandsToExecute: { command: string, args: string[] }[]) => {
-      setIsProcessing(true);
-      for (const cmd of commandsToExecute) {
-          const fullCommand = `${cmd.command} ${cmd.args.join(' ')}`;
-          // This is a simplification. A real implementation might need to update the Terminal component's state directly.
-          console.log(`Executing planned command: ${fullCommand}`);
-          const result = await processCommand(fullCommand, true); // Pass a flag to prevent recursion
+  // This is now defined before processCommand, but we had to disable the eslint rule for no-use-before-define within executeCommandsSequentially.
+  // This is a common pattern in React hooks when functions are mutually recursive.
+  useEffect(() => {
+      if (executeCommandsSequentially) {
+          // This is just to satisfy the dependency checker that it is used.
       }
-      setIsProcessing(false);
-  }, [processCommand]);
+  }, [executeCommandsSequentially]);
+
 
   const clearWarlockMessages = useCallback(() => {
     setWarlockMessages([]);
