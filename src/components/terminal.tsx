@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { useCommand, handleLogin, handleRegister } from '@/hooks/use-command';
+import { useCommand } from '@/hooks/use-command';
 import Typewriter from './typewriter';
 import { User } from 'firebase/auth';
 import NanoEditor from './nano-editor';
@@ -14,9 +14,6 @@ interface HistoryItem {
   prompt: string;
 }
 
-type AuthStep = 'none' | 'email' | 'password';
-type AuthCommand = 'login' | 'register' | null;
-
 const BlinkingCursor = () => (
   <span className="w-2.5 h-5 bg-accent inline-block animate-blink ml-1" />
 );
@@ -25,12 +22,6 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [command, setCommand] = useState('');
   const [isTyping, setIsTyping] = useState(true);
-
-  // State for multi-step authentication
-  const [authStep, setAuthStep] = useState<AuthStep>('none');
-  const [authCommand, setAuthCommand] = useState<AuthCommand>(null);
-  const [authData, setAuthData] = useState({ email: '', password: '' });
-  const [currentPrompt, setCurrentPrompt] = useState('');
 
   const { 
     prompt: commandPrompt, 
@@ -43,18 +34,13 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
   } = useCommand(user);
 
   const inputRef = useRef<HTMLInputElement>(null);
-  const passwordInputRef = useRef<HTMLInputElement>(null);
   const endOfHistoryRef = useRef<HTMLDivElement>(null);
   
   const focusInput = useCallback(() => {
     if (typeof window !== 'undefined' && window.innerWidth > 768 && !editingFile) {
-        if (authStep === 'password') {
-            passwordInputRef.current?.focus();
-        } else {
-            inputRef.current?.focus();
-        }
+        inputRef.current?.focus();
     }
-  }, [editingFile, authStep]);
+  }, [editingFile]);
 
   useEffect(() => {
     focusInput();
@@ -88,20 +74,6 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     endOfHistoryRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [history, isTyping, isProcessing]);
   
-  useEffect(() => {
-      if (authStep === 'email') {
-          setCurrentPrompt('email: ');
-      } else if (authStep === 'password') {
-          setCurrentPrompt('password: ');
-      } else {
-          setCurrentPrompt(commandPrompt);
-      }
-  }, [authStep, commandPrompt]);
-
-  const addHistory = (item: Omit<HistoryItem, 'id'>) => {
-    setHistory(prev => [...prev, { ...item, id: prev.length + 1 }]);
-  };
-
   const handleCommandSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (isTyping || isProcessing || editingFile) return;
@@ -109,47 +81,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     const currentInput = command;
     setCommand('');
     
-    // --- Multi-step Auth Flow ---
-    if (authStep !== 'none') {
-        let newAuthData = { ...authData };
-        if (authStep === 'email') {
-            addHistory({ command: currentInput, output: '', prompt: currentPrompt });
-            newAuthData.email = currentInput;
-            setAuthData(newAuthData);
-            setAuthStep('password');
-        } else if (authStep === 'password') {
-            addHistory({ command: '********', output: '', prompt: currentPrompt });
-            newAuthData.password = currentInput;
-            
-            setIsTyping(true);
-            const authFn = authCommand === 'login' ? handleLogin : handleRegister;
-            const result = await authFn(newAuthData.email, newAuthData.password);
-            
-            addHistory({
-                command: '',
-                output: <Typewriter text={result} onFinished={() => setIsTyping(false)} />,
-                prompt: ''
-            });
-
-            // Reset auth flow
-            setAuthStep('none');
-            setAuthCommand(null);
-            setAuthData({ email: '', password: '' });
-        }
-        return;
-    }
-
-    // --- Regular Command Flow ---
-    const lowerCaseCommand = currentInput.toLowerCase();
-
-    if (lowerCaseCommand === 'login' || lowerCaseCommand === 'register') {
-        addHistory({ command: currentInput, output: '', prompt: `${commandPrompt} ` });
-        setAuthCommand(lowerCaseCommand);
-        setAuthStep('email');
-        return;
-    }
-
-    if (lowerCaseCommand === 'clear') {
+    if (currentInput.toLowerCase() === 'clear') {
         setHistory([]);
         return;
     }
@@ -189,11 +121,12 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
         initialContent={editingFile.content}
         onSave={async (newContent) => {
             const saveMessage = await saveFile(editingFile.path, newContent);
-            addHistory({
+            setHistory(prev => [...prev, {
+                id: prev.length + 1,
                 command: `^O (Save File)`,
                 output: <Typewriter text={saveMessage} onFinished={() => {}}/>,
                 prompt: '' 
-            });
+            }]);
         }}
         onExit={exitEditor}
       />
@@ -218,37 +151,23 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
 
       {showInput && (
         <form onSubmit={handleCommandSubmit} className="flex items-center">
-          <label htmlFor="command-input" className="flex-shrink-0 text-accent">{currentPrompt}</label>
+          <label htmlFor="command-input" className="flex-shrink-0 text-accent">{commandPrompt}</label>
           <div className="flex-grow relative">
-            {authStep === 'password' ? (
-                 <input
-                    ref={passwordInputRef}
-                    id="password-input"
-                    type="password"
-                    value={command}
-                    onChange={(e) => setCommand(e.target.value)}
-                    autoComplete="new-password"
-                    className="absolute top-0 left-0 w-full h-full bg-transparent border-none outline-none text-shadow-glow"
-                    aria-label="password input"
-                />
-            ) : (
-                <>
-                  <span className="text-shadow-glow">{command}</span>
-                  <BlinkingCursor />
-                  <input
-                    ref={inputRef}
-                    id="command-input"
-                    type="text"
-                    value={command}
-                    onChange={(e) => setCommand(e.target.value)}
-                    autoComplete="off"
-                    autoCapitalize="off"
-                    autoCorrect="off"
-                    className="absolute top-0 left-0 w-full h-full bg-transparent border-none outline-none text-transparent caret-transparent"
-                    aria-label="command input"
-                  />
-                </>
-            )}
+            
+            <span className="text-shadow-glow">{command}</span>
+            <BlinkingCursor />
+            <input
+                ref={inputRef}
+                id="command-input"
+                type="text"
+                value={command}
+                onChange={(e) => setCommand(e.target.value)}
+                autoComplete="off"
+                autoCapitalize="off"
+                autoCorrect="off"
+                className="absolute top-0 left-0 w-full h-full bg-transparent border-none outline-none text-transparent caret-transparent"
+                aria-label="command input"
+            />
           </div>
         </form>
       )}

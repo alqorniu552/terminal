@@ -18,29 +18,6 @@ type CommandResult =
 
 const ROOT_EMAIL = "alqorniu552@gmail.com";
 
-export const handleLogin = async (email: string, password: string):Promise<string> => {
-    try {
-        await signInWithEmailAndPassword(auth, email, password);
-        return 'Login successful.';
-    } catch (error: any) {
-        return `Authentication Error: ${error.code}`;
-    }
-};
-
-export const handleRegister = async (email: string, password: string):Promise<string> => {
-    try {
-        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-        const userDocRef = doc(db, "users", userCredential.user.uid);
-        await setDoc(userDocRef, {
-            email: userCredential.user.email,
-            filesystem: initialFilesystem
-        });
-        return 'Registration successful.';
-    } catch (error: any) {
-        return `Authentication Error: ${error.code}`;
-    }
-};
-
 
 const getNeofetchOutput = (user: User | null | undefined) => {
     let uptime = 0;
@@ -116,8 +93,8 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean) => {
     
     const loggedOutCommands = [
       { command: 'help', args: '', description: 'Show this help message.' },
-      { command: 'login', args: '', description: 'Log in to your account.' },
-      { command: 'register', args: '', description: 'Create a new account.' },
+      { command: 'login', args: '[email] [pw]', description: 'Log in to your account.' },
+      { command: 'register', args: '[email] [pw]', description: 'Create a new account.' },
       { command: 'clear', args: '', description: 'Clear the terminal screen.' },
     ];
     return formatCommandsToTable('Available Commands', loggedOutCommands);
@@ -281,11 +258,44 @@ export const useCommand = (user: User | null | undefined) => {
     const argString = args.join(' ');
     const isLoggedIn = !!user;
 
-    // This function is now only for logged-in users
+    const handleAuth = async (authFn: typeof signInWithEmailAndPassword | typeof createUserWithEmailAndPassword) => {
+        const [email, password] = args;
+        if (!email || !password) {
+            return { type: 'text' as const, text: `Usage: ${cmd} [email] [password]` };
+        }
+        try {
+            if (authFn === createUserWithEmailAndPassword) {
+                const userCredential = await authFn(auth, email, password);
+                const userDocRef = doc(db, "users", userCredential.user.uid);
+                await setDoc(userDocRef, {
+                    email: userCredential.user.email,
+                    filesystem: initialFilesystem
+                });
+            } else {
+                await authFn(auth, email, password);
+            }
+            return { type: 'text' as const, text: `${cmd === 'login' ? 'Login' : 'Registration'} successful.` };
+        } catch (error: any) {
+            return { type: 'text' as const, text: `Authentication Error: ${error.code}` };
+        }
+    };
+
     if (!isLoggedIn) {
-        setIsProcessing(false);
-        return { type: 'text', text: `Command not found: ${cmd}. Please 'login' or 'register'.` };
+        switch (cmd.toLowerCase()) {
+            case 'login':
+                return handleAuth(signInWithEmailAndPassword);
+            case 'register':
+                return handleAuth(createUserWithEmailAndPassword);
+            case 'help':
+                return { type: 'text', text: getHelpOutput(false, false) };
+            case '':
+                return { type: 'none' };
+            default:
+                setIsProcessing(false);
+                return { type: 'text', text: `Command not found: ${cmd}. Please 'login' or 'register'.` };
+        }
     }
+
 
     // --- Logged-in commands ---
     try {
