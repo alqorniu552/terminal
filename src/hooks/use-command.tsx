@@ -20,7 +20,7 @@ type CommandResult =
 
 const ROOT_EMAIL = "alqorniu552@gmail.com";
 
-const getNeofetchOutput = (user: User | null | undefined) => {
+const getNeofetchOutput = (user: {email: string} | null | undefined) => {
     let uptime = 0;
     if (typeof window !== 'undefined') {
         uptime = Math.floor(performance.now() / 1000);
@@ -39,19 +39,6 @@ Shell: bash
 };
 
 const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean, isMobile: boolean) => {
-    const skullIcon = `
-                      .-.
-                     (o.o)
-                      |=|
-                     _|=|_
-                   //\`.---.\`\\\\
-                  // /  -  \\ \\\\
-                 | | ' -- ' | |
-                  \\ \\_.___./ /
-                   \\//\`---\`\\\\/
-                    \`-------\`
-`;
-
     const formatCommandsToTable = (title: string, commands: { command: string, args: string, description: string }[]): string => {
         if (commands.length === 0) return '';
         let output = `\n${title}\n`;
@@ -116,6 +103,7 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean, isMobile: boolean) 
             { command: 'leaderboard', args: '', description: 'View the top players.'},
             { command: 'ask', args: '"<question>"', description: 'Ask the AI sidekick for a hint.'},
             { command: 'nmap', args: '<ip>', description: 'Scan a target IP for open ports.'},
+            { command: 'imagine', args: '"<prompt>"', description: 'Generate an image with AI.'},
         ];
         
         const rootCommands = [
@@ -179,7 +167,7 @@ export const useCommand = (user: User | null | undefined, isMobile: boolean) => 
         const userDoc = await getDoc(userDocRef);
         if (userDoc.exists() && userDoc.data().filesystem) {
             setUserFilesystem(userDoc.data().filesystem);
-        } else if (user) { // If user exists but has no filesystem, create one
+        } else if (user && user.uid === uid) { 
             const userDocData = userDoc.exists() ? userDoc.data() : { email: user.email };
             const newUserDoc = { ...userDocData, filesystem: initialFilesystem };
             await setDoc(userDocRef, newUserDoc, { merge: true });
@@ -196,7 +184,6 @@ export const useCommand = (user: User | null | undefined, isMobile: boolean) => 
     if (user) {
         const isUserRoot = user.email === ROOT_EMAIL;
         setIsRoot(isUserRoot);
-        // If the user's view hasn't been set, or if the logged-in user changes, default to self-view.
         if (!viewedUser || viewedUser.uid !== user.uid) {
             setViewedUser({ uid: user.uid, email: user.email! });
         }
@@ -221,7 +208,7 @@ export const useCommand = (user: User | null | undefined, isMobile: boolean) => 
 
   const getWelcomeMessage = useCallback(() => {
     if (user) {
-        if (isRoot) {
+        if (isRoot && user.email === ROOT_EMAIL) {
             return `Welcome, root. System privileges granted. Type 'help' for a list of commands.`;
         }
         return `Welcome back, ${user.email}! Type 'help' for a list of commands.`;
@@ -326,7 +313,6 @@ export const useCommand = (user: User | null | undefined, isMobile: boolean) => 
           return { type: 'none' };
         case 'login':
         case 'register':
-          // These are handled by the terminal component's auth flow
           return { type: 'none' };
         default:
           return { type: 'text', text: `Command not found: ${cmd}. Please 'login' or 'register'.` };
@@ -419,7 +405,6 @@ export const useCommand = (user: User | null | undefined, isMobile: boolean) => 
             const newFs = JSON.parse(JSON.stringify(userFilesystem));
             const targetPath = resolvePath(argString);
             if (getNodeFromPath(targetPath, newFs)) {
-                // In unix, touch on existing file updates timestamp, here we do nothing.
                 return { type: 'none' };
             }
             const parentNode = getParentNodeFromPath(targetPath, newFs);
@@ -518,7 +503,7 @@ export const useCommand = (user: User | null | undefined, isMobile: boolean) => 
                     completed_missions: [...(userProgressSnap.data()?.completed_missions || []), missionId],
                     score: newScore,
                     last_completed: new Date(),
-                    email: user.email, // Add email to progress for consistency
+                    email: user.email, 
                 };
                 
                 if (userProgressSnap.exists()) {
@@ -560,7 +545,7 @@ export const useCommand = (user: User | null | undefined, isMobile: boolean) => 
             }
 
           case 'db': {
-            if (!isRoot) return { type: 'text', text: `db: command not found` };
+            if (!isRoot) return { type: 'text', text: `bash: command not found: db` };
             if (!argString.startsWith('"') || !argString.endsWith('"')) {
                 return { type: 'text', text: 'db: query must be enclosed in quotes. Usage: db "your natural language query"' };
             }
@@ -580,7 +565,7 @@ export const useCommand = (user: User | null | undefined, isMobile: boolean) => 
           }
 
           case 'list-users': {
-              if (!isRoot) return { type: 'text', text: `command not found: ${cmd}` };
+              if (!isRoot) return { type: 'text', text: `bash: command not found: ${cmd}` };
               const usersCollection = collection(db, 'users');
               const userSnapshot = await getDocs(usersCollection);
               const userList = userSnapshot.docs.map(doc => doc.data().email);
@@ -588,7 +573,7 @@ export const useCommand = (user: User | null | undefined, isMobile: boolean) => 
           }
 
           case 'chuser': {
-              if (!isRoot) return { type: 'text', text: `command not found: ${cmd}` };
+              if (!isRoot) return { type: 'text', text: `bash: command not found: ${cmd}` };
               if (!argString) return { type: 'text', text: 'Usage: chuser <email>' };
               if (user && argString === user.email) {
                   setViewedUser({ uid: user.uid, email: user.email! });
