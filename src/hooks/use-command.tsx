@@ -24,17 +24,19 @@ type CommandResult =
 const ROOT_EMAIL = "alqorniu552@gmail.com";
 
 const getNeofetchOutput = (user: {email: string} | null | undefined) => {
-    let uptime = 0;
+    let uptimeString = '1 min';
     if (typeof window !== 'undefined') {
         const up = Math.floor(performance.now() / 1000);
         const days = Math.floor(up / 86400);
         const hours = Math.floor((up % 86400) / 3600);
         const minutes = Math.floor(((up % 86400) % 3600) / 60);
-        let uptimeString = '';
-        if (days > 0) uptimeString += `${days} days, `;
-        if (hours > 0) uptimeString += `${hours} hours, `;
-        uptimeString += `${minutes} mins`;
-        uptime = uptimeString as any;
+        
+        let parts = [];
+        if (days > 0) parts.push(`${days} day${days > 1 ? 's' : ''}`);
+        if (hours > 0) parts.push(`${hours} hour${hours > 1 ? 's' : ''}`);
+        if (minutes > 0 || (days === 0 && hours === 0)) parts.push(`${minutes} min${minutes > 1 ? 's' : ''}`);
+        
+        uptimeString = parts.join(', ');
     }
     const email = user?.email || 'guest';
     const hostname = email.split('@')[0];
@@ -62,22 +64,22 @@ const logo = `
 `;
 
 const output = `
-${logo.trim().split('\n').map(line => `\x1b[38;5;208m${line}\x1b[0m`).join('\n')}
+${logo.trim().split('\n').map(line => `${line}`).join('\n')}
 
-\x1b[1m\x1b[38;5;220m${email}\x1b[0m@\x1b[1m\x1b[38;5;220mcyber\x1b[0m
+${email}@cyber
 --------------------
-\x1b[1m\x1b[38;5;208mOS\x1b[0m: Ubuntu 24.04 LTS x86_64
-\x1b[1m\x1b[38;5;208mHost\x1b[0m: Cyber v1.0 on Next.js
-\x1b[1m\x1b[38;5;208mKernel\x1b[0m: 6.8.0-31-generic
-\x1b[1m\x1b[38;5;208mUptime\x1b[0m: ${uptime}
-\x1b[1m\x1b[38;5;208mPackages\x1b[0m: 1783 (dpkg), 14 (snap)
-\x1b[1m\x1b[38;5;208mShell\x1b[0m: bash 5.2.21
-\x1b[1m\x1b[38;5;208mDE\x1b[0m: GNOME 46
-\x1b[1m\x1b[38;5;208mWM\x1b[0m: Mutter
-\x1b[1m\x1b[38;5;208mTerminal\x1b[0m: command-center
-\x1b[1m\x1b[38;5;208mCPU\x1b[0m: Simulated Intel i9-13900K (24) @ 5.8GHz
-\x1b[1m\x1b[38;5;208mGPU\x1b[0m: NVIDIA GeForce RTX 4090
-\x1b[1m\x1b[38;5;208mMemory\x1b[0m: 1388MiB / 31927MiB
+OS: Ubuntu 24.04 LTS x86_64
+Host: Command Center v1.0
+Kernel: GhostWorks Kernel
+Uptime: ${uptimeString}
+Packages: 1821 (dpkg), 15 (snap)
+Shell: bash 5.2.21
+DE: GNOME 46
+WM: Mutter
+Terminal: command-center
+CPU: Simulated Intel i9-13900K (24) @ 5.8GHz
+GPU: NVIDIA GeForce RTX 4090
+Memory: 1450MiB / 31927MiB
 `;
 return output;
 };
@@ -686,4 +688,5 @@ export const useCommand = (user: User | null | undefined, isMobile: boolean) => 
   return { prompt, processCommand, getWelcomeMessage, isProcessing, editingFile, saveFile, exitEditor };
 };
 
+    
     
