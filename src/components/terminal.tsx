@@ -20,13 +20,16 @@ const BlinkingCursor = () => (
 export default function Terminal({ user }: { user: User | null | undefined }) {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [command, setCommand] = useState('');
-  const [isTyping, setIsTyping] = useState(true);
   
   const { 
       prompt, 
       processCommand, 
-      getWelcomeMessage, 
+      getWelcomeMessage,
+      authStep,
+      isProcessing,
   } = useCommand(user);
+
+  const [isTyping, setIsTyping] = useState(true);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const endOfHistoryRef = useRef<HTMLDivElement>(null);
@@ -66,7 +69,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
   
   const handleCommandSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (isTyping) return;
+    if (isTyping || isProcessing) return;
 
     if (command.trim().toLowerCase() === 'clear') {
         setCommand('');
@@ -75,10 +78,12 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     }
 
     const currentPrompt = prompt;
+    // For password step, we don't want to show the command in history
+    const commandForHistory = authStep === 'password' ? '******' : command;
 
     const newHistoryItem: HistoryItem = { 
       id: Date.now(),
-      command, 
+      command: commandForHistory, 
       output: '',
       prompt: currentPrompt 
     };
@@ -88,6 +93,12 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     setIsTyping(true);
 
     const result = await processCommand(command);
+    
+    // If the command was to log out, we don't want to show any output
+    // The useEffect that watches the user state will handle the welcome message.
+    if (command.trim().toLowerCase() === 'logout' && !result) {
+        return;
+    }
 
     setHistory(prev => prev.map(h => 
         h.id === newHistoryItem.id ? { ...h, output: result } : h
@@ -96,7 +107,8 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     setIsTyping(false);
   };
   
-  const showInput = !isTyping;
+  const showInput = !isTyping && !isProcessing;
+  const isPasswordStep = authStep === 'password';
 
   return (
     <div className="h-full w-full p-2 md:p-4 font-code text-base md:text-lg text-primary overflow-y-auto" onClick={focusInput}>
@@ -108,7 +120,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
                  <Typewriter text={item.output as string} onFinished={() => setIsTyping(false)} />
             ) : (
              <>
-              {item.command || item.prompt ? (
+              {item.prompt ? (
                 <div className="flex items-center">
                   <span className="text-accent">{item.prompt}</span>
                   <span>{item.command}</span>
@@ -129,13 +141,13 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
         <form onSubmit={handleCommandSubmit} className="flex items-center">
           <label htmlFor="command-input" className="flex-shrink-0 text-accent">{prompt}</label>
           <div className="flex-grow relative">
-            <span className="text-shadow-glow">{command}</span>
+            <span className="text-shadow-glow">{isPasswordStep ? command.replace(/./g, '*') : command}</span>
             <BlinkingCursor />
           </div>
            <input
                 ref={inputRef}
                 id="command-input"
-                type='text'
+                type={isPasswordStep ? 'password' : 'text'}
                 value={command}
                 onChange={(e) => setCommand(e.target.value)}
                 autoComplete="off"
