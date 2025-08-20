@@ -6,7 +6,7 @@ import { useToast } from "@/hooks/use-toast";
 import { databaseQuery } from '@/ai/flows/database-query-flow';
 import { askSidekick } from '@/ai/flows/ai-sidekick-flow';
 import { concealMessage, revealMessage } from '@/ai/flows/steganography-flow';
-import { initialFilesystem, Directory, FilesystemNode, linpeasOutput } from '@/lib/filesystem';
+import { initialFilesystem, Directory, FilesystemNode } from '@/lib/filesystem';
 import { db, auth } from '@/lib/firebase';
 import { collection, query, where, getDocs, WhereFilterOp, doc, setDoc, getDoc, updateDoc, writeBatch, orderBy, limit } from 'firebase/firestore';
 import { User } from 'firebase/auth';
@@ -43,7 +43,7 @@ const getNeofetchOutput = (user: {email: string} | null | undefined) => {
 
 const logo = `
             .-/+oossssoo+/-.
-        ´:+ssssssssssssssssss+:\`
+        \`:+ssssssssssssssssss+:\`
       -+ssssssssssssssssssyyssss+-
     .ossssssssssssssssssdsdssssssssso.
    /ssssssssssydssssssssdsdssssssssssss/
@@ -59,7 +59,7 @@ const logo = `
    /ssssssssssydssssssssdsdssssssssssss/
     .ossssssssssssssssssdsdssssssssso.
       -+sssssssssssssssssyyyssss+-
-        ´:+ssssssssssssssssss+:\`
+        \`:+ssssssssssssssssss+:\`
             .-/+oossssoo+/-.
 `;
 
@@ -150,7 +150,7 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean, isMobile: boolean) 
             { command: 'leaderboard', args: '', description: 'View the top players.'},
             { command: 'ask', args: '"<question>"', description: 'Ask the AI sidekick for a hint.'},
             { command: 'nmap', args: '<ip>', description: 'Scan a target IP for open ports.'},
-            { command: 'imagine', args: '"<prompt>"', description: 'Generate an image with AI.'},
+            { command: 'imagine', args: '<prompt>', description: 'Generate an image with AI.'},
             { command: 'crack', args: '<hash> --wordlist <file>', description: 'Crack a password hash.'},
             { command: 'reveal', args: '<image_file>', description: 'Reveal secrets in an image.'},
         ];
@@ -502,9 +502,8 @@ export const useCommand = (user: User | null | undefined, isMobile: boolean) => 
             return { type: 'text', text: `rm: cannot remove '${argString}': No such file or directory` };
           }
           case 'imagine': {
-             if (!argString.startsWith('"') || !argString.endsWith('"')) return { type: 'text', text: 'imagine: prompt must be enclosed in quotes. Usage: imagine "[your prompt]"' };
-            const promptText = argString.slice(1, -1);
-            return { component: <ImageDisplay prompt={promptText} onFinished={() => {}} />, type: 'component' };
+            if (!argString) return { type: 'text', text: 'imagine: prompt cannot be empty. Usage: imagine [your prompt]' };
+            return { component: <ImageDisplay prompt={argString} onFinished={() => {}} />, type: 'component' };
           }
           case 'nmap': {
               if (!argString) return { type: 'text', text: 'Usage: nmap <ip_address>' };
@@ -585,6 +584,7 @@ export const useCommand = (user: User | null | undefined, isMobile: boolean) => 
                 const missionDoc = missionSnapshot.docs[0];
                 const missionId = missionDoc.id;
                 const missionData = missionDoc.data();
+                if (!user) return {type: 'text', text: 'Error: User not logged in.'};
                 const userProgressRef = doc(db, 'user-progress', user.uid);
                 const userProgressSnap = await getDoc(userProgressRef);
 
@@ -616,6 +616,7 @@ export const useCommand = (user: User | null | undefined, isMobile: boolean) => 
                 return { type: 'text', text: `Correct! You earned ${missionData.points} points. Your new score is ${newScore}.` };
             }
             case 'score': {
+                if (!user) return {type: 'text', text: 'Error: User not logged in.'};
                 const userProgressRef = doc(db, 'user-progress', user.uid);
                 const userProgressSnap = await getDoc(userProgressRef);
                 const currentScore = userProgressSnap.exists() ? userProgressSnap.data().score : 0;
@@ -687,8 +688,3 @@ export const useCommand = (user: User | null | undefined, isMobile: boolean) => 
 
   return { prompt, processCommand, getWelcomeMessage, isProcessing, editingFile, saveFile, exitEditor };
 };
-
-    
-    
-
-    
