@@ -1,4 +1,3 @@
-
 export interface File {
   type: 'file';
   content: string | (() => string);
@@ -65,7 +64,7 @@ export const initialFilesystem: Directory = {
     },
     'secret.jpg': {
         type: 'file',
-        content: 'This is not a real image file, but you can run `exiftool` or `strings` on it.'
+        content: 'This is not a real image file, but you can run `strings` on it to find a secret. FLAG{3X1F_M3T4D4T4_H1DD3N_S3CR3T}'
     },
     'mission_image.jpg': {
         type: 'file',
@@ -77,11 +76,35 @@ export const initialFilesystem: Directory = {
     },
     'a.out': {
         type: 'file',
-        content: 'ELF 64-bit LSB executable, x86-64, version 1 (SYSV), dynamically linked, interpreter /lib64/ld-linux-x86-64.so.2, for GNU/Linux 3.2.0, not stripped'
+        content: 'ELF 64-bit LSB executable... not stripped. Maybe try `strings`? FLAG{B4S1C_R3V3RS1NG_W1TH_STR1NGS}'
     },
     'linpeas.sh': {
         type: 'file',
         content: linpeasOutput
+    },
+    'gobuster.txt': {
+        type: 'file',
+        content: `
+===============================================================
+Gobuster v3.1.0
+===============================================================
+[+] Url:            http://10.10.1.2
+[+] Threads:        10
+[+] Wordlist:       /usr/share/wordlists/dirb/common.txt
+[+] Status codes:   200,204,301,302,307,401,403
+[+] User Agent:     gobuster/3.1.0
+[+] Timeout:        10s
+===============================================================
+2024/05/20 10:30:00 Starting gobuster
+===============================================================
+/images (Status: 301)
+/uploads (Status: 301)
+/config.php.bak (Status: 200)
+/admin (Status: 403)
+===============================================================
+2024/05/20 10:31:00 Finished
+===============================================================
+        `
     },
     'lib': {
         type: 'directory',

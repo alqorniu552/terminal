@@ -14,12 +14,19 @@ import { generateCommandHelp } from '@/ai/flows/generate-command-help';
 import { useIsMobile } from './use-mobile';
 import md5 from 'md5';
 import { scanFile } from '@/ai/flows/scan-file-flow';
+import { generateAttackPlan } from '@/ai/flows/attack-planner-flow';
 
 type EditingFile = { path: string; content: string } | null;
 type CommandResult = 
   | { type: 'text', text: string }
   | { type: 'component', component: React.ReactNode }
   | { type: 'none' };
+
+type SetAwaitingConfirmationFn = (
+    message: string,
+    onConfirm: () => void,
+    onDeny: () => void
+) => void;
 
 const ROOT_EMAIL = "alqorniu552@gmail.com";
 
@@ -154,6 +161,8 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean, isMobile: boolean) 
             { command: 'imagine', args: '<prompt>', description: 'Generate an image with AI.'},
             { command: 'crack', args: '<hash> --wordlist <file>', description: 'Crack a password hash.'},
             { command: 'reveal', args: '<image_file>', description: 'Reveal secrets in an image.'},
+            { command: 'attack', args: '<target> --obj "<goal>"', description: 'Plan & execute an AI attack.'},
+
         ];
         
         const rootCommands = [
@@ -186,11 +195,15 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean, isMobile: boolean) 
 
 const virtualHosts: Record<string, string> = {
     '10.10.1.1': 'Open Ports: 22 (SSH), 80 (HTTP)\nHost is running Linux 5.4.',
-    '10.10.1.2': 'Open Ports: 21 (FTP), 80 (HTTP), 443 (HTTPS)\nFTP allows anonymous login. Found config.php.bak.',
+    '10.10.1.2': 'Open Ports: 21 (FTP), 80 (HTTP), 443 (HTTPS)\nFTP allows anonymous login. Found /gobuster.txt.',
     '192.168.1.100': 'Open Ports: 8080 (web-proxy)\nProxy seems to be misconfigured.',
 };
 
-export const useCommand = (user: User | null | undefined, isMobile: boolean) => {
+export const useCommand = (
+    user: User | null | undefined, 
+    isMobile: boolean,
+    setAwaitingConfirmation: SetAwaitingConfirmationFn
+) => {
   const [cwd, setCwd] = useState('/');
   const [isProcessing, setIsProcessing] = useState(false);
   const [userFilesystem, setUserFilesystem] = useState<Directory>(initialFilesystem);
@@ -379,7 +392,20 @@ export const useCommand = (user: User | null | undefined, isMobile: boolean) => 
       setEditingFile(null);
   }, []);
 
-  const processCommand = useCallback(async (command: string): Promise<CommandResult> => {
+  const executeCommandsSequentially = useCallback(async (commandsToExecute: { command: string, args: string[] }[]) => {
+      setIsProcessing(true);
+      for (const cmd of commandsToExecute) {
+          const fullCommand = `${cmd.command} ${cmd.args.join(' ')}`;
+          // We need a way to add this to history and then process it.
+          // This is a simplification. A real implementation might need to update the Terminal component's state directly.
+          console.log(`Executing planned command: ${fullCommand}`);
+          const result = await processCommand(fullCommand, true); // Pass a flag to prevent recursion
+          // Need a way to render the result to the screen.
+      }
+      setIsProcessing(false);
+  }, [processCommand]);
+
+  const processCommand = useCallback(async (command: string, isPlannedExecution: boolean = false): Promise<CommandResult> => {
     setIsProcessing(true);
     
     // Apply aliases
@@ -503,13 +529,22 @@ export const useCommand = (user: User | null | undefined, isMobile: boolean) => 
             return { type: 'text', text: `rm: cannot remove '${argString}': No such file or directory` };
           }
           case 'imagine': {
-            if (!argString) return { type: 'text', text: 'imagine: prompt cannot be empty. Usage: imagine your prompt' };
+            if (!argString) return { type: 'text', text: 'Usage: imagine <your prompt>' };
             return { component: <ImageDisplay prompt={argString} onFinished={() => {}} />, type: 'component' };
           }
           case 'nmap': {
               if (!argString) return { type: 'text', text: 'Usage: nmap <ip_address>' };
               const result = virtualHosts[argString] || `Failed to resolve "${argString}".`;
               return { type: 'text', text: `Starting Nmap...\n${result}`};
+          }
+          case 'gobuster': { // Simulated command
+              if (isPlannedExecution) {
+                 const gobusterNode = getNodeFromPath('/gobuster.txt', userFilesystem);
+                 if (gobusterNode && gobusterNode.type === 'file') {
+                     return { type: 'text', text: (typeof gobusterNode.content === 'function' ? gobusterNode.content() : gobusterNode.content) as string };
+                 }
+              }
+              return { type: 'text', text: 'gobuster: command not found' };
           }
           case 'ask': {
             if (!argString.startsWith('"') || !argString.endsWith('"')) return { type: 'text', text: 'Usage: ask "<your question>"' };
@@ -579,6 +614,40 @@ export const useCommand = (user: User | null | undefined, isMobile: boolean) => 
             
             const saveResult = await saveFile(imagePath, newImageDataUri);
             return { type: 'text', text: `Message concealed. ${saveResult}` };
+          }
+          case 'attack': {
+              const targetIndex = finalArgs.findIndex(arg => !arg.startsWith('--'));
+              const objectiveIndex = finalArgs.findIndex(arg => arg === '--objective' || arg === '--obj');
+
+              if (targetIndex === -1 || objectiveIndex === -1 || objectiveIndex + 1 >= finalArgs.length) {
+                  return { type: 'text', text: 'Usage: attack <target> --obj[ective] "<goal>"' };
+              }
+              const target = finalArgs[targetIndex];
+              const objective = argString.split(/--obj(?:ective)?/)[1].trim().slice(1, -1);
+              
+              const currentNode = getNodeFromPath(cwd, userFilesystem);
+              const files = (currentNode?.type === 'directory') ? Object.keys(currentNode.children) : [];
+
+              const { plan, reasoning } = await generateAttackPlan({ target, objective, availableFiles: files });
+
+              if (!plan || plan.length === 0) {
+                  return { type: 'text', text: 'Ghost: I could not devise a coherent plan for that objective.' };
+              }
+
+              let planString = `Ghost has devised a plan based on the objective: "${objective}"\n`;
+              planString += `Reasoning: ${reasoning}\n\n`;
+              planString += plan.map((step, index) => `[Step ${index + 1}] ${step.command} ${step.args.join(' ')}`).join('\n');
+              
+              setAwaitingConfirmation(planString, async () => {
+                  // This part will be tricky. We need to execute commands sequentially and add to history.
+                  // For now, we'll just log that it's confirmed. A more robust solution is needed.
+                  console.log("Attack plan confirmed by user. Executing...");
+                  await executeCommandsSequentially(plan);
+              }, () => {
+                  console.log("Attack plan denied by user.");
+              });
+              
+              return { type: 'none' };
           }
           case 'missions': {
               const missionsCol = collection(db, 'missions');
@@ -699,7 +768,7 @@ export const useCommand = (user: User | null | undefined, isMobile: boolean) => 
     } finally {
         setIsProcessing(false);
     }
-  }, [cwd, toast, user, userFilesystem, resolvePath, getNodeFromPath, getParentNodeFromPath, updateFirestoreFilesystem, saveFile, exitEditor, isRoot, viewedUser, isMobile, getPrompt, fetchUserFilesystem, aliases]);
+  }, [cwd, toast, user, userFilesystem, resolvePath, getNodeFromPath, getParentNodeFromPath, updateFirestoreFilesystem, saveFile, exitEditor, isRoot, viewedUser, isMobile, getPrompt, fetchUserFilesystem, aliases, setAwaitingConfirmation, executeCommandsSequentially]);
 
   return { prompt, processCommand, getWelcomeMessage, isProcessing, editingFile, saveFile, exitEditor };
 };

@@ -26,6 +26,7 @@ const BlinkingCursor = () => (
 
 type AuthStep = 'idle' | 'email' | 'password';
 type AuthCommand = 'login' | 'register' | null;
+type TerminalState = 'idle' | 'awaiting_confirmation';
 
 export default function Terminal({ user }: { user: User | null | undefined }) {
   const [history, setHistory] = useState<HistoryItem[]>([]);
@@ -33,10 +34,12 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
   const [isTyping, setIsTyping] = useState(true);
   const isMobile = useIsMobile();
 
-  // State for multi-step auth
   const [authStep, setAuthStep] = useState<AuthStep>('idle');
   const [authCommand, setAuthCommand] = useState<AuthCommand>(null);
   const [authData, setAuthData] = useState<{ email?: string; password?: string }>({});
+
+  const [terminalState, setTerminalState] = useState<TerminalState>('idle');
+  const [confirmationCallback, setConfirmationCallback] = useState<{ onConfirm: () => void, onDeny: () => void} | null>(null);
   
   const { 
     prompt,
@@ -46,7 +49,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     saveFile,
     exitEditor,
     isProcessing,
-  } = useCommand(user, isMobile);
+  } = useCommand(user, isMobile, setAwaitingConfirmation);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const passwordInputRef = useRef<HTMLInputElement>(null);
@@ -55,12 +58,29 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
   const focusInput = useCallback(() => {
     if (typeof window !== 'undefined' && window.innerWidth > 768 && !editingFile) {
         if (authStep === 'password') {
-            passwordInputRef.current?.focus();
+            passwordInputdRef.current?.focus();
         } else {
             inputRef.current?.focus();
         }
     }
   }, [editingFile, authStep]);
+
+  function setAwaitingConfirmation(message: string, onConfirm: () => void, onDeny: () => void) {
+      const newHistoryItem: HistoryItem = { 
+          id: Date.now(),
+          command: '', 
+          output: (
+              <div>
+                  <div>{message}</div>
+                  <div>Proceed? (y/n)</div>
+              </div>
+          ),
+          prompt: ''
+      };
+      setHistory(prev => [...prev, newHistoryItem]);
+      setTerminalState('awaiting_confirmation');
+      setConfirmationCallback({ onConfirm, onDeny });
+  }
 
   useEffect(() => {
     focusInput();
@@ -145,6 +165,19 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     const currentInput = command.trim();
     setCommand('');
 
+    // --- Confirmation Flow ---
+    if (terminalState === 'awaiting_confirmation' && confirmationCallback) {
+        setHistory(prev => [...prev, { id: Date.now(), command: currentInput, output: null, prompt: 'y/n> ' }]);
+        if (currentInput.toLowerCase() === 'y') {
+            confirmationCallback.onConfirm();
+        } else {
+            confirmationCallback.onDeny();
+        }
+        setTerminalState('idle');
+        setConfirmationCallback(null);
+        return;
+    }
+
     // --- Multi-step Auth Flow ---
     if (authStep !== 'idle') {
         const newHistoryPrompt = authStep === 'email' ? 'email: ' : 'password: ';
@@ -183,7 +216,6 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
         prompt: prompt 
     };
 
-    // Show command in history immediately, with a processing indicator
     setHistory(prev => [...prev, { ...newHistoryItem, output: <Skeleton className="h-4 w-32" /> }]);
     
     const result = await processCommand(currentInput);
@@ -192,22 +224,20 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
 
     if (result.type === 'component') {
       setIsTyping(true);
-      // We need to provide a key for React to properly handle the component
       outputNode = React.cloneElement(result.component as React.ReactElement<{ onFinished: () => void, key: number}>, { onFinished: () => setIsTyping(false), key: Date.now() });
     } else if (result.type === 'text') {
       setIsTyping(true);
       outputNode = <Typewriter text={result.text} onFinished={() => setIsTyping(false)} />;
     } else { // 'none'
       outputNode = null;
-      setIsTyping(false); // If no output, stop typing indicator immediately
+      setIsTyping(false); 
     }
     
-    // Update the history item with the actual output
     const updatedHistoryItem = { ...newHistoryItem, output: outputNode };
     setHistory(prev => prev.map(h => h.id === updatedHistoryItem.id ? updatedHistoryItem : h));
   };
   
-  const showInput = !isTyping && !isProcessing && !editingFile && authStep === 'idle';
+  const showInput = !isTyping && !isProcessing && !editingFile && authStep === 'idle' && terminalState === 'idle';
 
   if (editingFile && saveFile && exitEditor) {
     return (
@@ -246,7 +276,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
         ))}
       </div>
 
-      {isProcessing && authStep === 'idle' && (
+      {isProcessing && authStep === 'idle' && terminalState === 'idle' && (
          <div className="flex items-center">
             <span className="text-accent">{prompt}</span>
             <span>{command}</span>
@@ -299,6 +329,27 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
         </form>
       )}
 
+      {terminalState === 'awaiting_confirmation' && !isTyping && (
+          <form onSubmit={handleCommandSubmit} className="flex items-center">
+            <label htmlFor="command-input-confirm" className="flex-shrink-0 text-accent">y/n&gt; </label>
+            <div className="flex-grow relative">
+              <span className="text-shadow-glow">{command}</span>
+              <BlinkingCursor />
+            </div>
+            <input
+                  ref={inputRef}
+                  id="command-input-confirm"
+                  type="text"
+                  value={command}
+                  onChange={(e) => setCommand(e.target.value)}
+                  autoComplete="off"
+                  className="absolute top-0 left-0 w-full h-full bg-transparent border-none outline-none text-transparent caret-transparent"
+                  aria-label="confirmation input"
+                  autoFocus
+              />
+          </form>
+      )}
+
       {showInput && (
         <form onSubmit={handleCommandSubmit} className="flex items-center">
           <label htmlFor="command-input-main" className="flex-shrink-0 text-accent">{prompt}</label>
@@ -319,6 +370,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
                 aria-label="command input"
                 onFocus={(e) => e.currentTarget.setSelectionRange(e.currentTarget.value.length, e.currentTarget.value.length)}
                 disabled={!showInput}
+                autoFocus
             />
         </form>
       )}
