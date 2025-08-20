@@ -127,7 +127,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
             const newHistoryItem: HistoryItem = { 
                 id: history.length + 1,
                 command: `^O (Save File)`,
-                output: saveMessage,
+                output: <Typewriter text={saveMessage} onFinished={() => {}}/>,
                 prompt: '' 
             };
             setHistory(prev => [...prev, newHistoryItem]);

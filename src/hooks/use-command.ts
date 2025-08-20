@@ -49,12 +49,14 @@ const getHelpOutput = (isLoggedIn: boolean) => {
     if (isLoggedIn) {
         const loggedInCommands = [
           { command: 'help', args: '', description: 'Show this help message.' },
-          { command: 'ls', args: 'path', description: 'List directory contents.' },
-          { command: 'cd', args: 'path', description: 'Change directory.' },
-          { command: 'cat', args: 'file', description: 'Display file content.' },
-          { command: 'nano', args: 'file', description: 'Edit a file.' },
+          { command: 'ls', args: '[path]', description: 'List directory contents.' },
+          { command: 'cd', args: '<path>', description: 'Change directory.' },
+          { command: 'cat', args: '<file>', description: 'Display file content.' },
+          { command: 'nano', args: '<file>', description: 'Edit a file.' },
+          { command: 'mkdir', args: '<dirname>', description: 'Create a directory.' },
+          { command: 'touch', args: '<filename>', description: 'Create an empty file.' },
+          { command: 'rm', args: '<file/dir>', description: 'Remove a file or directory.' },
           { command: 'neofetch', args: '', description: 'Display system information.' },
-          { command: 'prompt', args: 'value', description: 'Set a new prompt.' },
           { command: 'db', args: '"query"', description: 'Query the database using natural language.' },
           { command: 'imagine', args: '"prompt"', description: 'Generate an image with AI.'},
           { command: 'clear', args: '', description: 'Clear the terminal screen.' },
@@ -95,16 +97,19 @@ export const useCommand = (user: User | null | undefined) => {
   
   const fetchUserFilesystem = useCallback(async () => {
     if (user) {
+        setIsProcessing(true);
         const userDocRef = doc(db, 'users', user.uid);
         const userDoc = await getDoc(userDocRef);
         if (userDoc.exists() && userDoc.data().filesystem) {
             setUserFilesystem(userDoc.data().filesystem);
         } else {
             // If user has no filesystem, set the initial one
-            await setDoc(userDocRef, { email: user.email, filesystem: initialFilesystem }, { merge: true });
+            const newUserDoc = { email: user.email, filesystem: initialFilesystem };
+            await setDoc(userDocRef, newUserDoc, { merge: true });
             setUserFilesystem(initialFilesystem);
         }
         setCwd('/'); // Reset to root dir on user change
+        setIsProcessing(false);
     } else {
         // Not logged in, reset to defaults
         setUserFilesystem(initialFilesystem);
@@ -249,7 +254,7 @@ export const useCommand = (user: User | null | undefined) => {
             const node = getNodeFromPath(targetPath, userFilesystem);
             if (node && node.type === 'directory') {
               const content = Object.keys(node.children);
-              if (content.length === 0) return { type: 'none' };
+              if (content.length === 0) return { type: 'text', text: '' };
               const output = content.map(key => {
                 return node.children[key].type === 'directory' ? `\x1b[1;34m${key}/\x1b[0m` : key;
               }).join('\n');
@@ -293,6 +298,61 @@ export const useCommand = (user: User | null | undefined) => {
             const content = (node && node.type === 'file') ? (typeof node.content === 'function' ? node.content() : node.content) : '';
             setEditingFile({ path: targetPath, content: content as string });
             return { type: 'none' };
+          }
+
+          case 'mkdir': {
+            if (!argString) return { type: 'text', text: 'mkdir: missing operand' };
+            const newFs = JSON.parse(JSON.stringify(userFilesystem));
+            const targetPath = resolvePath(argString);
+            const parentNode = getParentNodeFromPath(targetPath, newFs);
+            const dirname = targetPath.split('/').pop();
+            if (parentNode && dirname) {
+                if (parentNode.children[dirname]) {
+                    return { type: 'text', text: `mkdir: cannot create directory ‘${argString}’: File exists` };
+                }
+                parentNode.children[dirname] = { type: 'directory', children: {} };
+                setUserFilesystem(newFs);
+                await updateFirestoreFilesystem(newFs);
+                return { type: 'none' };
+            }
+            return { type: 'text', text: `mkdir: cannot create directory ‘${argString}’: No such file or directory` };
+          }
+
+          case 'touch': {
+            if (!argString) return { type: 'text', text: 'touch: missing file operand' };
+            const newFs = JSON.parse(JSON.stringify(userFilesystem));
+            const targetPath = resolvePath(argString);
+            const parentNode = getParentNodeFromPath(targetPath, newFs);
+            const filename = targetPath.split('/').pop();
+            if (parentNode && filename) {
+                if (parentNode.children[filename]) {
+                    return { type: 'none' }; // Silently do nothing if file exists
+                }
+                parentNode.children[filename] = { type: 'file', content: '' };
+                setUserFilesystem(newFs);
+                await updateFirestoreFilesystem(newFs);
+                return { type: 'none' };
+            }
+            return { type: 'text', text: `touch: cannot touch '${argString}': No such file or directory` };
+          }
+
+          case 'rm': {
+            if (!argString) return { type: 'text', text: 'rm: missing operand' };
+            const newFs = JSON.parse(JSON.stringify(userFilesystem));
+            const targetPath = resolvePath(argString);
+            const parentNode = getParentNodeFromPath(targetPath, newFs);
+            const nodeName = targetPath.split('/').pop();
+            if (parentNode && nodeName && parentNode.children[nodeName]) {
+                const nodeToRemove = parentNode.children[nodeName];
+                if (nodeToRemove.type === 'directory' && Object.keys(nodeToRemove.children).length > 0 && !args.includes('-r')) {
+                    return { type: 'text', text: `rm: cannot remove '${argString}': Is a directory (and not empty)` };
+                }
+                delete parentNode.children[nodeName];
+                setUserFilesystem(newFs);
+                await updateFirestoreFilesystem(newFs);
+                return { type: 'none' };
+            }
+            return { type: 'text', text: `rm: cannot remove '${argString}': No such file or directory` };
           }
 
           case 'db': {
@@ -346,7 +406,7 @@ export const useCommand = (user: User | null | undefined) => {
     } finally {
         setIsProcessing(false);
     }
-  }, [cwd, toast, user, userFilesystem, resolvePath, getNodeFromPath]);
+  }, [cwd, toast, user, userFilesystem, resolvePath, getNodeFromPath, getParentNodeFromPath, updateFirestoreFilesystem, saveFile, exitEditor]);
 
   return { prompt, processCommand, getWelcomeMessage, isProcessing, editingFile, saveFile, exitEditor };
 };
