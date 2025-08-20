@@ -284,7 +284,6 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
                 id="password-input"
                 type="password"
                 value={command}
-                onChange={(e) => setCommand(e.target.value)}
                 autoComplete="new-password"
                 className="absolute top-0 left-0 w-full h-full bg-transparent border-none outline-none text-transparent caret-transparent"
                 aria-label="password input"

@@ -33,7 +33,7 @@ OS: Web Browser
 Host: Cyber v1.0
 Kernel: Next.js
 Uptime: ${uptime} seconds
-Shell: term-sim
+Shell: bash
 `;
 };
 
@@ -127,7 +127,6 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean) => {
             output += formatCommandsToTable('ROOT COMMANDS', rootCommands);
         }
 
-        output += "\nFor unrecognized commands, AI will try to provide assistance.";
         return output;
     }
     
