@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useToast } from "@/hooks/use-toast";
 import { databaseQuery } from '@/ai/flows/database-query-flow';
 import { askSidekick } from '@/ai/flows/ai-sidekick-flow';
@@ -11,10 +11,10 @@ import { collection, query, where, getDocs, WhereFilterOp, doc, setDoc, getDoc, 
 import { User } from 'firebase/auth';
 import ImageDisplay from '@/components/image-display';
 import { generateCommandHelp } from '@/ai/flows/generate-command-help';
-import { useIsMobile } from './use-mobile';
 import md5 from 'md5';
 import { scanFile } from '@/ai/flows/scan-file-flow';
 import { generateAttackPlan } from '@/ai/flows/attack-planner-flow';
+import { generateWarlockTaunt } from '@/ai/flows/warlock-threat-flow';
 
 type EditingFile = { path: string; content: string } | null;
 type CommandResult = 
@@ -27,6 +27,11 @@ type SetAwaitingConfirmationFn = (
     onConfirm: () => void,
     onDeny: () => void
 ) => void;
+
+interface WarlockMessage {
+  id: number;
+  text: string;
+}
 
 const ROOT_EMAIL = "alqorniu552@gmail.com";
 
@@ -46,7 +51,6 @@ const getNeofetchOutput = (user: {email: string} | null | undefined) => {
         uptimeString = parts.join(', ');
     }
     const email = user?.email || 'guest';
-    const hostname = email.split('@')[0];
 
 const logo = `
             .-/+oossssoo+/-.
@@ -212,6 +216,13 @@ export const useCommand = (
   const [viewedUser, setViewedUser] = useState<{uid: string, email: string} | null>(null);
   const [aliases, setAliases] = useState<Record<string, string>>({});
   
+  // Warlock State
+  const [warlockAwareness, setWarlockAwareness] = useState(0);
+  const [warlockMessages, setWarlockMessages] = useState<WarlockMessage[]>([]);
+  const warlockTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const warlockIsActive = useRef(true);
+
+
   const getPrompt = useCallback(() => {
     if (viewedUser) {
         const username = viewedUser.email.split('@')[0] || 'user';
@@ -224,8 +235,47 @@ export const useCommand = (
   
   const [prompt, setPrompt] = useState(getPrompt());
   const { toast } = useToast();
+
+  const triggerWarlockMessage = useCallback(async (action: string) => {
+      if (!warlockIsActive.current) return;
+      try {
+          const { taunt } = await generateWarlockTaunt({ action, awareness: warlockAwareness });
+          setWarlockMessages(prev => [...prev, { id: Date.now(), text: taunt }]);
+      } catch (e) {
+          console.error("Warlock taunt generation failed:", e);
+      }
+  }, [warlockAwareness]);
+
+  const updateWarlockAwareness = useCallback((amount: number, action: string) => {
+      if (!warlockIsActive.current) return;
+      
+      setWarlockAwareness(prev => {
+          const newAwareness = Math.min(100, prev + amount);
+
+          if (warlockTimeoutRef.current) {
+              clearTimeout(warlockTimeoutRef.current);
+          }
+
+          if (newAwareness > 30 && newAwareness < 60 && Math.random() < 0.2) {
+              triggerWarlockMessage(action);
+          } else if (newAwareness >= 60 && newAwareness < 90 && Math.random() < 0.5) {
+              triggerWarlockMessage(action);
+          } else if (newAwareness >= 90 && Math.random() < 0.8) {
+              triggerWarlockMessage(action);
+          }
+
+          warlockTimeoutRef.current = setTimeout(() => {
+              setWarlockAwareness(curr => Math.max(0, curr - 10));
+          }, 30000); // Decrease awareness every 30 seconds of inactivity
+
+          return newAwareness;
+      });
+  }, [triggerWarlockMessage]);
   
   const resolvePath = useCallback((path: string): string => {
+    if (path.endsWith('.locked')) {
+        path = path.slice(0, -7);
+    }
     if (path.startsWith('~/')) {
         path = path.substring(1); 
     }
@@ -293,22 +343,26 @@ export const useCommand = (
         const userDoc = await getDoc(userDocRef);
         if (userDoc.exists() && userDoc.data().filesystem) {
             const fs = userDoc.data().filesystem;
+            warlockIsActive.current = getNodeFromPath('/var/lib/warlock.core', fs) !== null;
             setUserFilesystem(fs);
             parseAliases(fs);
         } else if (user && user.uid === uid) { 
             const userDocData = userDoc.exists() ? userDoc.data() : { email: user.email };
             const newUserDoc = { ...userDocData, filesystem: initialFilesystem };
             await setDoc(userDocRef, newUserDoc, { merge: true });
+            warlockIsActive.current = true;
             setUserFilesystem(initialFilesystem);
             parseAliases(initialFilesystem);
         }
     } else {
+        warlockIsActive.current = true;
         setUserFilesystem(initialFilesystem);
         parseAliases(initialFilesystem);
     }
+    setWarlockAwareness(0);
     setCwd('/');
     setIsProcessing(false);
-  }, [user, parseAliases]);
+  }, [user, parseAliases, getNodeFromPath]);
 
   useEffect(() => {
     if (user) {
@@ -365,6 +419,35 @@ export const useCommand = (
         });
     }
   }, [viewedUser, user, toast, parseAliases]);
+  
+  const warlockFileLock = useCallback(async (filePath: string) => {
+      if (!warlockIsActive.current) return;
+      const newFs = JSON.parse(JSON.stringify(userFilesystem));
+      const parentNode = getParentNodeFromPath(filePath, newFs);
+      const filename = filePath.split('/').pop();
+
+      if (parentNode && filename && parentNode.children[filename]) {
+          const originalNode = parentNode.children[filename];
+          delete parentNode.children[filename];
+          parentNode.children[`${filename}.locked`] = originalNode;
+          
+          setUserFilesystem({ ...newFs });
+          await updateFirestoreFilesystem(newFs);
+          await triggerWarlockMessage(`locked ${filename}`);
+      }
+  }, [userFilesystem, getParentNodeFromPath, updateFirestoreFilesystem, triggerWarlockMessage]);
+
+  useEffect(() => {
+      if (warlockAwareness > 75 && Math.random() > 0.5) {
+          const sensitiveFiles = ['/auth.log', '/shadow.bak', '/secret.jpg'];
+          const targetFile = sensitiveFiles[Math.floor(Math.random() * sensitiveFiles.length)];
+          const node = getNodeFromPath(targetFile, userFilesystem);
+          if (node) {
+              warlockFileLock(targetFile);
+              setWarlockAwareness(prev => prev - 20); // Reduce awareness after taking action
+          }
+      }
+  }, [warlockAwareness, warlockFileLock, userFilesystem, getNodeFromPath]);
 
   const saveFile = useCallback(async (path: string, content: string): Promise<string> => {
       if (!viewedUser || !user || viewedUser.uid !== user.uid) {
@@ -391,11 +474,10 @@ export const useCommand = (
   const exitEditor = useCallback(() => {
       setEditingFile(null);
   }, []);
-  
+
   const processCommand = useCallback(async (command: string, isPlannedExecution: boolean = false): Promise<CommandResult> => {
     setIsProcessing(true);
     
-    // Apply aliases
     const [cmdCandidate, ...initialArgs] = command.trim().split(/\s+/);
     let finalCmd = cmdCandidate;
     let finalArgs = initialArgs;
@@ -415,11 +497,26 @@ export const useCommand = (
         case 'help': return { type: 'text', text: getHelpOutput(false, false, isMobile) };
         case '': return { type: 'none' };
         case 'login': case 'register': return { type: 'none' };
-        default: return { type: 'text', text: `Command not found: ${finalCmd}. Please 'login' or 'register'.` };
+        default: 
+            updateWarlockAwareness(5, `invalid command: ${finalCmd}`);
+            return { type: 'text', text: `Command not found: ${finalCmd}. Please 'login' or 'register'.` };
       }
     }
-
+    
+    const executeCommandsSequentially = async (commandsToExecute: { command: string, args: string[] }[]) => {
+        for (const cmd of commandsToExecute) {
+            const fullCommand = `${cmd.command} ${cmd.args.join(' ')}`;
+            const result = await processCommand(fullCommand, true);
+        }
+    };
+    
     try {
+        const filePathArg = resolvePath(argString);
+        if (filePathArg.endsWith('.locked')) {
+            updateWarlockAwareness(15, `attempted to access locked file ${filePathArg}`);
+            return { type: 'text', text: `Error: Access to ${argString} is blocked by an active security agent.`};
+        }
+
         switch (finalCmd.toLowerCase()) {
           case 'help': return { type: 'text', text: getHelpOutput(true, isRoot, isMobile) };
           case 'neofetch': return { type: 'text', text: getNeofetchOutput(viewedUser) };
@@ -430,7 +527,10 @@ export const useCommand = (
               const content = Object.keys(node.children);
               if (content.length === 0) return { type: 'text', text: '' };
               const output = content.map(key => {
-                return node.children[key].type === 'directory' ? `${key}/` : key;
+                const childNode = node.children[key];
+                const isLocked = key.endsWith('.locked');
+                const displayName = isLocked ? key : (childNode.type === 'directory' ? `${key}/` : key);
+                return displayName;
               }).join('\n');
               return { type: 'text', text: output };
             }
@@ -445,6 +545,8 @@ export const useCommand = (
           }
           case 'cat': {
             if (!argString) return { type: 'text', text: 'cat: missing operand' };
+            if (argString.includes('auth.log')) updateWarlockAwareness(10, 'accessed auth.log');
+            if (argString.includes('shadow.bak')) updateWarlockAwareness(15, 'accessed shadow.bak');
             const targetPath = resolvePath(argString);
             const node = getNodeFromPath(targetPath, userFilesystem);
             if (node && node.type === 'file') {
@@ -498,6 +600,11 @@ export const useCommand = (
           case 'rm': {
             if (!user || viewedUser?.uid !== user.uid) return { type: 'text', text: `rm: Permission denied.` };
             if (!argString) return { type: 'text', text: 'rm: missing operand' };
+            
+            if (resolvePath(argString) === '/var/lib/warlock.core') {
+                 updateWarlockAwareness(50, 'attempted to delete warlock.core');
+            }
+
             const newFs = JSON.parse(JSON.stringify(userFilesystem));
             const targetPath = resolvePath(argString);
             if (targetPath === '/') return { type: 'text', text: `rm: cannot remove '/': Is a directory` };
@@ -511,6 +618,12 @@ export const useCommand = (
                 delete parentNode.children[nodeName];
                 setUserFilesystem({ ...newFs });
                 await updateFirestoreFilesystem(newFs);
+                 if (resolvePath(argString) === '/var/lib/warlock.core') {
+                    warlockIsActive.current = false;
+                    setWarlockAwareness(0);
+                    if (warlockTimeoutRef.current) clearTimeout(warlockTimeoutRef.current);
+                    return { type: 'text', text: `SYSTEM INTEGRITY COMPROMISED. WARLOCK CORE OFFLINE.`};
+                }
                 return { type: 'none' };
             }
             return { type: 'text', text: `rm: cannot remove '${argString}': No such file or directory` };
@@ -521,11 +634,13 @@ export const useCommand = (
           }
           case 'nmap': {
               if (!argString) return { type: 'text', text: 'Usage: nmap <ip_address>' };
+              updateWarlockAwareness(5, `nmap scan on ${argString}`);
               const result = virtualHosts[argString] || `Failed to resolve "${argString}".`;
               return { type: 'text', text: `Starting Nmap...\n${result}`};
           }
           case 'gobuster': { // Simulated command
               if (isPlannedExecution) {
+                 updateWarlockAwareness(10, 'gobuster execution');
                  const gobusterNode = getNodeFromPath('/gobuster.txt', userFilesystem);
                  if (gobusterNode && gobusterNode.type === 'file') {
                      return { type: 'text', text: (typeof gobusterNode.content === 'function' ? gobusterNode.content() : gobusterNode.content) as string };
@@ -543,6 +658,7 @@ export const useCommand = (
           }
            case 'scan': {
             if (!argString) return { type: 'text', text: 'Usage: scan <file_path>' };
+            updateWarlockAwareness(20, `scanned ${argString}`);
             const node = getNodeFromPath(argString, userFilesystem);
             if (!node) {
               return { type: 'text', text: `scan: file not found: ${argString}` };
@@ -554,6 +670,7 @@ export const useCommand = (
             return { type: 'text', text: report };
           }
           case 'crack': {
+            updateWarlockAwareness(25, `started password cracking`);
             const hashArgIndex = finalArgs.findIndex(a => a.startsWith(""));
             const wordlistFlagIndex = finalArgs.findIndex(a => a === '--wordlist');
             if (hashArgIndex === -1 || wordlistFlagIndex === -1 || wordlistFlagIndex + 1 >= finalArgs.length) {
@@ -569,6 +686,7 @@ export const useCommand = (
             const words = wordlistContent.split('\n');
             for (const word of words) {
               if (md5(word.trim()) === hash) {
+                 updateWarlockAwareness(30, `successfully cracked password`);
                 return { type: 'text', text: `Password found: ${word}` };
               }
             }
@@ -576,6 +694,7 @@ export const useCommand = (
           }
           case 'reveal': {
             if (!argString) return { type: 'text', text: 'Usage: reveal <image_file>' };
+            updateWarlockAwareness(15, `steganography attempt on ${argString}`);
             const imageNode = getNodeFromPath(argString, userFilesystem);
             if (!imageNode || imageNode.type !== 'file') {
               return { type: 'text', text: `reveal: file not found: ${argString}` };
@@ -612,6 +731,8 @@ export const useCommand = (
               const target = finalArgs[targetIndex];
               const objective = argString.split(/--obj(?:ective)?/)[1].trim().slice(1, -1);
               
+              updateWarlockAwareness(30, `planned attack on ${target}`);
+
               const currentNode = getNodeFromPath(cwd, userFilesystem);
               const files = (currentNode?.type === 'directory') ? Object.keys(currentNode.children) : [];
 
@@ -626,12 +747,9 @@ export const useCommand = (
               planString += plan.map((step, index) => `[Step ${index + 1}] ${step.command} ${step.args.join(' ')}`).join('\n');
               
               setAwaitingConfirmation(planString, async () => {
-                  // This part will be tricky. We need to execute commands sequentially and add to history.
-                  // For now, we'll just log that it's confirmed. A more robust solution is needed.
-                  console.log("Attack plan confirmed by user. Executing...");
                   await executeCommandsSequentially(plan);
               }, () => {
-                  console.log("Attack plan denied by user.");
+                   updateWarlockAwareness(-10, 'user denied attack plan');
               });
               
               return { type: 'none' };
@@ -650,7 +768,11 @@ export const useCommand = (
                 if (!argString) return { type: 'text', text: 'Usage: submit-flag <flag>' };
                 const q = query(collection(db, 'missions'), where("flag", "==", argString));
                 const missionSnapshot = await getDocs(q);
-                if (missionSnapshot.empty) return { type: 'text', text: 'Incorrect flag. Keep trying.' };
+                if (missionSnapshot.empty) {
+                    updateWarlockAwareness(10, `incorrect flag submission`);
+                    return { type: 'text', text: 'Incorrect flag. Keep trying.' 
+                };
+                }
                 
                 const missionDoc = missionSnapshot.docs[0];
                 const missionId = missionDoc.id;
@@ -662,6 +784,8 @@ export const useCommand = (
                 if (userProgressSnap.exists() && userProgressSnap.data().completed_missions?.includes(missionId)) {
                     return { type: 'text', text: 'You have already completed this mission.' };
                 }
+
+                updateWarlockAwareness(20, `completed mission ${missionData.title}`);
 
                 const batch = writeBatch(db);
                 const currentScore = userProgressSnap.exists() ? userProgressSnap.data().score : 0;
@@ -707,6 +831,7 @@ export const useCommand = (
           case 'db': {
             if (!isRoot) return { type: 'text', text: `bash: command not found: db` };
             if (!argString.startsWith('"') || !argString.endsWith('"')) return { type: 'text', text: 'db: query must be enclosed in quotes. Usage: db "your natural language query"' };
+            updateWarlockAwareness(5, `queried database`);
             const queryText = argString.slice(1, -1);
             const queryInstruction = await databaseQuery({ query: queryText });
             const whereClauses = queryInstruction.where.map(w => where(w[0], w[1] as WhereFilterOp, w[2]));
@@ -718,6 +843,7 @@ export const useCommand = (
           }
           case 'list-users': {
               if (!isRoot) return { type: 'text', text: `bash: command not found: ${finalCmd}` };
+              updateWarlockAwareness(10, `listed users`);
               const usersCollection = collection(db, 'users');
               const userSnapshot = await getDocs(usersCollection);
               const userList = userSnapshot.docs.map(doc => doc.data().email);
@@ -740,6 +866,7 @@ export const useCommand = (
           case 'logout': { await auth.signOut(); return { type: 'text', text: 'Logged out successfully.' }; }
           case '': return { type: 'none' };
           default: {
+            updateWarlockAwareness(5, `failed command: ${finalCmd}`);
             const result = await generateCommandHelp({ command: finalCmd });
             return { type: 'text', text: `bash: command not found: ${finalCmd}\n\n${result.helpMessage}`};
           }
@@ -755,20 +882,22 @@ export const useCommand = (
     } finally {
         setIsProcessing(false);
     }
-  }, [cwd, toast, user, userFilesystem, resolvePath, getNodeFromPath, getParentNodeFromPath, updateFirestoreFilesystem, saveFile, isRoot, viewedUser, isMobile, aliases, setAwaitingConfirmation, fetchUserFilesystem, getPrompt]);
-
+  }, [aliases, cwd, executeCommandsSequentially, fetchUserFilesystem, getParentNodeFromPath, getPrompt, getNodeFromPath, isMobile, isRoot, resolvePath, saveFile, setAwaitingConfirmation, toast, updateWarlockAwareness, user, userFilesystem, viewedUser]);
+  
   const executeCommandsSequentially = useCallback(async (commandsToExecute: { command: string, args: string[] }[]) => {
       setIsProcessing(true);
       for (const cmd of commandsToExecute) {
           const fullCommand = `${cmd.command} ${cmd.args.join(' ')}`;
-          // We need a way to add this to history and then process it.
           // This is a simplification. A real implementation might need to update the Terminal component's state directly.
           console.log(`Executing planned command: ${fullCommand}`);
           const result = await processCommand(fullCommand, true); // Pass a flag to prevent recursion
-          // Need a way to render the result to the screen.
       }
       setIsProcessing(false);
   }, [processCommand]);
 
-  return { prompt, processCommand, getWelcomeMessage, isProcessing, editingFile, saveFile, exitEditor };
+  const clearWarlockMessages = useCallback(() => {
+    setWarlockMessages([]);
+  }, []);
+
+  return { prompt, processCommand, getWelcomeMessage, isProcessing, editingFile, saveFile, exitEditor, warlockMessages, clearWarlockMessages };
 };

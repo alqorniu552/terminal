@@ -31,6 +31,8 @@ const seedMissions = async () => {
             { id: 'mission4', title: 'Basic Reversing', description: 'Sometimes, you just need to look at the strings.', flag: 'FLAG{B4S1C_R3V3RS1NG_W1TH_STR1NGS}', points: 10 },
             { id: 'mission5', title: 'Password Cracking', description: 'Crack the password hash found in shadow.bak.', flag: 'FLAG{D1CT10NARY_BRU73_F0RC3}', points: 25 },
             { id: 'mission6', title: 'Steganography', description: 'There is a message hidden in mission_image.jpg.', flag: 'FLAG{ST3G4N0GRAPHY_1S_C00L}', points: 30 },
+            { id: 'mission7', title: 'Anti-Virus Evasion', description: 'A rival AI, Warlock, is defending this system. Find and delete its core file to disable it.', flag: 'FLAG{W4RL0CK_D1S4BL3D}', points: 50 },
+
         ];
 
         missions.forEach(mission => {

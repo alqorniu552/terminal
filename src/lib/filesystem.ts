@@ -115,6 +115,20 @@ Gobuster v3.1.0
             }
         }
     },
+     'var': {
+      type: 'directory',
+      children: {
+        'lib': {
+          type: 'directory',
+          children: {
+            'warlock.core': {
+              type: 'file',
+              content: 'Warlock Active Defense System v1.0\nSTATUS: ACTIVE\nTHREAT LEVEL: DANGEROUS\nDO NOT DELETE'
+            }
+          }
+        }
+      }
+    },
     'auth.log': {
         type: 'file',
         content: `May 10 10:00:01 server sshd[1234]: Accepted password for user1 from 192.168.1.10 port 1234 ssh2

@@ -20,6 +20,11 @@ interface HistoryItem {
   prompt: string;
 }
 
+interface WarlockMessage {
+  id: number;
+  text: string;
+}
+
 const BlinkingCursor = () => (
   <span className="w-2.5 h-5 bg-accent inline-block animate-blink ml-1" />
 );
@@ -49,6 +54,8 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     saveFile,
     exitEditor,
     isProcessing,
+    warlockMessages,
+    clearWarlockMessages,
   } = useCommand(user, isMobile, setAwaitingConfirmation);
 
   const inputRef = useRef<HTMLInputElement>(null);
@@ -58,7 +65,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
   const focusInput = useCallback(() => {
     if (typeof window !== 'undefined' && window.innerWidth > 768 && !editingFile) {
         if (authStep === 'password') {
-            passwordInputdRef.current?.focus();
+            passwordInputRef.current?.focus();
         } else {
             inputRef.current?.focus();
         }
@@ -110,6 +117,19 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     loadWelcomeMessage();
     resetAuthFlow();
   }, [user, loadWelcomeMessage]);
+  
+  useEffect(() => {
+    if (warlockMessages.length > 0) {
+      const messagesAsHistory = warlockMessages.map(msg => ({
+        id: msg.id,
+        command: '',
+        prompt: `> [WARLOCK]:`,
+        output: <Typewriter text={msg.text} speed={25} onFinished={() => {}} />
+      }));
+      setHistory(prev => [...prev, ...messagesAsHistory]);
+      clearWarlockMessages();
+    }
+  }, [warlockMessages, clearWarlockMessages]);
 
   useEffect(() => {
     endOfHistoryRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -127,7 +147,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
       if (!email || !password || !authCommand) return;
       
       const newHistoryItem: HistoryItem = { 
-          id: history.length + 1,
+          id: Date.now(),
           command: '', 
           output: <Skeleton className="h-4 w-32" />,
           prompt: ''
@@ -210,7 +230,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     }
     
     const newHistoryItem: HistoryItem = { 
-        id: history.length + 1,
+        id: Date.now(),
         command: currentInput, 
         output: null,
         prompt: prompt 
@@ -247,7 +267,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
         onSave={async (newContent) => {
             const saveMessage = await saveFile(editingFile.path, newContent);
             setHistory(prev => [...prev, {
-                id: prev.length + 1,
+                id: Date.now(),
                 command: `^O (Save File)`,
                 output: <Typewriter text={saveMessage} onFinished={() => {}}/>,
                 prompt: '' 
