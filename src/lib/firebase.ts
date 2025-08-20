@@ -1,6 +1,6 @@
 'use client';
 import { initializeApp, getApp, getApps } from 'firebase/app';
-import { getFirestore, collection, getDocs, writeBatch } from 'firebase/firestore';
+import { getFirestore, collection, getDocs, writeBatch, doc } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 
 const firebaseConfig = {
@@ -32,7 +32,7 @@ const seedMissions = async () => {
         ];
 
         missions.forEach(mission => {
-            const docRef = collection(db, 'missions').doc(mission.id);
+            const docRef = doc(db, 'missions', mission.id);
             batch.set(docRef, mission);
         });
 
