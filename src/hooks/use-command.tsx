@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useCallback, useEffect } from 'react';
@@ -14,6 +13,7 @@ import ImageDisplay from '@/components/image-display';
 import { generateCommandHelp } from '@/ai/flows/generate-command-help';
 import { useIsMobile } from './use-mobile';
 import md5 from 'md5';
+import { scanFile } from '@/ai/flows/scan-file-flow';
 
 type EditingFile = { path: string; content: string } | null;
 type CommandResult = 
@@ -149,6 +149,7 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean, isMobile: boolean) 
             { command: 'score', args: '', description: 'Check your current score.'},
             { command: 'leaderboard', args: '', description: 'View the top players.'},
             { command: 'ask', args: '"<question>"', description: 'Ask the AI sidekick for a hint.'},
+            { command: 'scan', args: '<file>', description: 'Scan a file for vulnerabilities.'},
             { command: 'nmap', args: '<ip>', description: 'Scan a target IP for open ports.'},
             { command: 'imagine', args: '<prompt>', description: 'Generate an image with AI.'},
             { command: 'crack', args: '<hash> --wordlist <file>', description: 'Crack a password hash.'},
@@ -502,7 +503,7 @@ export const useCommand = (user: User | null | undefined, isMobile: boolean) => 
             return { type: 'text', text: `rm: cannot remove '${argString}': No such file or directory` };
           }
           case 'imagine': {
-            if (!argString) return { type: 'text', text: 'imagine: prompt cannot be empty. Usage: imagine [your prompt]' };
+            if (!argString) return { type: 'text', text: 'imagine: prompt cannot be empty. Usage: imagine your prompt' };
             return { component: <ImageDisplay prompt={argString} onFinished={() => {}} />, type: 'component' };
           }
           case 'nmap': {
@@ -511,10 +512,24 @@ export const useCommand = (user: User | null | undefined, isMobile: boolean) => 
               return { type: 'text', text: `Starting Nmap...\n${result}`};
           }
           case 'ask': {
-             if (!argString.startsWith('"') || !argString.endsWith('"')) return { type: 'text', text: 'Usage: ask "<your question>"' };
+            if (!argString.startsWith('"') || !argString.endsWith('"')) return { type: 'text', text: 'Usage: ask "<your question>"' };
             const question = argString.slice(1, -1);
-            const { answer } = await askSidekick({ question });
+            const currentNode = getNodeFromPath(cwd, userFilesystem);
+            const files = (currentNode?.type === 'directory') ? Object.keys(currentNode.children) : [];
+            const { answer } = await askSidekick({ question, cwd, files });
             return { type: 'text', text: `Ghost: "${answer}"` };
+          }
+           case 'scan': {
+            if (!argString) return { type: 'text', text: 'Usage: scan <file_path>' };
+            const node = getNodeFromPath(argString, userFilesystem);
+            if (!node) {
+              return { type: 'text', text: `scan: file not found: ${argString}` };
+            }
+            const content = (node.type === 'file' && typeof node.content === 'function') 
+              ? node.content() 
+              : (node.type === 'file' ? node.content : 'This is a directory.');
+            const { report } = await scanFile({ filename: argString, content: content as string });
+            return { type: 'text', text: report };
           }
           case 'crack': {
             const hashArgIndex = finalArgs.findIndex(a => a.startsWith(""));
