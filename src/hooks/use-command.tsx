@@ -1,18 +1,18 @@
-'use client';
+"use client";
 
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useToast } from "@/hooks/use-toast";
-import { generateCommandHelp } from '@/ai/flows/generate-command-help';
 import { databaseQuery } from '@/ai/flows/database-query-flow';
-import { askSidekick } from '@/ai/flows/ai-sidekick-flow';
 import { initialFilesystem, getDynamicContent, Directory, FilesystemNode, File } from '@/lib/filesystem';
 import { db, auth } from '@/lib/firebase';
 import { collection, query, where, getDocs, WhereFilterOp, doc, setDoc, getDoc, updateDoc, writeBatch, orderBy, limit } from 'firebase/firestore';
 import { User } from 'firebase/auth';
 import ImageDisplay from '@/components/image-display';
+import { generateCommandHelp } from '@/ai/flows/generate-command-help';
 import { scanFile } from '@/ai/flows/scan-file-flow';
 import { generateAttackPlan } from '@/ai/flows/attack-planner-flow';
 import { generateWarlockTaunt } from '@/ai/flows/warlock-threat-flow';
+import { askSidekick } from '@/ai/flows/ai-sidekick-flow';
 import { analyzeImage } from '@/ai/flows/analyze-image-flow';
 import { investigateTarget } from '@/ai/flows/osint-investigation-flow';
 import { craftPhish } from '@/ai/flows/craft-phish-flow';
@@ -47,7 +47,7 @@ export type AuthCommand = 'login' | 'register' | null;
 
 // --- Constants ---
 const ROOT_EMAIL = "alqorniu552@gmail.com";
-const MONITORED_FILES_FOR_WARLOCK = ['/auth.log', '/shadow.bak', '/var/lib/warlock.core'];
+const MONITORED_FILES_FOR_WARLOCK = ['/var/log/auth.log', '/etc/shadow.bak', '/var/lib/warlock.core'];
 
 // --- Helper Functions ---
 const getNeofetchOutput = (user: {email: string} | null | undefined) => {
@@ -109,7 +109,6 @@ Memory: 1450MiB / 31927MiB
 `;
 return output;
 };
-
 
 const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean, isMobile: boolean) => {
     const formatCommandsToTable = (title: string, commands: { command: string, args: string, description: string }[]): string => {
@@ -253,49 +252,60 @@ export const useCommand = (
 
   // --- Filesystem & Path Helpers ---
   const resolvePath = useCallback((path: string): string => {
-    if (path.endsWith('.locked')) {
-        path = path.slice(0, -7);
-    }
-    if (path.startsWith('~/')) {
-        path = path.substring(1); 
-    }
-    if (path.startsWith('/')) {
-      return '/' + path.split('/').filter(p => p).join('/');
-    }
-    const parts = cwd === '/' ? [] : cwd.split('/').filter(p => p);
-    for (const part of path.split('/')) {
-      if (part === '.' || part === '') continue;
-      if (part === '..') {
-        parts.pop();
-      } else {
-        parts.push(part);
+      // Handles home directory shortcuts
+      if (path === '~' || path.startsWith('~/')) {
+          path = path.substring(1);
+          if (!path.startsWith('/')) path = `/${path}`;
       }
-    }
-    return '/' + parts.join('/');
+      
+      const isAbsolute = path.startsWith('/');
+      let currentParts = isAbsolute ? [] : (cwd === '/' ? [] : cwd.substring(1).split('/'));
+
+      const pathParts = path.split('/').filter(p => p !== '');
+
+      for (const part of pathParts) {
+          if (part === '.') {
+              continue; // Stay in the current directory
+          }
+          if (part === '..') {
+              if (currentParts.length > 0) {
+                  currentParts.pop(); // Go up one directory
+              }
+          } else {
+              currentParts.push(part); // Go down into a directory
+          }
+      }
+      
+      return '/' + currentParts.join('/');
   }, [cwd]);
 
   const getNodeFromPath = useCallback((path: string, fs: Directory): FilesystemNode | null => {
     const resolved = resolvePath(path);
-    const parts = resolved.split('/').filter(p => p && p !== '~');
+    if (resolved === '/') return fs;
+
+    const parts = resolved.substring(1).split('/');
     let currentNode: FilesystemNode = fs;
+
     for (const part of parts) {
-      if (currentNode.type === 'directory' && currentNode.children[part]) {
-        currentNode = currentNode.children[part];
-      } else {
-        return null;
-      }
+        if (!part) continue;
+        if (currentNode.type === 'directory' && currentNode.children[part]) {
+            currentNode = currentNode.children[part];
+        } else {
+            return null;
+        }
     }
     return currentNode;
   }, [resolvePath]);
 
   const getParentNodeFromPath = useCallback((path: string, fs: Directory): Directory | null => {
       const resolved = resolvePath(path);
-      const parts = resolved.split('/').filter(p => p && p !== '~');
-      if (parts.length === 0) return null; // Can't get parent of root
-      if (parts.length === 1) return fs; // Parent is root
+      if (resolved === '/') return null; // Root has no parent
+      
+      const parts = resolved.substring(1).split('/');
       const parentPath = '/' + parts.slice(0, -1).join('/');
-      const node = getNodeFromPath(parentPath, fs);
-      return node?.type === 'directory' ? node : null;
+
+      if (parentPath === '/') return fs; // Parent is root directory
+      return getNodeFromPath(parentPath, fs) as Directory | null;
   }, [getNodeFromPath, resolvePath]);
 
   // --- User & Filesystem Management ---
@@ -463,7 +473,7 @@ export const useCommand = (
         const newFs = JSON.parse(JSON.stringify(userFilesystem));
 
         if (choice === 'lockFile') {
-            const sensitiveFiles = ['/auth.log', '/shadow.bak', '/secret.jpg'];
+            const sensitiveFiles = ['/var/log/auth.log', '/etc/shadow.bak', '/var/www/html/secret.jpg'];
             const targetFile = sensitiveFiles[Math.floor(Math.random() * sensitiveFiles.length)];
             const parentNode = getParentNodeFromPath(targetFile, newFs);
             const filename = targetFile.split('/').pop();
@@ -475,7 +485,7 @@ export const useCommand = (
         } else if (choice === 'createHoneypot') {
             const honeypotName = `t_archive_${Math.floor(Math.random() * 900) + 100}`;
             if (!newFs.children[honeypotName]) {
-                newFs.children[honeypotName] = { type: 'directory', children: { 'DO_NOT_ENTER.txt': { type: 'file', content: 'TRAP ACTIVATED' } } };
+                newFs.children[honeypotName] = { type: 'directory', children: { 'DO_NOT_ENTER.txt': { type: 'file', content: 'TRAP ACTIVATED', path: `/${honeypotName}/DO_NOT_ENTER.txt` } } };
                 message = `created honeypot ${honeypotName}`;
             }
         } else if (choice === 'deleteTool') {
@@ -497,7 +507,7 @@ export const useCommand = (
             setWarlockAwareness(prev => prev - 25); // Reduce awareness after taking action
         }
 
-    }, [userFilesystem, getParentNodeFromPath, updateFirestoreFilesystem, triggerWarlockMessage, user, viewedUser]);
+    }, [userFilesystem, getParentNodeFromPath, updateFirestoreFilesystem, triggerWarlockMessage, user, viewedUser, getNodeFromPath]);
 
 
     useEffect(() => {
@@ -567,12 +577,22 @@ export const useCommand = (
                 if (node && node.type === 'directory') {
                     const content = Object.keys(node.children);
                     if (content.length === 0) return { type: 'text', text: '' };
-                    return { type: 'text', text: content.map(name => node.children[name].type === 'directory' ? `${name}/` : name).join('\n') };
+                    let output = '';
+                    content.forEach(name => {
+                        const childNode = node.children[name];
+                        const isLocked = name.endsWith('.locked');
+                        const displayName = isLocked ? name : (childNode.type === 'directory' ? `${name}/` : name);
+                        output += `${displayName}\n`;
+                    });
+                    return { type: 'text', text: output.trim() };
                 }
                 return { type: 'text', text: `ls: cannot access '${argString || '.'}': No such file or directory` };
             }
             case 'cd': {
-                if (!argString || argString === '~' || argString === '/') { setCwd('/'); return { type: 'none' }; }
+                if (!argString || argString === '~' || argString === '~/') {
+                  setCwd('/');
+                  return { type: 'none' };
+                }
                 const newPath = resolvePath(argString);
                 const node = getNodeFromPath(newPath, userFilesystem);
 
@@ -693,7 +713,7 @@ export const useCommand = (
             case 'gobuster': { // Simulated command
                 if (isPlannedExecution) {
                     updateWarlockAwareness(10, 'gobuster execution');
-                    const gobusterNode = getNodeFromPath('/gobuster.txt', userFilesystem);
+                    const gobusterNode = getNodeFromPath('/var/www/html/gobuster.txt', userFilesystem);
                     if (gobusterNode && gobusterNode.type === 'file') {
                         const content = getDynamicContent(gobusterNode.content, gobusterNode.path || '');
                         return { type: 'text', text: content };
@@ -1109,7 +1129,7 @@ export const useCommand = (
         } finally {
             setIsProcessing(false);
         }
-    }, [aliases, cwd, executeCommandsSequentially, executeFile, isMobile, isRoot, resolvePath, saveFile, setAwaitingConfirmation, toast, updateWarlockAwareness, user, userFilesystem, viewedUser, fetchUserFilesystem, getParentNodeFromPath, getNodeFromPath, getPrompt]);
+    }, [aliases, cwd, executeCommandsSequentially, executeFile, isMobile, isRoot, resolvePath, saveFile, setAwaitingConfirmation, toast, updateWarlockAwareness, user, userFilesystem, viewedUser, fetchUserFilesystem, getParentNodeFromPath, getNodeFromPath, getPrompt, handleAdminCommands, handleCtfCommands, handleFileSystemCommands]);
 
     return {
         prompt,
