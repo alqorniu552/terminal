@@ -63,20 +63,20 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean) => {
         const pad = (str: string, width: number) => str.padEnd(width);
 
         const drawLine = (left: string, mid1: string, mid2: string, right: string) =>
-            `${left}─${'─'.repeat(colWidths.command)}─${mid1}─${'─'.repeat(colWidths.args)}─${mid2}─${'─'.repeat(colWidths.description)}─${right}`;
+            ` ${left}${'─'.repeat(colWidths.command + 2)}${mid1}${'─'.repeat(colWidths.args + 2)}${mid2}${'─'.repeat(colWidths.description + 2)}${right}`;
 
         let output = '\n';
 
-        const totalWidth = colWidths.command + colWidths.args + colWidths.description + 7;
+        const totalWidth = colWidths.command + colWidths.args + colWidths.description + 10;
         const titlePadding = Math.floor((totalWidth - title.length) / 2);
-        output += `${' '.repeat(Math.max(0, titlePadding))}${title}\n`;
+        output += `${' '.repeat(Math.max(0, titlePadding))}\x1b[1m${title}\x1b[0m\n`;
 
         output += drawLine('┌', '┬', '┬', '┐') + '\n';
-        output += `│ ${pad('Command', colWidths.command)} │ ${pad('Arguments', colWidths.args)} │ ${pad('Description', colWidths.description)} │\n`;
+        output += ` │ \x1b[1m${pad('Command', colWidths.command)}\x1b[0m │ \x1b[1m${pad('Arguments', colWidths.args)}\x1b[0m │ \x1b[1m${pad('Description', colWidths.description)}\x1b[0m │\n`;
         output += drawLine('├', '┼', '┼', '┤') + '\n';
 
         commands.forEach(c => {
-            output += `│ ${pad(c.command, colWidths.command)} │ ${pad(c.args, colWidths.args)} │ ${pad(c.description, colWidths.description)} │\n`;
+            output += ` │ ${pad(c.command, colWidths.command)} │ ${pad(c.args, colWidths.args)} │ ${pad(c.description, colWidths.description)} │\n`;
         });
 
         output += drawLine('└', '┴', '┴', '┘') + '\n';
@@ -331,7 +331,7 @@ export const useCommand = (user: User | null | undefined) => {
               const content = Object.keys(node.children);
               if (content.length === 0) return { type: 'text', text: '' };
               const output = content.map(key => {
-                return node.children[key].type === 'directory' ? `${key}/` : key;
+                return node.children[key].type === 'directory' ? `\x1b[1;34m${key}/\x1b[0m` : key;
               }).join('\n');
               return { type: 'text', text: output };
             }
