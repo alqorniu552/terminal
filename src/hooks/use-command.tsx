@@ -49,10 +49,10 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean, osInstalled: boolea
 
     const formatCommandsToTable = (title: string, commands: CommandInfo[]): string => {
         let output = `\n${title}:\n`;
-        const maxLength = Math.max(...commands.map(c => (c.command + ' ' + c.args).length));
+        const maxLength = Math.max(...commands.map(c => (c.command + (c.args ? ' ' + c.args : '')).length));
         commands.forEach(c => {
-            const commandStr = (c.command + ' ' + c.args).padEnd(maxLength + 2, ' ');
-            output += `  ${commandStr} - ${c.description}\n`;
+            const commandStr = (c.command + (c.args ? ' ' + c.args : '')).padEnd(maxLength + 4, ' ');
+            output += `  ${commandStr}- ${c.description}\n`;
         });
         return output;
     };
@@ -117,7 +117,7 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean, osInstalled: boolea
         { command: './vulnerable_login', args: '', description: 'Run a program with a buffer overflow flaw.' },
         { command: './config-loader', args: '', description: 'Loads a configuration from a file.' },
         { command: 'volatility', args: '-f dump plugin', description: 'Analyze a memory dump.' },
-        { command: 'aws', args: 's3 ls [bucket]', description: 'List S3 buckets or objects.' },
+        { command: 'aws', args: 's3 ls bucket', description: 'List S3 buckets or objects.' },
     ];
     output += formatCommandsToTable('CTF & Security Tools', ctfCommands);
 
@@ -134,7 +134,7 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean, osInstalled: boolea
     if (isRoot) {
         const rootCommands: CommandInfo[] = [
             { command: 'list-users', args: '', description: 'List all registered users.' },
-            { command: 'chuser', args: '<email>', description: 'Switch to another user\'s filesystem to manage it.' },
+            { command: 'chuser', args: 'email', description: 'Switch to another user\'s filesystem to manage it.' },
             { command: 'chuser', args: '', description: 'Return to your own filesystem.' },
         ];
         output += formatCommandsToTable('Root-only Commands', rootCommands);
@@ -142,7 +142,7 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean, osInstalled: boolea
 
     output += "\nFor unrecognized commands, AI will try to provide assistance.";
     return output;
-}
+};
 
 export const useCommand = (user: User | null | undefined) => {
   const [cwd, setCwd] = useState('/');
@@ -1284,14 +1284,14 @@ FLAG{J0HN_TH3_CR4CK3R}
 2024-05-12 09:00:00 company-public-data-lake
 `;
           }
-          if (bucket === 's3://company-public-data-lake') {
+          if (bucket === 's3://company-public-data-lake' || bucket === 's3://company-public-data-lake/') {
               return `
                            PRE secret-project-files/
 2024-05-12 10:00:00    12345678 annual-report-2023.pdf
 2024-05-13 11:00:00        4321 FLAG{S3_BUCK3T_M1SC0NF1GUR4T10N}.txt
 `;
           }
-          if (bucket === 's3://company-private-backups') {
+          if (bucket === 's3://company-private-backups' || bucket === 's3://company-private-backups/') {
               return 'An error occurred (AccessDenied) when calling the ListObjectsV2 operation: Access Denied';
           }
           return `An error occurred (NoSuchBucket) when calling the ListObjectsV2 operation: The specified bucket does not exist`;
