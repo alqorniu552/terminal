@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { useCommand } from '@/hooks/use-command';
+import { useCommand, AuthStep, AuthCommand, WarlockMessage, CommandResult } from '@/hooks/use-command';
 import Typewriter from './typewriter';
 import { User } from 'firebase/auth';
 import NanoEditor from './nano-editor';
@@ -10,8 +10,6 @@ import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'fire
 import { auth, db } from '@/lib/firebase';
 import { doc, setDoc } from 'firebase/firestore';
 import { initialFilesystem } from '@/lib/filesystem';
-import { useIsMobile } from '@/hooks/use-mobile';
-
 
 interface HistoryItem {
   id: number;
@@ -20,24 +18,16 @@ interface HistoryItem {
   prompt: string;
 }
 
-interface WarlockMessage {
-  id: number;
-  text: string;
-}
-
 const BlinkingCursor = () => (
   <span className="w-2.5 h-5 bg-accent inline-block animate-blink ml-1" />
 );
 
-type AuthStep = 'idle' | 'email' | 'password';
-type AuthCommand = 'login' | 'register' | null;
 type TerminalState = 'idle' | 'awaiting_confirmation';
 
 export default function Terminal({ user }: { user: User | null | undefined }) {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [command, setCommand] = useState('');
   const [isTyping, setIsTyping] = useState(true);
-  const isMobile = useIsMobile();
 
   const [authStep, setAuthStep] = useState<AuthStep>('idle');
   const [authCommand, setAuthCommand] = useState<AuthCommand>(null);
@@ -46,6 +36,25 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
   const [terminalState, setTerminalState] = useState<TerminalState>('idle');
   const [confirmationCallback, setConfirmationCallback] = useState<{ onConfirm: () => void, onDeny: () => void} | null>(null);
   
+  const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+
+  const setAwaitingConfirmation: any = (message: string, onConfirm: () => void, onDeny: () => void) => {
+      const newHistoryItem: HistoryItem = { 
+          id: Date.now(),
+          command: '', 
+          output: (
+              <div>
+                  <div>{message}</div>
+                  <div>Proceed? (y/n)</div>
+              </div>
+          ),
+          prompt: ''
+      };
+      setHistory(prev => [...prev, newHistoryItem]);
+      setTerminalState('awaiting_confirmation');
+      setConfirmationCallback({ onConfirm, onDeny });
+  }
+
   const { 
     prompt,
     processCommand, 
@@ -71,23 +80,6 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
         }
     }
   }, [editingFile, authStep]);
-
-  function setAwaitingConfirmation(message: string, onConfirm: () => void, onDeny: () => void) {
-      const newHistoryItem: HistoryItem = { 
-          id: Date.now(),
-          command: '', 
-          output: (
-              <div>
-                  <div>{message}</div>
-                  <div>Proceed? (y/n)</div>
-              </div>
-          ),
-          prompt: ''
-      };
-      setHistory(prev => [...prev, newHistoryItem]);
-      setTerminalState('awaiting_confirmation');
-      setConfirmationCallback({ onConfirm, onDeny });
-  }
 
   useEffect(() => {
     focusInput();
@@ -120,7 +112,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
   
   useEffect(() => {
     if (warlockMessages.length > 0) {
-      const messagesAsHistory = warlockMessages.map(msg => ({
+      const messagesAsHistory: HistoryItem[] = warlockMessages.map(msg => ({
         id: msg.id,
         command: '',
         prompt: `> [WARLOCK]:`,

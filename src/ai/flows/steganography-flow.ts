@@ -41,6 +41,10 @@ export async function revealMessage(input: RevealMessageInput): Promise<RevealMe
   return revealMessageFlow(input);
 }
 
+// This is a simplified simulation. A real implementation would use a more sophisticated model or library.
+// We'll embed the message in a way that's not visible but is reversible. We'll use a simple marker and Base64 encoding.
+const SECRET_MARKER = '::SECRET::';
+
 // Conceal Flow
 const concealMessageFlow = ai.defineFlow(
   {
@@ -49,10 +53,23 @@ const concealMessageFlow = ai.defineFlow(
     outputSchema: ConcealMessageOutputSchema,
   },
   async ({ imageDataUri, message }) => {
-    // This is a simplified simulation. A real implementation would use a more sophisticated model or library.
-    // We'll append the message to the end of the data URI, base64 encoded.
-    const secretPayload = `::secret::${Buffer.from(message).toString('base64')}`;
-    const newImageDataUri = imageDataUri + Buffer.from(secretPayload).toString('base64');
+    // We append the message to the data URI payload.
+    // This is a simulation and doesn't truly embed it in the image pixels.
+    const b64Marker = ';base64,';
+    const markerIndex = imageDataUri.indexOf(b64Marker);
+    if (markerIndex === -1) {
+        throw new Error("Invalid Data URI format for concealing message.");
+    }
+    
+    // First, let's remove any pre-existing secret to avoid duplication
+    let basePart = imageDataUri;
+    const existingSecretIndex = imageDataUri.lastIndexOf(SECRET_MARKER);
+    if (existingSecretIndex > markerIndex) {
+        basePart = imageDataUri.substring(0, existingSecretIndex);
+    }
+    
+    const secretPayload = `${SECRET_MARKER}${Buffer.from(message).toString('base64')}`;
+    const newImageDataUri = basePart + secretPayload;
     
     return { newImageDataUri };
   }
@@ -66,29 +83,16 @@ const revealMessageFlow = ai.defineFlow(
     outputSchema: RevealMessageOutputSchema,
   },
   async ({ imageDataUri }) => {
-    // This is a simplified simulation to match the conceal flow.
     try {
-      const b64Marker = ';base64,';
-      const b64StartIndex = imageDataUri.indexOf(b64Marker);
-      if (b64StartIndex === -1) {
-        return { revealedMessage: 'No message found.' };
-      }
-
-      // Find our appended secret payload
-      const potentialPayload = imageDataUri.substring(b64StartIndex + b64Marker.length);
-      const decodedPayload = Buffer.from(potentialPayload, 'base64').toString('utf-8');
-
-      const secretMarker = '::secret::';
-      const secretMarkerIndex = decodedPayload.lastIndexOf(secretMarker);
+      const secretMarkerIndex = imageDataUri.lastIndexOf(SECRET_MARKER);
 
       if (secretMarkerIndex !== -1) {
-        const extractedMessageBase64 = decodedPayload.substring(secretMarkerIndex + secretMarker.length);
+        const extractedMessageBase64 = imageDataUri.substring(secretMarkerIndex + SECRET_MARKER.length);
         const revealedMessage = Buffer.from(extractedMessageBase64, 'base64').toString('utf-8');
         return { revealedMessage };
       }
 
     } catch (e) {
-      // Ignore errors, just means no message found
       console.error("Reveal error:", e);
     }
 

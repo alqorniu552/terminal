@@ -4,50 +4,40 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useToast } from "@/hooks/use-toast";
 import { databaseQuery } from '@/ai/flows/database-query-flow';
 import { askSidekick } from '@/ai/flows/ai-sidekick-flow';
-import { concealMessage, revealMessage } from '@/ai/flows/steganography-flow';
 import { initialFilesystem, Directory, FilesystemNode } from '@/lib/filesystem';
 import { db, auth } from '@/lib/firebase';
 import { collection, query, where, getDocs, WhereFilterOp, doc, setDoc, getDoc, updateDoc, writeBatch, orderBy, limit } from 'firebase/firestore';
 import { User } from 'firebase/auth';
 import ImageDisplay from '@/components/image-display';
 import { generateCommandHelp } from '@/ai/flows/generate-command-help';
-import md5 from 'md5';
 import { scanFile } from '@/ai/flows/scan-file-flow';
 import { generateAttackPlan } from '@/ai/flows/attack-planner-flow';
 import { generateWarlockTaunt } from '@/ai/flows/warlock-threat-flow';
 import { analyzeImage } from '@/ai/flows/analyze-image-flow';
-import { investigateTarget } from '@/ai/flows/osint-investigation-flow';
+import { investigateTarget } from '@/ai/flows/investigation-flow';
 import { craftPhish } from '@/ai/flows/craft-phish-flow';
 import { forgeTool } from '@/ai/flows/forge-tool-flow';
+import { concealMessage, revealMessage } from '@/ai/flows/steganography-flow';
 
-// --- Type Definitions ---
-export type EditingFile = { path: string; content: string } | null;
-
-export type CommandResultType = 'text' | 'component' | 'none';
-
-export type CommandResult = 
+type EditingFile = { path: string; content: string } | null;
+type CommandResult = 
   | { type: 'text', text: string }
   | { type: 'component', component: React.ReactNode }
   | { type: 'none' };
-  
-export type SetAwaitingConfirmationFn = (
+
+type SetAwaitingConfirmationFn = (
     message: string,
     onConfirm: () => void,
     onDeny: () => void
 ) => void;
 
-export interface WarlockMessage {
+interface WarlockMessage {
   id: number;
   text: string;
 }
 
-export type AuthStep = 'idle' | 'email' | 'password';
-export type AuthCommand = 'login' | 'register' | null;
-
-// --- Constants ---
 const ROOT_EMAIL = "alqorniu552@gmail.com";
 
-// --- Helper Functions ---
 const getNeofetchOutput = (user: {email: string} | null | undefined) => {
     let uptimeString = '1 min';
     if (typeof window !== 'undefined') {
@@ -175,7 +165,7 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean, isMobile: boolean) 
             { command: 'ask', args: '"<question>"', description: 'Ask the AI sidekick for a hint.'},
             { command: 'scan', args: '<file>', description: 'Scan a file for vulnerabilities.'},
             { command: 'nmap', args: '<ip>', description: 'Scan a target IP for open ports.'},
-            { command: 'imagine', args: '<prompt>', description: 'Generate an image with AI.'},
+            { command: 'imagine', args: '"<prompt>"', description: 'Generate an image with AI.'},
             { command: 'crack', args: '<hash> --wordlist <file>', description: 'Crack a password hash.'},
             { command: 'reveal', args: '<image_file>', description: 'Reveal secrets in an image.'},
             { command: 'attack', args: '<target> --obj "<goal>"', description: 'Plan & execute an AI attack.'},
@@ -212,19 +202,18 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean, isMobile: boolean) 
     return output;
 };
 
+
 const virtualHosts: Record<string, string> = {
     '10.10.1.1': 'Open Ports: 22 (SSH), 80 (HTTP)\nHost is running Linux 5.4.',
     '10.10.1.2': 'Open Ports: 21 (FTP), 80 (HTTP), 443 (HTTPS)\nFTP allows anonymous login. Found /gobuster.txt.',
     '192.168.1.100': 'Open Ports: 8080 (web-proxy)\nProxy seems to be misconfigured.',
 };
 
-// --- Main Hook ---
 export const useCommand = (
     user: User | null | undefined, 
     isMobile: boolean,
     setAwaitingConfirmation: SetAwaitingConfirmationFn
 ) => {
-  // State
   const [cwd, setCwd] = useState('/');
   const [isProcessing, setIsProcessing] = useState(false);
   const [userFilesystem, setUserFilesystem] = useState<Directory>(initialFilesystem);
@@ -238,10 +227,57 @@ export const useCommand = (
   const [warlockMessages, setWarlockMessages] = useState<WarlockMessage[]>([]);
   const warlockTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const warlockIsActive = useRef(true);
+
+
+  const getPrompt = useCallback(() => {
+    if (viewedUser) {
+        const username = viewedUser.email.split('@')[0] || 'user';
+        const path = cwd === '/' ? '~' : `~${cwd}`;
+        const promptChar = (isRoot && viewedUser.uid === user?.uid) ? '#' : '$';
+        return `${username}@cyber:${path}${promptChar} `;
+    }
+    return 'guest@cyber:~$ ';
+  }, [user, cwd, isRoot, viewedUser]);
   
+  const [prompt, setPrompt] = useState(getPrompt());
   const { toast } = useToast();
 
-  // --- Filesystem & Path Helpers ---
+  const triggerWarlockMessage = useCallback(async (action: string) => {
+      if (!warlockIsActive.current) return;
+      try {
+          const { taunt } = await generateWarlockTaunt({ action, awareness: warlockAwareness });
+          setWarlockMessages(prev => [...prev, { id: Date.now(), text: taunt }]);
+      } catch (e) {
+          console.error("Warlock taunt generation failed:", e);
+      }
+  }, [warlockAwareness]);
+
+  const updateWarlockAwareness = useCallback((amount: number, action: string) => {
+      if (!warlockIsActive.current) return;
+      
+      setWarlockAwareness(prev => {
+          const newAwareness = Math.min(100, prev + amount);
+
+          if (warlockTimeoutRef.current) {
+              clearTimeout(warlockTimeoutRef.current);
+          }
+
+          if (newAwareness > 30 && newAwareness < 60 && Math.random() < 0.2) {
+              triggerWarlockMessage(action);
+          } else if (newAwareness >= 60 && newAwareness < 90 && Math.random() < 0.5) {
+              triggerWarlockMessage(action);
+          } else if (newAwareness >= 90 && Math.random() < 0.8) {
+              triggerWarlockMessage(action);
+          }
+
+          warlockTimeoutRef.current = setTimeout(() => {
+              setWarlockAwareness(curr => Math.max(0, curr - 10));
+          }, 30000); // Decrease awareness every 30 seconds of inactivity
+
+          return newAwareness;
+      });
+  }, [triggerWarlockMessage]);
+  
   const resolvePath = useCallback((path: string): string => {
     if (path.endsWith('.locked')) {
         path = path.slice(0, -7);
@@ -288,7 +324,6 @@ export const useCommand = (
       return node?.type === 'directory' ? node : null;
   }, [getNodeFromPath, resolvePath]);
 
-  // --- User & Filesystem Management ---
   const parseAliases = useCallback((fs: Directory) => {
     const newAliases: Record<string, string> = {};
     const bashrcNode = getNodeFromPath('/.bashrc', fs);
@@ -325,6 +360,23 @@ export const useCommand = (
         });
     }
   }, [viewedUser, user, toast, parseAliases]);
+  
+  const warlockFileLock = useCallback(async (filePath: string) => {
+      if (!warlockIsActive.current) return;
+      const newFs = JSON.parse(JSON.stringify(userFilesystem));
+      const parentNode = getParentNodeFromPath(filePath, newFs);
+      const filename = filePath.split('/').pop();
+
+      if (parentNode && filename && parentNode.children[filename]) {
+          const originalNode = parentNode.children[filename];
+          delete parentNode.children[filename];
+          parentNode.children[`${filename}.locked`] = originalNode;
+          
+          setUserFilesystem({ ...newFs });
+          await updateFirestoreFilesystem(newFs);
+          await triggerWarlockMessage(`locked ${filename}`);
+      }
+  }, [userFilesystem, getParentNodeFromPath, updateFirestoreFilesystem, triggerWarlockMessage]);
 
   const fetchUserFilesystem = useCallback(async (uid: string | null) => {
     setIsProcessing(true);
@@ -368,6 +420,10 @@ export const useCommand = (
   }, [user, viewedUser]);
 
   useEffect(() => {
+    setPrompt(getPrompt());
+  }, [getPrompt]);
+
+  useEffect(() => {
     if (viewedUser?.uid) {
       fetchUserFilesystem(viewedUser.uid);
     } else {
@@ -376,23 +432,6 @@ export const useCommand = (
       setCwd('/');
     }
   }, [viewedUser, fetchUserFilesystem, parseAliases]);
-  
-  // --- Prompt & Welcome Message ---
-  const getPrompt = useCallback(() => {
-    if (viewedUser) {
-        const username = viewedUser.email.split('@')[0] || 'user';
-        const path = cwd === '/' ? '~' : `~${cwd}`;
-        const promptChar = (isRoot && viewedUser.uid === user?.uid) ? '#' : '$';
-        return `${username}@cyber:${path}${promptChar} `;
-    }
-    return 'guest@cyber:~$ ';
-  }, [user, cwd, isRoot, viewedUser]);
-  
-  const [prompt, setPrompt] = useState(getPrompt());
-
-  useEffect(() => {
-    setPrompt(getPrompt());
-  }, [getPrompt]);
 
   const getWelcomeMessage = useCallback(() => {
     if (user) {
@@ -404,59 +443,6 @@ export const useCommand = (
     return `Welcome to Cyber! Please 'login' or 'register' to continue.`;
   }, [user, isRoot]);
 
-  // --- Warlock AI Rival Logic ---
-  const triggerWarlockMessage = useCallback(async (action: string) => {
-      if (!warlockIsActive.current) return;
-      try {
-          const { taunt } = await generateWarlockTaunt({ action, awareness: warlockAwareness });
-          setWarlockMessages(prev => [...prev, { id: Date.now(), text: taunt }]);
-      } catch (e) {
-          console.error("Warlock taunt generation failed:", e);
-      }
-  }, [warlockAwareness]);
-
-  const updateWarlockAwareness = useCallback((amount: number, action: string) => {
-      if (!warlockIsActive.current) return;
-      
-      setWarlockAwareness(prev => {
-          const newAwareness = Math.min(100, prev + amount);
-
-          if (warlockTimeoutRef.current) {
-              clearTimeout(warlockTimeoutRef.current);
-          }
-
-          if (newAwareness > 30 && newAwareness < 60 && Math.random() < 0.2) {
-              triggerWarlockMessage(action);
-          } else if (newAwareness >= 60 && newAwareness < 90 && Math.random() < 0.5) {
-              triggerWarlockMessage(action);
-          } else if (newAwareness >= 90 && Math.random() < 0.8) {
-              triggerWarlockMessage(action);
-          }
-
-          warlockTimeoutRef.current = setTimeout(() => {
-              setWarlockAwareness(curr => Math.max(0, curr - 10));
-          }, 30000); // Decrease awareness every 30 seconds of inactivity
-
-          return newAwareness;
-      });
-  }, [triggerWarlockMessage]);
-  
-  const warlockFileLock = useCallback(async (filePath: string) => {
-      if (!warlockIsActive.current) return;
-      const newFs = JSON.parse(JSON.stringify(userFilesystem));
-      const parentNode = getParentNodeFromPath(filePath, newFs);
-      const filename = filePath.split('/').pop();
-
-      if (parentNode && filename && parentNode.children[filename]) {
-          const originalNode = parentNode.children[filename];
-          delete parentNode.children[filename];
-          parentNode.children[`${filename}.locked`] = originalNode;
-          
-          setUserFilesystem({ ...newFs });
-          await updateFirestoreFilesystem(newFs);
-          await triggerWarlockMessage(`locked ${filename}`);
-      }
-  }, [userFilesystem, getParentNodeFromPath, updateFirestoreFilesystem, triggerWarlockMessage]);
 
   useEffect(() => {
       if (warlockAwareness > 75 && Math.random() > 0.5) {
@@ -469,12 +455,7 @@ export const useCommand = (
           }
       }
   }, [warlockAwareness, warlockFileLock, userFilesystem, getNodeFromPath]);
-  
-  const clearWarlockMessages = useCallback(() => {
-    setWarlockMessages([]);
-  }, []);
 
-  // --- Nano Editor Logic ---
   const saveFile = useCallback(async (path: string, content: string): Promise<string> => {
       if (!viewedUser || !user || viewedUser.uid !== user.uid) {
         return "Error: Permission Denied. You are in read-only mode.";
@@ -500,26 +481,19 @@ export const useCommand = (
   const exitEditor = useCallback(() => {
       setEditingFile(null);
   }, []);
-  
-  // --- Command Processors ---
-  // This function is defined here so it can be used by `processCommand`
+
   const executeCommandsSequentially = useCallback(async (commandsToExecute: { command: string, args: string[] }[]) => {
       setIsProcessing(true);
-      // We need to reference processCommand, but it's defined below.
-      // This is a common pattern in hooks. We will pass it in the call.
-      const run = async (cmd: string) => {
-          // eslint-disable-next-line @typescript-eslint/no-use-before-define
-          return await processCommand(cmd, true);
-      };
-
       for (const cmd of commandsToExecute) {
           const fullCommand = `${cmd.command} ${cmd.args.join(' ')}`;
           // This is a simplification. A real implementation might need to update the Terminal component's state directly.
           console.log(`Executing planned command: ${fullCommand}`);
-          await run(fullCommand);
+          // The processCommand function is defined below and will be in scope.
+          // eslint-disable-next-line @typescript-eslint/no-use-before-define
+          await processCommand(fullCommand, true); 
       }
       setIsProcessing(false);
-  }, []); // `processCommand` will be added via a ref or passed in if needed.
+  }, []); 
 
   const processCommand = useCallback(async (command: string, isPlannedExecution: boolean = false): Promise<CommandResult> => {
     setIsProcessing(true);
@@ -668,8 +642,9 @@ export const useCommand = (
             return { type: 'text', text: `rm: cannot remove '${argString}': No such file or directory` };
           }
           case 'imagine': {
-            if (!argString) return { type: 'text', text: 'Usage: imagine <your prompt>' };
-            return { component: <ImageDisplay prompt={argString} onFinished={() => {}} />, type: 'component' };
+            const prompt = argString.startsWith('"') && argString.endsWith('"') ? argString.slice(1, -1) : argString;
+            if (!prompt) return { type: 'text', text: 'Usage: imagine <your prompt>' };
+            return { component: <ImageDisplay prompt={prompt} onFinished={() => {}} />, type: 'component' };
           }
           case 'nmap': {
               if (!argString) return { type: 'text', text: 'Usage: nmap <ip_address>' };
@@ -688,8 +663,8 @@ export const useCommand = (
               return { type: 'text', text: 'gobuster: command not found' };
           }
           case 'ask': {
-            const question = argString.startsWith('"') && argString.endsWith('"') ? argString.slice(1, -1) : argString;
-            if (!question) return { type: 'text', text: 'Usage: ask "<your question>"' };
+            if (!argString.startsWith('"') || !argString.endsWith('"')) return { type: 'text', text: 'Usage: ask "<your question>"' };
+            const question = argString.slice(1, -1);
             const currentNode = getNodeFromPath(cwd, userFilesystem);
             const files = (currentNode?.type === 'directory') ? Object.keys(currentNode.children) : [];
             const { answer } = await askSidekick({ question, cwd, files });
@@ -710,31 +685,25 @@ export const useCommand = (
           }
           case 'crack': {
             updateWarlockAwareness(25, `started password cracking`);
-            const hashArgIndex = finalArgs.findIndex(a => a.length === 32); // Simple md5 check
+            const hashArgIndex = finalArgs.findIndex(a => a.startsWith(""));
             const wordlistFlagIndex = finalArgs.findIndex(a => a === '--wordlist');
-            
             if (hashArgIndex === -1 || wordlistFlagIndex === -1 || wordlistFlagIndex + 1 >= finalArgs.length) {
               return { type: 'text', text: 'Usage: crack <hash> --wordlist <file_path>' };
             }
-            
             const hash = finalArgs[hashArgIndex];
             const wordlistPath = finalArgs[wordlistFlagIndex + 1];
             const wordlistNode = getNodeFromPath(wordlistPath, userFilesystem);
-            
             if (!wordlistNode || wordlistNode.type !== 'file') {
               return { type: 'text', text: `crack: wordlist file not found: ${wordlistPath}` };
             }
-            
             const wordlistContent = typeof wordlistNode.content === 'function' ? wordlistNode.content() : wordlistNode.content as string;
             const words = wordlistContent.split('\n');
-            
             for (const word of words) {
               if (md5(word.trim()) === hash) {
-                updateWarlockAwareness(30, `successfully cracked password`);
-                return { type: 'text', text: `Password found: ${word.trim()}\n\nHint: You can now submit this as a flag!` };
+                 updateWarlockAwareness(30, `successfully cracked password`);
+                return { type: 'text', text: `Password found: ${word}` };
               }
             }
-            
             return { type: 'text', text: 'Password not found in wordlist.' };
           }
           case 'reveal': {
@@ -901,11 +870,10 @@ export const useCommand = (
           }
           case 'forge': {
             const promptIndex = finalArgs.findIndex(arg => arg === '--prompt');
-            const filenameIndex = finalArgs.findIndex(arg => !arg.startsWith('--'));
-            if (promptIndex === -1 || filenameIndex === -1 || promptIndex + 1 >= finalArgs.length) {
+            if (promptIndex === -1 || finalArgs.length <= 1) {
               return { type: 'text', text: 'Usage: forge <filename> --prompt "<description>"' };
             }
-            const filename = finalArgs[filenameIndex];
+            const filename = finalArgs[0];
             const prompt = argString.split(/--prompt/)[1]?.trim().slice(1, -1);
             if (!prompt) {
               return { type: 'text', text: 'Error: Prompt description cannot be empty.' };
@@ -971,17 +939,9 @@ export const useCommand = (
     }
   }, [aliases, cwd, getParentNodeFromPath, getPrompt, getNodeFromPath, isMobile, isRoot, resolvePath, saveFile, setAwaitingConfirmation, toast, updateWarlockAwareness, user, userFilesystem, viewedUser, fetchUserFilesystem, executeCommandsSequentially]);
   
-  return { 
-      prompt, 
-      processCommand, 
-      getWelcomeMessage, 
-      isProcessing, 
-      editingFile, 
-      saveFile, 
-      exitEditor, 
-      warlockMessages, 
-      clearWarlockMessages,
-      isRoot,
-      viewedUser,
-  };
+  const clearWarlockMessages = useCallback(() => {
+    setWarlockMessages([]);
+  }, []);
+
+  return { prompt, processCommand, getWelcomeMessage, isProcessing, editingFile, saveFile, exitEditor, warlockMessages, clearWarlockMessages };
 };
