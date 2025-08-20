@@ -10,6 +10,7 @@ import { collection, query, where, getDocs, WhereFilterOp, doc, setDoc, getDoc, 
 import { User } from 'firebase/auth';
 import ImageDisplay from '@/components/image-display';
 import { generateCommandHelp } from '@/ai/flows/generate-command-help';
+import { useIsMobile } from './use-mobile';
 
 type EditingFile = { path: string; content: string } | null;
 type CommandResult = 
@@ -150,13 +151,14 @@ const virtualHosts: Record<string, string> = {
     '192.168.1.100': 'Open Ports: 8080 (web-proxy)\nProxy seems to be misconfigured.',
 };
 
-export const useCommand = (user: User | null | undefined, isMobile: boolean) => {
+export const useCommand = (user: User | null | undefined) => {
   const [cwd, setCwd] = useState('/');
   const [isProcessing, setIsProcessing] = useState(false);
   const [userFilesystem, setUserFilesystem] = useState<Directory>(initialFilesystem);
   const [editingFile, setEditingFile] = useState<EditingFile>(null);
   const [isRoot, setIsRoot] = useState(false);
   const [viewedUser, setViewedUser] = useState<{uid: string, email: string} | null>(null);
+  const isMobile = useIsMobile();
   
   useEffect(() => {
     if (user) {
@@ -324,13 +326,11 @@ export const useCommand = (user: User | null | undefined, isMobile: boolean) => 
                     setIsProcessing(false);
                     return { type: 'text', text: `Command not found: ${cmd}. Please 'login' or 'register'.` };
                 }
-                // Let auth flow handle it in terminal.tsx
                 setIsProcessing(false);
                 return { type: 'none' }; 
         }
     }
 
-    // --- Logged-in commands ---
     try {
         switch (cmd.toLowerCase()) {
           case 'help':
@@ -420,7 +420,7 @@ export const useCommand = (user: User | null | undefined, isMobile: boolean) => 
             const filename = targetPath.split('/').pop();
             if (parentNode && filename) {
                 if (parentNode.children[filename]) {
-                    return { type: 'none' }; // Silently do nothing if file exists
+                    return { type: 'none' };
                 }
                 parentNode.children[filename] = { type: 'file', content: '' };
                 setUserFilesystem({ ...newFs });
@@ -508,10 +508,11 @@ export const useCommand = (user: User | null | undefined, isMobile: boolean) => 
 
                 const batch = writeBatch(db);
                 const currentScore = userProgressSnap.exists() ? userProgressSnap.data().score : 0;
+                const newScore = currentScore + missionData.points;
                 
                 const progressData = {
                     completed_missions: [...(userProgressSnap.data()?.completed_missions || []), missionId],
-                    score: currentScore + missionData.points,
+                    score: newScore,
                     last_completed: new Date(),
                 };
                 
@@ -523,13 +524,13 @@ export const useCommand = (user: User | null | undefined, isMobile: boolean) => 
 
                 const leaderboardRef = doc(db, 'leaderboard', user.uid);
                 batch.set(leaderboardRef, {
-                    score: increment(missionData.points),
+                    score: newScore,
                     email: user.email
                 }, { merge: true });
 
                 await batch.commit();
 
-                return { type: 'text', text: `Correct! You earned ${missionData.points} points. Your new score is ${progressData.score}.` };
+                return { type: 'text', text: `Correct! You earned ${missionData.points} points. Your new score is ${newScore}.` };
             }
             
             case 'score': {
@@ -553,8 +554,6 @@ export const useCommand = (user: User | null | undefined, isMobile: boolean) => 
                 return { type: 'text', text: `--- Top Players ---\n${leaderboardList}` };
             }
 
-
-          // --- Root Commands ---
           case 'db': {
             if (!isRoot) return { type: 'text', text: `db: command not found` };
             if (!argString.startsWith('"') || !argString.endsWith('"')) {
@@ -628,5 +627,3 @@ export const useCommand = (user: User | null | undefined, isMobile: boolean) => 
 
   return { prompt, processCommand, getWelcomeMessage, isProcessing, editingFile, saveFile, exitEditor };
 };
-
-    
