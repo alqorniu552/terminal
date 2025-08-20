@@ -521,8 +521,10 @@ export const useCommand = (
           const output = content.map(key => {
             const childNode = node.children[key];
             const isLocked = key.endsWith('.locked');
-            const displayName = isLocked ? `\x1b[31m${key}\x1b[0m` : (childNode.type === 'directory' ? `\x1b[1;34m${key}/\x1b[0m` : key);
-            return displayName;
+            if (isLocked) {
+                return `${key} [LOCKED]`;
+            }
+            return childNode.type === 'directory' ? `${key}/` : key;
           }).join('  ');
           return { type: 'text', text: output };
         }
@@ -642,7 +644,7 @@ export const useCommand = (
                  updateWarlockAwareness(10, 'gobuster execution');
                  const gobusterNode = getNodeFromPath('/gobuster.txt', userFilesystem);
                  if (gobusterNode && gobusterNode.type === 'file') {
-                     return { type: 'text', text: getDynamicContent(gobusterNode.content) };
+                     return { type: 'text', text: getDynamicContent((gobusterNode.content as string)) };
                  }
               }
               return { type: 'text', text: 'gobuster: command not found' };
@@ -683,7 +685,7 @@ export const useCommand = (
               return { type: 'text', text: `crack: wordlist file not found: ${wordlistPath}` };
             }
             
-            const wordlistContent = getDynamicContent(wordlistNode.content);
+            const wordlistContent = getDynamicContent(wordlistNode.content as string);
             const words = wordlistContent.split('\n');
             
             for (const word of words) {
@@ -702,7 +704,7 @@ export const useCommand = (
             if (!imageNode || imageNode.type !== 'file') {
               return { type: 'text', text: `reveal: file not found: ${argString}` };
             }
-            const imageData = getDynamicContent(imageNode.content);
+            const imageData = getDynamicContent(imageNode.content as string);
             const { revealedMessage } = await revealMessage({ imageDataUri: imageData });
             return { type: 'text', text: revealedMessage };
           }
@@ -718,7 +720,7 @@ export const useCommand = (
             const imageNode = getNodeFromPath(imagePath, userFilesystem);
             if (!imageNode || imageNode.type !== 'file') return { type: 'text', text: `conceal: file not found: ${imagePath}` };
 
-            const imageData = getDynamicContent(imageNode.content);
+            const imageData = getDynamicContent((imageNode.content as string));
             const { newImageDataUri } = await concealMessage({ imageDataUri: imageData, message });
             
             const saveResult = await saveFile(imagePath, newImageDataUri);
@@ -922,7 +924,6 @@ export const useCommand = (
       setIsProcessing(true);
       for (const cmd of commandsToExecute) {
           const fullCommand = `${cmd.command} ${cmd.args.join(' ')}`;
-          console.log(`Executing planned command: ${fullCommand}`);
           // eslint-disable-next-line @typescript-eslint/no-use-before-define
           await processCommand(fullCommand, true); 
       }
