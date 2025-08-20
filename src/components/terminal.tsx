@@ -166,7 +166,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
 
   const handleCommand = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (isTyping || osSelectionStep === 'installing' || editingFile) return;
+    if (isTyping || (osSelectionStep && osSelectionStep === 'installing') || editingFile) return;
 
     const currentCommand = command;
     const currentPrompt = prompt;
@@ -219,7 +219,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
   };
   
   const isPasswordInput = authStep && authStep.includes('password');
-  const showInput = !isTyping && osSelectionStep !== 'installing' && !editingFile;
+  const showInput = !isTyping && (!osSelectionStep || osSelectionStep !== 'installing') && !editingFile;
 
   if (editingFile) {
     return (
@@ -287,5 +287,3 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     </div>
   );
 }
-
-    
