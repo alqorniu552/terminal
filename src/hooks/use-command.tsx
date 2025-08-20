@@ -35,7 +35,7 @@ ${email}@cyber
 --------------------
 OS: Web Browser
 Host: Cyber v1.0
-Kernel: Next.js
+Kernel: GhostWorks Kernel
 Uptime: ${uptime} seconds
 Shell: bash
 `;
