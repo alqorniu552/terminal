@@ -5,6 +5,8 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useCommand } from '@/hooks/use-command';
 import Typewriter from './typewriter';
 import { User } from 'firebase/auth';
+import NanoEditor from './nano-editor';
+import ImageDisplay from './image-display';
 
 interface HistoryItem {
   id: number;
@@ -97,6 +99,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     // If the command was to log out, we don't want to show any output
     // The useEffect that watches the user state will handle the welcome message.
     if (command.trim().toLowerCase() === 'logout' && !result) {
+        setIsTyping(false); // Make sure to re-enable input
         return;
     }
 
@@ -104,7 +107,12 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
         h.id === newHistoryItem.id ? { ...h, output: result } : h
     ));
     
-    setIsTyping(false);
+    // For components like Nano, we don't want the typewriter effect
+    const isCustomComponent = React.isValidElement(result);
+
+    if (isCustomComponent) {
+        setIsTyping(false);
+    }
   };
   
   const showInput = !isTyping && !isProcessing;
