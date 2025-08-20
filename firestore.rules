@@ -1,25 +1,43 @@
 rules_version = '2';
+
 service cloud.firestore {
   match /databases/{database}/documents {
+    
+    // Helper function to check if a user is an admin
+    function isAdmin(request) {
+      return request.auth.token.email == "alqorniu552@gmail.com";
+    }
 
-    // Missions and leaderboard are public
+    // Missions are public and can be read by anyone.
+    // Writes are disallowed from the client to prevent tampering.
     match /missions/{missionId} {
       allow read: if true;
-      allow write: if false; // Nobody can write to missions from the client
+      allow write: if false; // Should be managed from the server/console
     }
 
+    // The leaderboard is public and can be read by anyone.
+    // Writes are handled by the user-progress rule below.
     match /leaderboard/{userId} {
       allow read: if true;
-      allow write: if request.auth != null && request.auth.uid == userId; // Only users can update their own score
-    }
-
-    // Users can only read/write their own documents
-    match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow write: if false; // Writes happen via user-progress logic
     }
     
+    // User documents contain private data like their filesystem.
+    match /users/{userId} {
+      // Allow user creation on signup
+      allow create: if request.auth.uid == userId;
+      // Allow users to read/update their own data
+      allow read, update: if request.auth.uid == userId;
+      // Allow admin to read anyone's data for 'chuser' command
+      allow read: if isAdmin(request);
+    }
+    
+    // User progress tracks scores and completed missions.
     match /user-progress/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+        // Allow creation on first flag submission
+      allow create: if request.auth.uid == userId;
+      // Allow users to read/update their own progress
+      allow read, update: if request.auth.uid == userId;
     }
   }
 }
