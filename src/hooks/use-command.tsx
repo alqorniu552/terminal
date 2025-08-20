@@ -45,86 +45,101 @@ Shell: term-sim
 };
 
 const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean, osInstalled: boolean) => {
-    let output = '';
-    if (isLoggedIn) {
-        output = `
-General Commands:
-  help          - Show this help message.
-  ls path       - List directory contents.
-  cd path       - Change directory.
-  cat file      - Display file content.
-  grep "pattern" file - Search for a pattern in a file.
-  post-comment "comment" - Post a comment to the forum.
-  nano file     - Edit a file.
-  createfile filename "[content]" - Create a file with content.
-  touch filename - Create an empty file.
-  mkdir dirname - Create a new directory.
-  rm file/dir   - Remove a file or directory.
-  pwd           - Print current working directory.
-  whoami        - Display current user.
-  uname -a      - Display system information.
-  echo text     - Display a line of text.
-  imagine "prompt" - Generate an image from a text prompt.
-  reboot/shutdown - Simulate system restart/shutdown.
-  clear         - Clear the terminal screen.
-  logout        - Log out from the application.
+    type CommandInfo = { command: string, args: string, description: string };
 
-CTF & Security Tools:
-  nmap host     - Scan ports on a target host.
-  nc host port  - Connect to a target (Netcat).
-  ftp host      - Connect to a FTP server.
-  whois domain  - Get registration info for a domain.
-  dirb url      - Find hidden directories on a web server.
-  sqlmap -u url - Simulate SQL injection detection.
-  hash-identifier hash - Identify hash type.
-  base64 -d|-e text - Decode/Encode Base64.
-  rot13 text    - Apply ROT13 cipher to text.
-  crypto caesar <e|d> <shift> <text> - Encrypt/decrypt with Caesar cipher.
-  crypto vigenere <e|d> <key> <text> - Encrypt/decrypt with Vigenere cipher.
-  strings file  - Display printable strings from a file.
-  exiftool file - Display EXIF data from an image.
-  gdb file      - GNU Debugger simulation.
-  strace/ltrace file - Trace system/library calls.
-  r2 file       - Radare2 simulation for analysis.
-  ./linpeas.sh  - Run PEASS-NG enumeration script.
-  tshark -r file - Read a .pcap file.
-  steghide extract -sf file -p pass - Extract steganographic data.
-  zip2john file - Extract hash from a zip file.
-  john hash     - Crack a password hash.
-  ./vulnerable_login - Run a program with a buffer overflow flaw.
-  volatility -f dump plugin - Analyze a memory dump.
-  aws s3 ls [bucket] - List S3 buckets or objects.
-`;
-        if (osInstalled) {
-            output += `
-OS Commands:
-  sudo command  - Execute a command as the superuser.
-  apt/apt-get update - Update package lists.
-  apt/apt-get install pkg - Install a package.
-  dpkg -i file  - Install a .deb package file.
-`;
-        }
-
-        if (isRoot) {
-            output += `
-Root-only commands:
-  list-users    - List all registered users.
-  chuser <email> - Switch to another user's filesystem to manage it.
-  chuser        - Return to your own filesystem.
-`;
-        }
-        output += `
-For unrecognized commands, AI will try to provide assistance.
-`;
-    } else {
-        output = `
-Available commands:
-  help          - Show this help message.
-  login         - Log in to your account.
-  register      - Create a new account.
-  clear         - Clear the terminal screen.
-`;
+    const formatCommandsToTable = (title: string, commands: CommandInfo[]): string => {
+        let output = `\n${title}:\n`;
+        const maxLength = Math.max(...commands.map(c => (c.command + ' ' + c.args).length));
+        commands.forEach(c => {
+            const commandStr = (c.command + ' ' + c.args).padEnd(maxLength + 2, ' ');
+            output += `  ${commandStr} - ${c.description}\n`;
+        });
+        return output;
+    };
+    
+    if (!isLoggedIn) {
+        const loggedOutCommands: CommandInfo[] = [
+            { command: 'help', args: '', description: 'Show this help message.' },
+            { command: 'login', args: '', description: 'Log in to your account.' },
+            { command: 'register', args: '', description: 'Create a new account.' },
+            { command: 'clear', args: '', description: 'Clear the terminal screen.' },
+        ];
+        return formatCommandsToTable('Available Commands', loggedOutCommands);
     }
+    
+    let output = '';
+
+    const generalCommands: CommandInfo[] = [
+        { command: 'help', args: '', description: 'Show this help message.' },
+        { command: 'ls', args: 'path', description: 'List directory contents.' },
+        { command: 'cd', args: 'path', description: 'Change directory.' },
+        { command: 'cat', args: 'file', description: 'Display file content.' },
+        { command: 'grep', args: '"pattern" file', description: 'Search for a pattern in a file.' },
+        { command: 'post-comment', args: '"comment"', description: 'Post a comment to the forum.' },
+        { command: 'nano', args: 'file', description: 'Edit a file.' },
+        { command: 'createfile', args: 'filename "[content]"', description: 'Create a file with content.' },
+        { command: 'touch', args: 'filename', description: 'Create an empty file.' },
+        { command: 'mkdir', args: 'dirname', description: 'Create a new directory.' },
+        { command: 'rm', args: 'file/dir', description: 'Remove a file or directory.' },
+        { command: 'pwd', args: '', description: 'Print current working directory.' },
+        { command: 'whoami', args: '', description: 'Display current user.' },
+        { command: 'uname', args: '-a', description: 'Display system information.' },
+        { command: 'echo', args: 'text', description: 'Display a line of text.' },
+        { command: 'imagine', args: '"prompt"', description: 'Generate an image from a text prompt.' },
+        { command: 'reboot/shutdown', args: '', description: 'Simulate system restart/shutdown.' },
+        { command: 'clear', args: '', description: 'Clear the terminal screen.' },
+        { command: 'logout', args: '', description: 'Log out from the application.' },
+    ];
+    output += formatCommandsToTable('General Commands', generalCommands);
+
+    const ctfCommands: CommandInfo[] = [
+        { command: 'nmap', args: 'host', description: 'Scan ports on a target host.' },
+        { command: 'nc', args: 'host port', description: 'Connect to a target (Netcat).' },
+        { command: 'ftp', args: 'host', description: 'Connect to a FTP server.' },
+        { command: 'whois', args: 'domain', description: 'Get registration info for a domain.' },
+        { command: 'dirb', args: 'url', description: 'Find hidden directories on a web server.' },
+        { command: 'sqlmap', args: '-u url', description: 'Simulate SQL injection detection.' },
+        { command: 'hash-identifier', args: 'hash', description: 'Identify hash type.' },
+        { command: 'base64', args: '-d|-e text', description: 'Decode/Encode Base64.' },
+        { command: 'rot13', args: 'text', description: 'Apply ROT13 cipher to text.' },
+        { command: 'crypto', args: 'caesar <e|d> <shift> <text>', description: 'Encrypt/decrypt with Caesar cipher.' },
+        { command: 'crypto', args: 'vigenere <e|d> <key> <text>', description: 'Encrypt/decrypt with Vigenere cipher.' },
+        { command: 'strings', args: 'file', description: 'Display printable strings from a file.' },
+        { command: 'exiftool', args: 'file', description: 'Display EXIF data from an image.' },
+        { command: 'gdb', args: 'file', description: 'GNU Debugger simulation.' },
+        { command: 'strace/ltrace', args: 'file', description: 'Trace system/library calls.' },
+        { command: 'r2', args: 'file', description: 'Radare2 simulation for analysis.' },
+        { command: './linpeas.sh', args: '', description: 'Run PEASS-NG enumeration script.' },
+        { command: 'tshark', args: '-r file', description: 'Read a .pcap file.' },
+        { command: 'steghide', args: 'extract -sf file -p pass', description: 'Extract steganographic data.' },
+        { command: 'zip2john', args: 'file', description: 'Extract hash from a zip file.' },
+        { command: 'john', args: 'hash', description: 'Crack a password hash.' },
+        { command: './vulnerable_login', args: '', description: 'Run a program with a buffer overflow flaw.' },
+        { command: 'volatility', args: '-f dump plugin', description: 'Analyze a memory dump.' },
+        { command: 'aws', args: 's3 ls [bucket]', description: 'List S3 buckets or objects.' },
+    ];
+    output += formatCommandsToTable('CTF & Security Tools', ctfCommands);
+
+    if (osInstalled) {
+        const osCommands: CommandInfo[] = [
+            { command: 'sudo', args: 'command', description: 'Execute a command as the superuser.' },
+            { command: 'apt/apt-get', args: 'update', description: 'Update package lists.' },
+            { command: 'apt/apt-get', args: 'install pkg', description: 'Install a package.' },
+            { command: 'dpkg', args: '-i file', description: 'Install a .deb package file.' },
+        ];
+        output += formatCommandsToTable('OS Commands', osCommands);
+    }
+
+    if (isRoot) {
+        const rootCommands: CommandInfo[] = [
+            { command: 'list-users', args: '', description: 'List all registered users.' },
+            { command: 'chuser', args: '<email>', description: 'Switch to another user\'s filesystem to manage it.' },
+            { command: 'chuser', args: '', description: 'Return to your own filesystem.' },
+        ];
+        output += formatCommandsToTable('Root-only Commands', rootCommands);
+    }
+
+    output += "\nFor unrecognized commands, AI will try to provide assistance.";
     return output;
 }
 
