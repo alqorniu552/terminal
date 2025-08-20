@@ -15,6 +15,9 @@ import md5 from 'md5';
 import { scanFile } from '@/ai/flows/scan-file-flow';
 import { generateAttackPlan } from '@/ai/flows/attack-planner-flow';
 import { generateWarlockTaunt } from '@/ai/flows/warlock-threat-flow';
+import { analyzeImage } from '@/ai/flows/analyze-image-flow';
+import { investigateTarget } from '@/ai/flows/osint-investigation-flow';
+import { craftPhish } from '@/ai/flows/craft-phish-flow';
 
 type EditingFile = { path: string; content: string } | null;
 type CommandResult = 
@@ -166,7 +169,9 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean, isMobile: boolean) 
             { command: 'crack', args: '<hash> --wordlist <file>', description: 'Crack a password hash.'},
             { command: 'reveal', args: '<image_file>', description: 'Reveal secrets in an image.'},
             { command: 'attack', args: '<target> --obj "<goal>"', description: 'Plan & execute an AI attack.'},
-
+            { command: 'analyze-image', args: '<url>', description: 'Analyze an image for clues.' },
+            { command: 'investigate', args: '<target>', description: 'Run an OSINT investigation.' },
+            { command: 'craft-phish', args: '--to <email>', description: 'Craft a phishing email.' },
         ];
         
         const rootCommands = [
@@ -486,7 +491,7 @@ export const useCommand = (
           const result = await processCommand(fullCommand, true); 
       }
       setIsProcessing(false);
-  }, []); // We will define processCommand later, so we remove it from dependencies for now, and add eslint-disable.
+  }, []); 
 
   const processCommand = useCallback(async (command: string, isPlannedExecution: boolean = false): Promise<CommandResult> => {
     setIsProcessing(true);
@@ -834,6 +839,32 @@ export const useCommand = (
                 }).join('\n');
                 return { type: 'text', text: `--- Top Players ---\n${leaderboardList}` };
             }
+          case 'analyze-image': {
+            if (!argString) return { type: 'text', text: 'Usage: analyze-image <image_url>' };
+            updateWarlockAwareness(15, `analyzed external image: ${argString}`);
+            const { analysis } = await analyzeImage({ imageUrl: argString });
+            return { type: 'text', text: `Analysis Report:\n${analysis}` };
+          }
+          case 'investigate': {
+            if (!argString) return { type: 'text', text: 'Usage: investigate <target>' };
+            updateWarlockAwareness(10, `investigated target: ${argString}`);
+            const { report } = await investigateTarget({ target: argString });
+            return { type: 'text', text: `OSINT Report:\n${report}` };
+          }
+          case 'craft-phish': {
+            const toIndex = finalArgs.findIndex(arg => arg === '--to');
+            const topicIndex = finalArgs.findIndex(arg => arg === '--topic');
+            if (toIndex === -1 || toIndex + 1 >= finalArgs.length) {
+              return { type: 'text', text: 'Usage: craft-phish --to <email> [--topic "<topic>"]' };
+            }
+            const targetEmail = finalArgs[toIndex + 1];
+            const topic = topicIndex !== -1 && topicIndex + 1 < finalArgs.length
+              ? argString.split(/--topic/)[1].trim().slice(1, -1)
+              : 'Action Required';
+            updateWarlockAwareness(25, `crafted phish for ${targetEmail}`);
+            const { phishingEmail } = await craftPhish({ targetEmail, topic });
+            return { type: 'text', text: `Phishing Email Draft:\n\n${phishingEmail}` };
+          }
           case 'db': {
             if (!isRoot) return { type: 'text', text: `bash: command not found: db` };
             if (!argString.startsWith('"') || !argString.endsWith('"')) return { type: 'text', text: 'db: query must be enclosed in quotes. Usage: db "your natural language query"' };
@@ -890,8 +921,6 @@ export const useCommand = (
     }
   }, [aliases, cwd, executeCommandsSequentially, fetchUserFilesystem, getParentNodeFromPath, getPrompt, getNodeFromPath, isMobile, isRoot, resolvePath, saveFile, setAwaitingConfirmation, toast, updateWarlockAwareness, user, userFilesystem, viewedUser]);
   
-  // This is now defined before processCommand, but we had to disable the eslint rule for no-use-before-define within executeCommandsSequentially.
-  // This is a common pattern in React hooks when functions are mutually recursive.
   useEffect(() => {
       if (executeCommandsSequentially) {
           // This is just to satisfy the dependency checker that it is used.

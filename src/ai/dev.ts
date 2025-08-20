@@ -11,3 +11,6 @@ import '@/ai/flows/steganography-flow.ts';
 import '@/ai/flows/scan-file-flow.ts';
 import '@/ai/flows/attack-planner-flow.ts';
 import '@/ai/flows/warlock-threat-flow.ts';
+import '@/ai/flows/analyze-image-flow.ts';
+import '@/ai/flows/osint-investigation-flow.ts';
+import '@/ai/flows/craft-phish-flow.ts';
