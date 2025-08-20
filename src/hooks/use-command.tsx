@@ -18,6 +18,30 @@ type CommandResult =
 
 const ROOT_EMAIL = "alqorniu552@gmail.com";
 
+export const handleLogin = async (email: string, password: string):Promise<string> => {
+    try {
+        await signInWithEmailAndPassword(auth, email, password);
+        return 'Login successful.';
+    } catch (error: any) {
+        return `Authentication Error: ${error.code}`;
+    }
+};
+
+export const handleRegister = async (email: string, password: string):Promise<string> => {
+    try {
+        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        const userDocRef = doc(db, "users", userCredential.user.uid);
+        await setDoc(userDocRef, {
+            email: userCredential.user.email,
+            filesystem: initialFilesystem
+        });
+        return 'Registration successful.';
+    } catch (error: any) {
+        return `Authentication Error: ${error.code}`;
+    }
+};
+
+
 const getNeofetchOutput = (user: User | null | undefined) => {
     let uptime = 0;
     if (typeof window !== 'undefined') {
@@ -59,7 +83,6 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean) => {
           { command: 'touch', args: '<filename>', description: 'Create an empty file.' },
           { command: 'rm', args: '<file/dir>', description: 'Remove a file or directory.' },
           { command: 'neofetch', args: '', description: 'Display system information.' },
-          { command: 'db', args: '"query"', description: 'Query the database using natural language.' },
           { command: 'imagine', args: '"prompt"', description: 'Generate an image with AI.'},
           { command: 'clear', args: '', description: 'Clear the terminal screen.' },
           { command: 'logout', args: '', description: 'Log out from the application.' },
@@ -76,6 +99,7 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean) => {
         ];
         
         const rootCommands = [
+            { command: 'db', args: '"query"', description: 'Query the database using natural language.' },
             { command: 'list-users', args: '', description: 'List all registered users.'},
             { command: 'chuser', args: '<email>', description: 'Switch to another user\'s filesystem view.'},
         ];
@@ -92,8 +116,8 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean) => {
     
     const loggedOutCommands = [
       { command: 'help', args: '', description: 'Show this help message.' },
-      { command: 'login', args: 'email password', description: 'Log in to your account.' },
-      { command: 'register', args: 'email password', description: 'Create a new account.' },
+      { command: 'login', args: '', description: 'Log in to your account.' },
+      { command: 'register', args: '', description: 'Create a new account.' },
       { command: 'clear', args: '', description: 'Clear the terminal screen.' },
     ];
     return formatCommandsToTable('Available Commands', loggedOutCommands);
@@ -121,7 +145,7 @@ export const useCommand = (user: User | null | undefined) => {
     if (user) {
         const username = viewedUser?.email?.split('@')[0] || 'user';
         const path = cwd === '/' ? '~' : `~${cwd}`;
-        const promptChar = isRoot ? '#' : '$';
+        const promptChar = isRoot && viewedUser?.uid === user.uid ? '#' : '$';
         return `${username}@cyber:${path}${promptChar}`;
     }
     return 'guest@cyber:~$';
@@ -142,6 +166,7 @@ export const useCommand = (user: User | null | undefined) => {
         if (userDoc.exists() && userDoc.data().filesystem) {
             setUserFilesystem(userDoc.data().filesystem);
         } else if (user) {
+            // This case might happen if a user doc is created without a filesystem
             const newUserDoc = { email: user.email, filesystem: initialFilesystem };
             await setDoc(userDocRef, newUserDoc, { merge: true });
             setUserFilesystem(initialFilesystem);
@@ -256,40 +281,10 @@ export const useCommand = (user: User | null | undefined) => {
     const argString = args.join(' ');
     const isLoggedIn = !!user;
 
-    const handleAuth = async (authFn: typeof signInWithEmailAndPassword | typeof createUserWithEmailAndPassword) => {
-        const [email, password] = args;
-        if (!email || !password) {
-            return { type: 'text', text: `Usage: ${cmd} [email] [password]` };
-        }
-        try {
-            const userCredential = await authFn(auth, email, password);
-             if (authFn === createUserWithEmailAndPassword) {
-                const userDocRef = doc(db, "users", userCredential.user.uid);
-                await setDoc(userDocRef, {
-                    email: userCredential.user.email,
-                    filesystem: initialFilesystem
-                });
-            }
-            return { type: 'none' };
-        } catch (error: any) {
-            return { type: 'text', text: `Authentication Error: ${error.code}` };
-        }
-    };
-
+    // This function is now only for logged-in users
     if (!isLoggedIn) {
-        switch (cmd.toLowerCase()) {
-            case 'login':
-                return await handleAuth(signInWithEmailAndPassword);
-            case 'register':
-                return await handleAuth(createUserWithEmailAndPassword);
-            case 'help':
-                return { type: 'text', text: getHelpOutput(false, false) };
-            case '':
-                return { type: 'none' };
-            default:
-                setIsProcessing(false);
-                return { type: 'text', text: `Command not found: ${cmd}. Please 'login' or 'register'.` };
-        }
+        setIsProcessing(false);
+        return { type: 'text', text: `Command not found: ${cmd}. Please 'login' or 'register'.` };
     }
 
     // --- Logged-in commands ---
@@ -467,6 +462,7 @@ export const useCommand = (user: User | null | undefined) => {
           case 'sudo': {
             if (isRoot) {
                 const commandWithoutSudo = args.join(' ');
+                // Recursive call to self
                 return processCommand(commandWithoutSudo);
             }
             return { type: 'text', text: `${user.email} is not in the sudoers file. This incident will be reported.` };
