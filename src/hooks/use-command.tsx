@@ -17,7 +17,7 @@ const getNeofetchOutput = (user: User | null | undefined) => {
     const email = user?.email || 'guest';
 
 return `
-${email}@command-center
+${email}@cyber
 --------------------
 OS: Web Browser
 Host: Command Center v1.0
@@ -36,6 +36,7 @@ Available commands:
   cd [path]     - Change directory.
   cat [file]    - Display file content.
   neofetch      - Display system information.
+  prompt [value]- Set a new prompt.
   db "[query]"  - Query the database using natural language.
   clear         - Clear the terminal screen.
   logout        - Log out from the application.
@@ -89,14 +90,14 @@ const getNodeFromPath = (path: string): FilesystemNode | null => {
 
 export const useCommand = (user: User | null | undefined) => {
   const [cwd, setCwd] = useState('/');
-  
+  const [warlockMessages, setWarlockMessages] = useState<any[]>([]);
+
   const getInitialPrompt = useCallback(() => {
-    const path = cwd === '/' ? '~' : `~${cwd}`;
     if (user) {
-        return `${user.email?.split('@')[0]}@command-center:${path}$`;
+        return `${user.email?.split('@')[0]}@cyber:~$`;
     }
-    return 'guest@command-center:~$';
-  }, [user, cwd]);
+    return 'guest@cyber:~$';
+  }, [user]);
 
   const [prompt, setPrompt] = useState(getInitialPrompt());
   const { toast } = useToast();
@@ -105,6 +106,9 @@ export const useCommand = (user: User | null | undefined) => {
     setPrompt(getInitialPrompt());
   }, [user, getInitialPrompt]);
 
+  const resetPrompt = useCallback(() => {
+      setPrompt(getInitialPrompt());
+  }, [getInitialPrompt]);
 
   const getWelcomeMessage = useCallback(() => {
     if (user) {
@@ -112,6 +116,10 @@ export const useCommand = (user: User | null | undefined) => {
     }
     return `Welcome to Command Center! Please 'login' or 'register' to continue.`;
   }, [user]);
+
+  const clearWarlockMessages = useCallback(() => {
+    setWarlockMessages([]);
+  }, []);
 
   const processCommand = useCallback(async (command: string): Promise<string | React.ReactNode> => {
     const [cmd, ...args] = command.trim().split(/\s+/);
@@ -167,12 +175,16 @@ export const useCommand = (user: User | null | undefined) => {
       case 'cd': {
         if (!arg || arg === '~') {
           setCwd('/');
+          const newPromptPath = '~';
+          setPrompt(`${user.email?.split('@')[0]}@cyber:${newPromptPath}$`);
           return '';
         }
         const newPath = resolvePath(cwd, arg);
         const node = getNodeFromPath(newPath);
         if (node && node.type === 'directory') {
           setCwd(newPath);
+          const newPromptPath = newPath === '/' ? '~' : `~${newPath}`;
+          setPrompt(`${user.email?.split('@')[0]}@cyber:${newPromptPath}$`);
           return '';
         }
         return `cd: no such file or directory: ${arg}`;
@@ -245,11 +257,15 @@ export const useCommand = (user: User | null | undefined) => {
         }
       }
     }
-  }, [cwd, toast, user]);
+  }, [cwd, toast, user, prompt]);
 
   return { 
     prompt, 
+    setPrompt, 
     processCommand, 
-    getWelcomeMessage,
-  };
+    resetPrompt, 
+    getWelcomeMessage, 
+    warlockMessages, 
+    clearWarlockMessages
+ };
 };
