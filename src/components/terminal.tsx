@@ -113,9 +113,8 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
 
       let resultText = '';
       try {
-          const authFn = authCommand === 'login' ? signInWithEmailAndPassword : createUserWithEmailAndPassword;
-          if (authFn === createUserWithEmailAndPassword) {
-              const userCredential = await authFn(auth, email, password);
+          if (authCommand === 'register') {
+              const userCredential = await createUserWithEmailAndPassword(auth, email, password);
               const userDocRef = doc(db, "users", userCredential.user.uid);
               await setDoc(userDocRef, {
                   email: userCredential.user.email,
@@ -124,7 +123,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
           } else {
               await signInWithEmailAndPassword(auth, email, password);
           }
-           resultText = `${authCommand === 'login' ? 'Login' : 'Registration'} successful.`;
+           resultText = `${authCommand === 'login' ? 'Login' : 'Registration'} successful. Welcome!`;
       } catch (error: any) {
           resultText = `Authentication Error: ${error.code || error.message}`;
       }
@@ -190,7 +189,8 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
 
     if (result.type === 'component') {
       setIsTyping(true);
-      outputNode = React.cloneElement(result.component as React.ReactElement<{ onFinished: () => void}>, { onFinished: () => setIsTyping(false) });
+      // We need to provide a key for React to properly handle the component
+      outputNode = React.cloneElement(result.component as React.ReactElement<{ onFinished: () => void, key: number}>, { onFinished: () => setIsTyping(false), key: Date.now() });
     } else if (result.type === 'text') {
       setIsTyping(true);
       outputNode = <Typewriter text={result.text} onFinished={() => setIsTyping(false)} />;
@@ -258,7 +258,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
             <input
                 ref={inputRef}
                 id="command-input"
-                type="email"
+                type="text"
                 value={command}
                 onChange={(e) => setCommand(e.target.value)}
                 autoComplete="off"
@@ -322,5 +322,3 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     </div>
   );
 }
-
-    
