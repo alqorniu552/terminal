@@ -169,7 +169,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     // Intercept login/register to start the flow
     const [cmd] = currentInput.toLowerCase().split(/\s+/);
     if (!user && (cmd === 'login' || cmd === 'register')) {
-        setHistory(prev => [...prev, { id: Date.now(), command: currentInput, output: null, prompt: `${prompt} ` }]);
+        setHistory(prev => [...prev, { id: Date.now(), command: currentInput, output: null, prompt: prompt }]);
         setAuthCommand(cmd as 'login' | 'register');
         setAuthStep('email');
         return;
@@ -179,7 +179,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
         id: history.length + 1,
         command: currentInput, 
         output: null,
-        prompt: `${prompt} ` 
+        prompt: prompt 
     };
     if (!isProcessing) {
       newHistoryItem.output = <Skeleton className="h-4 w-32" />;
@@ -325,3 +325,5 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     </div>
   );
 }
+
+    

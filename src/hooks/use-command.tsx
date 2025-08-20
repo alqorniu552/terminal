@@ -9,6 +9,7 @@ import { db, auth } from '@/lib/firebase';
 import { collection, query, where, getDocs, WhereFilterOp, doc, setDoc, getDoc, updateDoc, collectionGroup, writeBatch, increment, orderBy, limit } from 'firebase/firestore';
 import { User } from 'firebase/auth';
 import ImageDisplay from '@/components/image-display';
+import { generateCommandHelp } from '@/ai/flows/generate-command-help';
 
 type EditingFile = { path: string; content: string } | null;
 type CommandResult = 
@@ -46,12 +47,13 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean, isMobile: boolean) 
                   // /  -  \\ \\\\
                  | | ' -- ' | |
                   \\ \\_.___./ /
-                   \\//\`---\'\\\\/
+                   \\//\`---\`\\\\/
                     \`-------\`
 `;
 
     const formatCommandsToTable = (title: string, commands: { command: string, args: string, description: string }[]): string => {
         if (commands.length === 0) return '';
+        let output = `\n${title}\n`;
         const headers = { command: 'Command', args: 'Arguments', description: 'Description' };
         
         const colWidths = {
@@ -65,11 +67,6 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean, isMobile: boolean) 
         const drawLine = (left: string, mid1: string, mid2: string, right: string) =>
             `${left}${'─'.repeat(colWidths.command + 2)}${mid1}${'─'.repeat(colWidths.args + 2)}${mid2}${'─'.repeat(colWidths.description + 2)}${right}`;
         
-        let output = '\n';
-        const totalWidth = colWidths.command + colWidths.args + colWidths.description + 10;
-        const titlePadding = Math.floor((totalWidth - title.length) / 2);
-        output += `${' '.repeat(Math.max(0, titlePadding))}${title}\n`;
-
         output += drawLine('┌', '┬', '┬', '┐') + '\n';
         output += `│ ${pad(headers.command, colWidths.command)} │ ${pad(headers.args, colWidths.args)} │ ${pad(headers.description, colWidths.description)} │\n`;
         output += drawLine('├', '┼', '┼', '┤') + '\n';
@@ -118,8 +115,6 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean, isMobile: boolean) 
             { command: 'leaderboard', args: '', description: 'View the top players.'},
             { command: 'ask', args: '"<question>"', description: 'Ask the AI sidekick for a hint.'},
             { command: 'nmap', args: '<ip>', description: 'Scan a target IP for open ports.'},
-            { command: 'exiftool', args: '<file>', description: 'Read file metadata.'},
-            { command: 'strings', args: '<file>', description: 'Find printable strings in files.'},
         ];
         
         const rootCommands = [
@@ -148,6 +143,7 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean, isMobile: boolean) 
     return output;
 };
 
+
 const virtualHosts: Record<string, string> = {
     '10.10.1.1': 'Open Ports: 22 (SSH), 80 (HTTP)\nHost is running Linux 5.4.',
     '10.10.1.2': 'Open Ports: 21 (FTP), 80 (HTTP), 443 (HTTPS)\nFTP allows anonymous login. Found config.php.bak.',
@@ -166,8 +162,6 @@ export const useCommand = (user: User | null | undefined, isMobile: boolean) => 
     if (user) {
         const isUserRoot = user.email === ROOT_EMAIL;
         setIsRoot(isUserRoot);
-        // If the current user is root, they start by viewing their own filesystem
-        // Otherwise, they just view their own.
         setViewedUser({ uid: user.uid, email: user.email! });
     } else {
         setIsRoot(false);
@@ -180,9 +174,9 @@ export const useCommand = (user: User | null | undefined, isMobile: boolean) => 
         const username = viewedUser?.email?.split('@')[0] || 'user';
         const path = cwd === '/' ? '~' : `~${cwd}`;
         const promptChar = (isRoot && viewedUser?.uid === user.uid) ? '#' : '$';
-        return `${username}@cyber:${path}${promptChar}`;
+        return `${username}@cyber:${path}${promptChar} `;
     }
-    return 'guest@cyber:~$';
+    return 'guest@cyber:~$ ';
   }, [user, cwd, isRoot, viewedUser]);
 
   const [prompt, setPrompt] = useState(getPrompt());
@@ -323,7 +317,8 @@ export const useCommand = (user: User | null | undefined, isMobile: boolean) => 
             case 'help':
                  return { type: 'text', text: getHelpOutput(false, false, isMobile) };
             case '':
-                return { type: 'none' };
+                 setIsProcessing(false);
+                 return { type: 'none' };
             default:
                 if (!cmd.toLowerCase().startsWith('login') && !cmd.toLowerCase().startsWith('register')) {
                     setIsProcessing(false);
@@ -350,7 +345,7 @@ export const useCommand = (user: User | null | undefined, isMobile: boolean) => 
               const content = Object.keys(node.children);
               if (content.length === 0) return { type: 'text', text: '' };
               const output = content.map(key => {
-                return node.children[key].type === 'directory' ? `${key}/` : key;
+                return node.children[key].type === 'directory' ? `\x1b[1;34m${key}/\x1b[0m` : key;
               }).join('\n');
               return { type: 'text', text: output };
             }
@@ -512,16 +507,20 @@ export const useCommand = (user: User | null | undefined, isMobile: boolean) => 
                 }
 
                 const batch = writeBatch(db);
+                const currentScore = userProgressSnap.exists() ? userProgressSnap.data().score : 0;
                 
-                // Update user progress
                 const progressData = {
                     completed_missions: [...(userProgressSnap.data()?.completed_missions || []), missionId],
-                    score: (userProgressSnap.data()?.score || 0) + missionData.points,
+                    score: currentScore + missionData.points,
                     last_completed: new Date(),
                 };
-                batch.set(userProgressRef, progressData, { merge: true });
+                
+                if (userProgressSnap.exists()) {
+                    batch.update(userProgressRef, progressData);
+                } else {
+                    batch.set(userProgressRef, progressData);
+                }
 
-                // Update leaderboard
                 const leaderboardRef = doc(db, 'leaderboard', user.uid);
                 batch.set(leaderboardRef, {
                     score: increment(missionData.points),
@@ -610,7 +609,8 @@ export const useCommand = (user: User | null | undefined, isMobile: boolean) => 
             return { type: 'none' };
 
           default: {
-            return { type: 'text', text: `bash: command not found: ${cmd}`};
+            const result = await generateCommandHelp({ command: cmd });
+            return { type: 'text', text: `bash: command not found: ${cmd}\n\n${result.helpMessage}`};
           }
         }
     } catch (error: any) {
@@ -624,7 +624,9 @@ export const useCommand = (user: User | null | undefined, isMobile: boolean) => 
     } finally {
         setIsProcessing(false);
     }
-  }, [cwd, toast, user, userFilesystem, resolvePath, getNodeFromPath, getParentNodeFromPath, updateFirestoreFilesystem, saveFile, exitEditor, isRoot, viewedUser, isMobile]);
+  }, [cwd, toast, user, userFilesystem, resolvePath, getNodeFromPath, getParentNodeFromPath, updateFirestoreFilesystem, saveFile, exitEditor, isRoot, viewedUser, isMobile, getPrompt]);
 
   return { prompt, processCommand, getWelcomeMessage, isProcessing, editingFile, saveFile, exitEditor };
 };
+
+    
