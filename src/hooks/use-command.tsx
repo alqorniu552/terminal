@@ -77,7 +77,7 @@ Shell: bash 5.2.21
 DE: GNOME 46
 WM: Mutter
 Terminal: command-center
-CPU: Simulated Intel i9-13900K (24) @ 5.8GHz
+CPU: Intel i9-13900K (24) @ 5.8GHz
 GPU: NVIDIA GeForce RTX 4090
 Memory: 1450MiB / 31927MiB
 `;
@@ -689,4 +689,6 @@ export const useCommand = (user: User | null | undefined, isMobile: boolean) => 
 };
 
     
+    
+
     
