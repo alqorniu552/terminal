@@ -38,16 +38,58 @@ Shell: term-sim
 };
 
 const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean) => {
-    const formatCommandsToTable = (title: string, commands: { command: string, args: string, description: string }[]): string => {
-        let output = `\n${title}\n`;
-        const maxLength = Math.max(...commands.map(c => (c.command + (c.args ? ' ' + c.args : '')).length));
-        
+    const skullIcon = `
+                      .-.
+                     (o.o)
+                      |=|
+                     _|=|_
+                   //\`.---.\`\\\\
+                  // /  -  \\ \\\\
+                 | | ' -- ' | |
+                  \\ \\_.___./ /
+                   \\//\`---\'\\\\/
+                    \`-------\`
+`;
+
+    const formatCommandsToTable = (title: string, commands: { command: string, args: string, description: string }[]) => {
+        const colWidths = {
+            command: Math.max(...commands.map(c => c.command.length), 'Command'.length),
+            args: Math.max(...commands.map(c => c.args.length), 'Arguments'.length),
+            description: Math.max(...commands.map(c => c.description.length), 'Description'.length)
+        };
+
+        const totalWidth = colWidths.command + colWidths.args + colWidths.description + 10;
+
+        const pad = (str: string, width: number) => str.padEnd(width);
+
+        const drawLine = (left: string, mid1: string, mid2: string, right: string) => 
+            `${left}─`.padEnd(colWidths.command + 3, '─') +
+            `${mid1}─`.padEnd(colWidths.args + 4, '─') +
+            `${mid2}─`.padEnd(colWidths.description + 3, '─') + right;
+
+        let output = '\n';
+
+        // Title
+        const titlePadding = Math.floor((totalWidth - title.length) / 2);
+        output += ' '.repeat(titlePadding) + title + '\n';
+        output += drawLine('┌', '┬', '┬', '┐') + '\n';
+
+        // Header
+        output += `│ ${pad('Command', colWidths.command)} │ ${pad('Arguments', colWidths.args)} │ ${pad('Description', colWidths.description)} │\n`;
+        output += drawLine('├', '┼', '┼', '┤') + '\n';
+
+        // Body
         commands.forEach(c => {
-            const commandStr = (c.command + (c.args ? ' ' + c.args : '')).padEnd(maxLength + 4, ' ');
-            output += `  ${commandStr}- ${c.description}\n`;
+            output += `│ ${pad(c.command, colWidths.command)} │ ${pad(c.args, colWidths.args)} │ ${pad(c.description, colWidths.description)} │\n`;
         });
+
+        // Footer
+        output += drawLine('└', '┴', '┴', '┘') + '\n';
+
         return output;
     };
+
+    let output = skullIcon + '\n';
 
     if (isLoggedIn) {
         const userCommands = [
@@ -70,7 +112,7 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean) => {
             { command: 'strings', args: '<file>', description: 'Print the strings of printable characters in files.'},
             { command: 'hash-identifier', args: '', description: 'Identify hash types.'},
             { command: 'john', args: '<hash>', description: 'Password cracker.'},
-            { command: 'steghide', args: 'extract -sf <file>', description: 'Extract hidden data from a file.'},
+            { command: 'steghide', args: 'extract -sf <f>', description: 'Extract hidden data from a file.'},
             { command: 'gdb', args: '<file>', description: 'The GNU Debugger.'},
             { command: 'sudo', args: '<command>', description: 'Execute a command with superuser privileges.'},
         ];
@@ -81,14 +123,15 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean) => {
             { command: 'chuser', args: '<email>', description: 'Switch to another user\'s filesystem view.'},
         ];
 
-        let output = formatCommandsToTable('Available Commands', userCommands);
-        output += formatCommandsToTable('CTF Tools', ctfTools);
+        output += formatCommandsToTable('BASIC COMMANDS', userCommands);
+        output += formatCommandsToTable('CTF TOOLS', ctfTools);
 
         if (isRoot) {
-            output += formatCommandsToTable('Root Commands', rootCommands);
+            output += formatCommandsToTable('ROOT COMMANDS', rootCommands);
         }
 
-        return output + "\nFor unrecognized commands, AI will try to provide assistance.";
+        output += "\nFor unrecognized commands, AI will try to provide assistance.";
+        return output;
     }
     
     const loggedOutCommands = [
@@ -97,8 +140,10 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean) => {
       { command: 'register', args: '', description: 'Create a new account.' },
       { command: 'clear', args: '', description: 'Clear the terminal screen.' },
     ];
-    return formatCommandsToTable('Available Commands', loggedOutCommands);
+    output += formatCommandsToTable('AVAILABLE COMMANDS', loggedOutCommands);
+    return output;
 };
+
 
 export const useCommand = (user: User | null | undefined) => {
   const [cwd, setCwd] = useState('/');
