@@ -391,20 +391,7 @@ export const useCommand = (
   const exitEditor = useCallback(() => {
       setEditingFile(null);
   }, []);
-
-  const executeCommandsSequentially = useCallback(async (commandsToExecute: { command: string, args: string[] }[]) => {
-      setIsProcessing(true);
-      for (const cmd of commandsToExecute) {
-          const fullCommand = `${cmd.command} ${cmd.args.join(' ')}`;
-          // We need a way to add this to history and then process it.
-          // This is a simplification. A real implementation might need to update the Terminal component's state directly.
-          console.log(`Executing planned command: ${fullCommand}`);
-          const result = await processCommand(fullCommand, true); // Pass a flag to prevent recursion
-          // Need a way to render the result to the screen.
-      }
-      setIsProcessing(false);
-  }, [processCommand]);
-
+  
   const processCommand = useCallback(async (command: string, isPlannedExecution: boolean = false): Promise<CommandResult> => {
     setIsProcessing(true);
     
@@ -768,7 +755,20 @@ export const useCommand = (
     } finally {
         setIsProcessing(false);
     }
-  }, [cwd, toast, user, userFilesystem, resolvePath, getNodeFromPath, getParentNodeFromPath, updateFirestoreFilesystem, saveFile, exitEditor, isRoot, viewedUser, isMobile, getPrompt, fetchUserFilesystem, aliases, setAwaitingConfirmation, executeCommandsSequentially]);
+  }, [cwd, toast, user, userFilesystem, resolvePath, getNodeFromPath, getParentNodeFromPath, updateFirestoreFilesystem, saveFile, isRoot, viewedUser, isMobile, aliases, setAwaitingConfirmation, fetchUserFilesystem, getPrompt]);
+
+  const executeCommandsSequentially = useCallback(async (commandsToExecute: { command: string, args: string[] }[]) => {
+      setIsProcessing(true);
+      for (const cmd of commandsToExecute) {
+          const fullCommand = `${cmd.command} ${cmd.args.join(' ')}`;
+          // We need a way to add this to history and then process it.
+          // This is a simplification. A real implementation might need to update the Terminal component's state directly.
+          console.log(`Executing planned command: ${fullCommand}`);
+          const result = await processCommand(fullCommand, true); // Pass a flag to prevent recursion
+          // Need a way to render the result to the screen.
+      }
+      setIsProcessing(false);
+  }, [processCommand]);
 
   return { prompt, processCommand, getWelcomeMessage, isProcessing, editingFile, saveFile, exitEditor };
 };
