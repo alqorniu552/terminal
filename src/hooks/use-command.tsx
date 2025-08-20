@@ -6,7 +6,7 @@ import { useToast } from "@/hooks/use-toast";
 import { databaseQuery } from '@/ai/flows/database-query-flow';
 import { askSidekick } from '@/ai/flows/ai-sidekick-flow';
 import { concealMessage, revealMessage } from '@/ai/flows/steganography-flow';
-import { initialFilesystem, Directory, FilesystemNode } from '@/lib/filesystem';
+import { initialFilesystem, Directory, FilesystemNode, linpeasOutput } from '@/lib/filesystem';
 import { db, auth } from '@/lib/firebase';
 import { collection, query, where, getDocs, WhereFilterOp, doc, setDoc, getDoc, updateDoc, writeBatch, orderBy, limit } from 'firebase/firestore';
 import { User } from 'firebase/auth';
@@ -26,20 +26,62 @@ const ROOT_EMAIL = "alqorniu552@gmail.com";
 const getNeofetchOutput = (user: {email: string} | null | undefined) => {
     let uptime = 0;
     if (typeof window !== 'undefined') {
-        uptime = Math.floor(performance.now() / 1000);
+        const up = Math.floor(performance.now() / 1000);
+        const days = Math.floor(up / 86400);
+        const hours = Math.floor((up % 86400) / 3600);
+        const minutes = Math.floor(((up % 86400) % 3600) / 60);
+        let uptimeString = '';
+        if (days > 0) uptimeString += `${days} days, `;
+        if (hours > 0) uptimeString += `${hours} hours, `;
+        uptimeString += `${minutes} mins`;
+        uptime = uptimeString as any;
     }
     const email = user?.email || 'guest';
+    const hostname = email.split('@')[0];
 
-return `
-${email}@cyber
---------------------
-OS: Web Browser
-Host: Cyber v1.0
-Kernel: GhostWorks Kernel
-Uptime: ${uptime} seconds
-Shell: bash
+const logo = `
+            .-/+oossssoo+/-.
+        ´:+ssssssssssssssssss+:\`
+      -+ssssssssssssssssssyyssss+-
+    .ossssssssssssssssssdsdssssssssso.
+   /ssssssssssydssssssssdsdssssssssssss/
+  +sssssssssssdmydssssssdsdsssssssssssss+
+ /sssssssssssdmydssssssdsdsssssssssssssss/
+.sssssssssssdmydssssssdsdssssssssssssssss.
+/ssssssssssssmdmdssdsdmdgssssssssssssssss/
++ssssssssssssdmdssdsdmdgsssssssssssssssss+
+/ssssssssssssdmdssdsdmdgssssssssssssssss/
+.ssssssssssssdmdssdsdmdgssssssssssssssss.
+ /sssssssssssdmydssssssdsdsssssssssssssss/
+  +sssssssssssdmydssssssdsdsssssssssssss+
+   /ssssssssssydssssssssdsdssssssssssss/
+    .ossssssssssssssssssdsdssssssssso.
+      -+sssssssssssssssssyyyssss+-
+        ´:+ssssssssssssssssss+:\`
+            .-/+oossssoo+/-.
 `;
+
+const output = `
+${logo.trim().split('\n').map(line => `\x1b[38;5;208m${line}\x1b[0m`).join('\n')}
+
+\x1b[1m\x1b[38;5;220m${email}\x1b[0m@\x1b[1m\x1b[38;5;220mcyber\x1b[0m
+--------------------
+\x1b[1m\x1b[38;5;208mOS\x1b[0m: Ubuntu 24.04 LTS x86_64
+\x1b[1m\x1b[38;5;208mHost\x1b[0m: Cyber v1.0 on Next.js
+\x1b[1m\x1b[38;5;208mKernel\x1b[0m: 6.8.0-31-generic
+\x1b[1m\x1b[38;5;208mUptime\x1b[0m: ${uptime}
+\x1b[1m\x1b[38;5;208mPackages\x1b[0m: 1783 (dpkg), 14 (snap)
+\x1b[1m\x1b[38;5;208mShell\x1b[0m: bash 5.2.21
+\x1b[1m\x1b[38;5;208mDE\x1b[0m: GNOME 46
+\x1b[1m\x1b[38;5;208mWM\x1b[0m: Mutter
+\x1b[1m\x1b[38;5;208mTerminal\x1b[0m: command-center
+\x1b[1m\x1b[38;5;208mCPU\x1b[0m: Simulated Intel i9-13900K (24) @ 5.8GHz
+\x1b[1m\x1b[38;5;208mGPU\x1b[0m: NVIDIA GeForce RTX 4090
+\x1b[1m\x1b[38;5;208mMemory\x1b[0m: 1388MiB / 31927MiB
+`;
+return output;
 };
+
 
 const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean, isMobile: boolean) => {
     const formatCommandsToTable = (title: string, commands: { command: string, args: string, description: string }[]): string => {
@@ -643,3 +685,5 @@ export const useCommand = (user: User | null | undefined, isMobile: boolean) => 
 
   return { prompt, processCommand, getWelcomeMessage, isProcessing, editingFile, saveFile, exitEditor };
 };
+
+    
