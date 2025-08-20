@@ -26,7 +26,7 @@ const prompt = ai.definePrompt({
   name: 'scanFilePrompt',
   input: { schema: ScanFileInputSchema },
   output: { schema: ScanFileOutputSchema },
-  prompt: `You are 'Ghost', an AI sidekick acting as a vulnerability scanner in a hacker terminal game.
+  prompt: `You are a vulnerability scanner tool.
 You need to analyze a file and provide a report that gives the user a cryptic hint about how to exploit it or what to do next.
 NEVER give away the flag or the exact command to use. Instead, hint at the *technique* or *tool category*.
 

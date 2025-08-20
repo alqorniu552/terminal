@@ -1,4 +1,4 @@
-"use client";
+'use client';
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useToast } from "@/hooks/use-toast";
@@ -176,22 +176,22 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean, isMobile: boolean) 
             { command: 'submit-flag', args: '<flag>', description: 'Submit a found flag.'},
             { command: 'score', args: '', description: 'Check your current score.'},
             { command: 'leaderboard', args: '', description: 'View the top players.'},
-            { command: 'ask', args: '"<question>"', description: 'Ask the AI sidekick for a hint.'},
+            { command: 'ask', args: '"<question>"', description: 'Ask for a hint.'},
             { command: 'scan', args: '<file>', description: 'Scan a file for vulnerabilities.'},
             { command: 'nmap', args: '<ip>', description: 'Scan a target IP for open ports.'},
-            { command: 'imagine', args: '<prompt>', description: 'Generate an image with AI.'},
+            { command: 'imagine', args: '<prompt>', description: 'Generate an image with an advanced model.'},
             { command: 'crack', args: '<hash> --wordlist <file>', description: 'Crack a password hash.'},
             { command: 'reveal', args: '<image_file>', description: 'Reveal secrets in an image.'},
-            { command: 'attack', args: '<target> --obj "<goal>"', description: 'Plan & execute an AI attack.'},
-            { command: 'analyze-image', args: '<url>', description: 'Analyze an image for clues.' },
+            { command: 'attack', args: '<target> --obj "<goal>"', description: 'Plan a tactical attack.'},
+            { command: 'analyze-image', args: '<url>', description: 'Run forensic analysis on an image.' },
             { command: 'investigate', args: '<target>', description: 'Run an OSINT investigation.' },
             { command: 'craft-phish', args: '--to <email>', description: 'Craft a phishing email.' },
-            { command: 'forge', args: '<file> --prompt "<desc>"', description: 'Forge a new tool with AI.'},
+            { command: 'forge', args: '<file> --prompt "<desc>"', description: 'Generate a new tool using a code engine.'},
         ];
         
         const aiVsAiTools = [
-            { command: 'warlock-threat', args: '--scan', description: 'Scan for Warlock AI activity.' },
-            { command: 'counter-measure', args: '--type <type>', description: 'Launch counter-attack on Warlock.' },
+            { command: 'warlock-threat', args: '--scan', description: 'Scan for adversarial AI activity.' },
+            { command: 'counter-measure', args: '--type <type>', description: 'Launch counter-attack on adversary.' },
         ];
 
         const rootCommands = [
@@ -551,7 +551,7 @@ export const useCommand = (
             const node = getNodeFromPath(path, userFilesystem);
             if (node?.type === 'file' && (node as File).logicBomb) {
                 updateWarlockAwareness(-50, 'logic bomb triggered');
-                toast({ title: "Logic Bomb Triggered!", description: "Warlock's monitoring system was disrupted. Its awareness has been significantly reduced." });
+                toast({ title: "Logic Bomb Triggered!", description: "Adversary's monitoring system was disrupted. Its awareness has been significantly reduced." });
                 const newFs = JSON.parse(JSON.stringify(userFilesystem));
                 const nodeToUpdate = getNodeFromPath(path, newFs) as File;
                 delete nodeToUpdate.logicBomb;
@@ -666,7 +666,7 @@ export const useCommand = (
                         warlockIsActive.current = false;
                         setWarlockAwareness(0);
                         if (warlockTimeoutRef.current) clearTimeout(warlockTimeoutRef.current);
-                        return { type: 'text', text: `SYSTEM INTEGRITY COMPROMISED. WARLOCK CORE OFFLINE.` };
+                        return { type: 'text', text: `SYSTEM INTEGRITY COMPROMISED. ADVERSARY CORE OFFLINE.` };
                     }
                     return { type: 'none' };
                 }
@@ -707,7 +707,7 @@ export const useCommand = (
                 const currentNode = getNodeFromPath(cwd, userFilesystem);
                 const files = (currentNode?.type === 'directory') ? Object.keys(currentNode.children) : [];
                 const { answer } = await askSidekick({ question, cwd, files });
-                return { type: 'text', text: `Ghost: "${answer}"` };
+                return { type: 'text', text: answer };
             }
             case 'scan': {
                 if (!argString) return { type: 'text', text: 'Usage: scan <file_path>' };
@@ -798,10 +798,10 @@ export const useCommand = (
                 const { plan, reasoning } = await generateAttackPlan({ target, objective, availableFiles: files });
 
                 if (!plan || plan.length === 0) {
-                    return { type: 'text', text: 'Ghost: I could not devise a coherent plan for that objective.' };
+                    return { type: 'text', text: 'Could not devise a coherent plan for that objective.' };
                 }
 
-                let planString = `Ghost has devised a plan based on the objective: "${objective}"\n`;
+                let planString = `Tactical plan generated based on objective: "${objective}"\n`;
                 planString += `Reasoning: ${reasoning}\n\n`;
                 planString += plan.map((step, index) => `[Step ${index + 1}] ${step.command} ${step.args.join(' ')}`).join('\n');
 
@@ -928,11 +928,11 @@ export const useCommand = (
                 updateWarlockAwareness(35, 'forged a new tool');
                 const { code } = await forgeTool({ filename, prompt });
                 const saveResult = await saveFile(resolvePath(filename), code);
-                return { type: 'text', text: `Ghost: Tool '${filename}' has been forged.\n${saveResult}` };
+                return { type: 'text', text: `Tool '${filename}' compiled successfully.\n${saveResult}` };
             }
             case 'warlock-threat': {
                 if (args[0] !== '--scan') return { type: 'text', text: 'Usage: warlock-threat --scan' };
-                let report = `Warlock Threat Scan:\n- Current Awareness: ${warlockAwareness}%\n`;
+                let report = `Adversary Threat Scan:\n- Current Awareness: ${warlockAwareness}%\n`;
                 if (warlockAwareness < 20) report += "- Status: Dormant. No immediate threats detected.";
                 else if (warlockAwareness < 70) report += "- Status: Active. System monitoring has increased. Traces found around core system files.";
                 else report += "- Status: Hostile. Active countermeasures likely. Extreme caution advised. Threat signatures detected network-wide.";
@@ -957,14 +957,14 @@ export const useCommand = (
                     setUserFilesystem(newFs);
                     await updateFirestoreFilesystem(newFs);
                     updateWarlockAwareness(-15, 'decoy deployed');
-                    return { type: 'text', text: `Decoy directory '${decoyName}' created at ${targetPath}. Warlock's attention may be diverted.`};
+                    return { type: 'text', text: `Decoy directory '${decoyName}' created at ${targetPath}. Adversary's attention may be diverted.`};
                 } else if (type === 'logic-bomb') {
                     const targetNode = getNodeFromPath(targetPath, newFs);
                     if (!targetNode || targetNode.type !== 'file') return { type: 'text', text: 'Logic bomb target must be a file.'};
                     (targetNode as File).logicBomb = true;
                     setUserFilesystem(newFs);
                     await updateFirestoreFilesystem(newFs);
-                    return { type: 'text', text: `Logic bomb planted in ${targetPath}. It will trigger if Warlock accesses the file.` };
+                    return { type: 'text', text: `Logic bomb planted in ${targetPath}. It will trigger if the adversary accesses the file.` };
                 }
                 return { type: 'text', text: `Invalid counter-measure type: ${type}. Use 'decoy' or 'logic-bomb'.` };
             }

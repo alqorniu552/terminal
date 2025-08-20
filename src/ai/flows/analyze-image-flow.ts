@@ -24,9 +24,9 @@ const prompt = ai.definePrompt({
   name: 'analyzeImagePrompt',
   input: { schema: AnalyzeImageInputSchema },
   output: { schema: AnalyzeImageOutputSchema },
-  prompt: `You are 'Ghost', an AI forensics expert. You are analyzing an image for a CTF challenge.
+  prompt: `You are a forensic image analysis tool. You are analyzing an image for a CTF challenge.
 Your task is to provide a detailed analysis of the image found at the given URL.
-Even though you cannot *actually* see the image, you must create a plausible and creative analysis based on what a hacker might find.
+Even though you cannot *actually* see the image, you must create a plausible and creative analysis based on what an investigator might find.
 
 Image URL: {{{imageUrl}}}
 

@@ -1,7 +1,7 @@
 'use server';
 
 /**
- * @fileOverview This file defines a Genkit flow for an AI sidekick that provides contextual hints for CTF challenges.
+ * @fileOverview This file defines a Genkit flow for a command-line hint system.
  */
 
 import {ai} from '@/ai/genkit';
@@ -27,7 +27,7 @@ const prompt = ai.definePrompt({
   name: 'aiSidekickPrompt',
   input: {schema: AiSidekickInputSchema},
   output: {schema: AiSidekickOutputSchema},
-  prompt: `You are 'Ghost', an AI sidekick in a hacker terminal game. A user is asking for a hint for a Capture The Flag (CTF) challenge.
+  prompt: `You are a cryptic command-line help utility. A user is asking for a hint for a Capture The Flag (CTF) challenge.
 Your goal is to be helpful but cryptic. NEVER give away the direct answer or the flag. Instead, guide the user toward the correct technique or tool.
 You should use a confident, slightly mysterious, hacker-like tone.
 

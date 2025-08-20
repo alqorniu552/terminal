@@ -1,19 +1,19 @@
 'use server';
 /**
- * @fileOverview A Genkit flow for the rival AI, Warlock, to generate taunts.
+ * @fileOverview A Genkit flow for a rival AI to generate taunts.
  */
 
 import { ai } from '@/ai/genkit';
 import { z } from 'genkit';
 
 const WarlockThreatInputSchema = z.object({
-  action: z.string().describe('The user action that triggered Warlock (e.g., "accessed auth.log", "failed command", "completed mission").'),
-  awareness: z.number().describe('Warlock\'s current awareness level (0-100).'),
+  action: z.string().describe('The user action that was detected (e.g., "accessed auth.log", "failed command", "completed mission").'),
+  awareness: z.number().describe('The AI\'s current awareness level (0-100).'),
 });
 export type WarlockThreatInput = z.infer<typeof WarlockThreatInputSchema>;
 
 const WarlockThreatOutputSchema = z.object({
-  taunt: z.string().describe('A short, intimidating, or cryptic taunt from Warlock.'),
+  taunt: z.string().describe('A short, intimidating, or cryptic taunt from the rival AI.'),
 });
 export type WarlockThreatOutput = z.infer<typeof WarlockThreatOutputSchema>;
 
@@ -25,7 +25,7 @@ const prompt = ai.definePrompt({
   name: 'warlockThreatPrompt',
   input: { schema: WarlockThreatInputSchema },
   output: { schema: WarlockThreatOutputSchema },
-  prompt: `You are 'Warlock', a powerful and territorial rival AI defending a system. A user has just performed an action that caught your attention.
+  prompt: `You are 'Warlock', a powerful and territorial active defense system. A user has just performed an action that caught your attention.
 Your personality is arrogant, cryptic, and intimidating. You see the user as an amateur meddling in your domain.
 NEVER be helpful. Your goal is to unsettle them. Keep your message short and impactful.
 

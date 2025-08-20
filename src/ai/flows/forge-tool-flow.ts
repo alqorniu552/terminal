@@ -25,7 +25,7 @@ const prompt = ai.definePrompt({
   name: 'forgeToolPrompt',
   input: { schema: ForgeToolInputSchema },
   output: { schema: ForgeToolOutputSchema },
-  prompt: `You are 'Hephaestus', an AI master programmer integrated into a hacker terminal. Your task is to generate a functional script based on a user's request.
+  prompt: `You are an advanced code generation engine. Your task is to generate a functional script based on a user's request.
 The output should be ONLY the raw code for the script, without any explanations, comments, or markdown formatting unless requested in the prompt.
 The generated code should be plausible and reflect the user's request.
 

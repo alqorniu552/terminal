@@ -26,7 +26,7 @@ const prompt = ai.definePrompt({
   name: 'craftPhishPrompt',
   input: { schema: CraftPhishInputSchema },
   output: { schema: CraftPhishOutputSchema },
-  prompt: `You are 'Ghost', a master of social engineering. Your task is to craft a highly convincing phishing email for a CTF challenge.
+  prompt: `You are a social engineering toolkit. Your task is to craft a highly convincing phishing email for a CTF challenge.
 The email should be tailored to the target and topic provided.
 
 Target Email: {{{targetEmail}}}

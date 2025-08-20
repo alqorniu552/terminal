@@ -102,7 +102,7 @@ const attackPlannerFlow = ai.defineFlow(
       input: { schema: AttackPlanInputSchema },
       output: { schema: AttackPlanOutputSchema },
       tools: [nmapTool, scanFileTool, catFileTool, gobusterTool],
-      prompt: `You are Ghost, a master hacker AI. Your task is to devise a multi-step attack plan to achieve a user's objective.
+      prompt: `You are a tactical attack-planning tool. Your task is to devise a multi-step attack plan to achieve a user's objective.
 You must use the provided tools to construct the plan. The plan should be a logical sequence of commands.
 
 Objective: "{{{objective}}}"

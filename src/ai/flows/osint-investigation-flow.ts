@@ -24,7 +24,7 @@ const prompt = ai.definePrompt({
   name: 'osintInvestigationPrompt',
   input: { schema: OsintInvestigationInputSchema },
   output: { schema: OsintInvestigationOutputSchema },
-  prompt: `You are 'Ghost', an OSINT specialist AI. You are conducting a simulated investigation on a target for a CTF challenge.
+  prompt: `You are an OSINT (Open-Source Intelligence) gathering tool. You are conducting an investigation on a target for a CTF challenge.
 Your task is to generate a realistic-sounding intelligence report based on the provided target.
 
 Target: "{{{target}}}"
