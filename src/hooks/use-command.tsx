@@ -4,7 +4,7 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { useToast } from "@/hooks/use-toast";
 import { generateCommandHelp } from '@/ai/flows/generate-command-help';
 import { databaseQuery } from '@/ai/flows/database-query-flow';
-import { initialFilesystem, Directory, FilesystemNode } from '@/lib/filesystem';
+import { initialFilesystem, Directory, FilesystemNode, File } from '@/lib/filesystem';
 import { db, auth } from '@/lib/firebase';
 import { collection, query, where, getDocs, WhereFilterOp, doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
 import { User, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
@@ -370,7 +370,7 @@ export const useCommand = (user: User | null | undefined) => {
                 description: "Could not save file to the specified path.",
             });
         }
-    }, [currentFilesystem, impersonatedUser, toast, updateFirestoreFilesystem]);
+    }, [currentFilesystem, impersonatedUser, toast, updateFirestoreFilesystem, resolvePath, getParentNodeFromPath]);
 
     const exitEditor = useCallback(() => {
         setEditingFile(null);
@@ -1394,7 +1394,9 @@ Using binary mode to transfer files.
         }
       }
     }
-  }, [cwd, toast, user, authStep, authCredentials, resetAuth, isRoot, osSelectionStep, userData, fetchUserData, userFilesystem, impersonatedUser, currentFilesystem, sessionState, startOSInstallation, updateFirestoreFilesystem]);
+  }, [cwd, toast, user, authStep, authCredentials, resetAuth, isRoot, osSelectionStep, userData, fetchUserData, userFilesystem, impersonatedUser, currentFilesystem, sessionState, startOSInstallation, updateFirestoreFilesystem, getNodeFromPath, getParentNodeFromPath, resolvePath, saveFile]);
 
   return { prompt, processCommand, getWelcomeMessage, authStep, resetAuth, osSelectionStep, setOsSelectionStep, editingFile, saveFile, exitEditor };
 };
+
+    
