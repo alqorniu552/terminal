@@ -2,6 +2,7 @@
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useToast } from "@/hooks/use-toast";
+import { generateCommandHelp } from '@/ai/flows/generate-command-help';
 import { databaseQuery } from '@/ai/flows/database-query-flow';
 import { askSidekick } from '@/ai/flows/ai-sidekick-flow';
 import { initialFilesystem, getDynamicContent, Directory, FilesystemNode } from '@/lib/filesystem';
@@ -295,7 +296,7 @@ export const useCommand = (
     const newAliases: Record<string, string> = {};
     const bashrcNode = getNodeFromPath('/.bashrc', fs);
     if (bashrcNode && bashrcNode.type === 'file') {
-        const content = typeof bashrcNode.content === 'function' ? bashrcNode.content() : getDynamicContent(bashrcNode.content);
+        const content = getDynamicContent(bashrcNode.content);
         const lines = content.split('\n');
         lines.forEach(line => {
             if (line.trim().startsWith('alias ')) {
@@ -507,19 +508,8 @@ export const useCommand = (
       if (fileNode.type === 'directory') {
           return { type: 'text', text: 'Error: Cannot execute a directory.' };
       }
-      const content = typeof fileNode.content === 'function' ? fileNode.content() : getDynamicContent(fileNode.content);
+      const content = getDynamicContent(fileNode.content);
       return { type: 'text', text: content };
-  }, []);
-
-  const executeCommandsSequentially = useCallback(async (commandsToExecute: { command: string, args: string[] }[]) => {
-      setIsProcessing(true);
-      for (const cmd of commandsToExecute) {
-          const fullCommand = `${cmd.command} ${cmd.args.join(' ')}`;
-          // eslint-disable-next-line @typescript-eslint/no-use-before-define
-          await processCommand(fullCommand, true); 
-      }
-      setIsProcessing(false);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleFileSystemCommands = async (cmd: string, args: string[], argString: string): Promise<CommandResult | null> => {
@@ -556,7 +546,7 @@ export const useCommand = (
         const targetPath = resolvePath(argString);
         const node = getNodeFromPath(targetPath, userFilesystem);
         if (node && node.type === 'file') {
-            const content = typeof node.content === 'function' ? node.content() : getDynamicContent(node.content);
+            const content = getDynamicContent(node.content);
             return { type: 'text', text: content };
         }
         return { type: 'text', text: `cat: ${argString}: No such file or directory` };
@@ -567,7 +557,7 @@ export const useCommand = (
         const targetPath = resolvePath(argString);
         const node = getNodeFromPath(targetPath, userFilesystem);
         if (node && node.type === 'directory') return { type: 'text', text: `nano: ${argString}: Is a directory` };
-        const content = (node && node.type === 'file') ? (typeof node.content === 'function' ? node.content() : getDynamicContent(node.content)) : '';
+        const content = (node && node.type === 'file') ? getDynamicContent(node.content) : '';
         setEditingFile({ path: targetPath, content: content as string });
         return { type: 'none' };
       }
@@ -657,7 +647,7 @@ export const useCommand = (
                  updateWarlockAwareness(10, 'gobuster execution');
                  const gobusterNode = getNodeFromPath('/gobuster.txt', userFilesystem);
                  if (gobusterNode && gobusterNode.type === 'file') {
-                     const content = typeof gobusterNode.content === 'function' ? gobusterNode.content() : getDynamicContent(gobusterNode.content);
+                     const content = getDynamicContent(gobusterNode.content);
                      return { type: 'text', text: content };
                  }
               }
@@ -678,9 +668,9 @@ export const useCommand = (
             if (!node) {
               return { type: 'text', text: `scan: file not found: ${argString}` };
             }
-            const content = (node.type === 'file' && typeof node.content === 'function') 
-              ? node.content() 
-              : (node.type === 'file' ? getDynamicContent(node.content) : 'This is a directory.');
+            const content = (node.type === 'file') 
+              ? getDynamicContent(node.content) 
+              : 'This is a directory.';
             const { report } = await scanFile({ filename: argString, content: content as string });
             return { type: 'text', text: report };
           }
@@ -701,7 +691,7 @@ export const useCommand = (
               return { type: 'text', text: `crack: wordlist file not found: ${wordlistPath}` };
             }
             
-            const wordlistContent = typeof wordlistNode.content === 'function' ? wordlistNode.content() : getDynamicContent(wordlistNode.content);
+            const wordlistContent = getDynamicContent(wordlistNode.content);
             const words = wordlistContent.split('\n');
             
             for (const word of words) {
@@ -720,7 +710,7 @@ export const useCommand = (
             if (!imageNode || imageNode.type !== 'file') {
               return { type: 'text', text: `reveal: file not found: ${argString}` };
             }
-            const imageData = typeof imageNode.content === 'function' ? imageNode.content() : getDynamicContent(imageNode.content);
+            const imageData = getDynamicContent(imageNode.content);
             const { revealedMessage } = await revealMessage({ imageDataUri: imageData });
             return { type: 'text', text: revealedMessage };
           }
@@ -736,7 +726,7 @@ export const useCommand = (
             const imageNode = getNodeFromPath(imagePath, userFilesystem);
             if (!imageNode || imageNode.type !== 'file') return { type: 'text', text: `conceal: file not found: ${imagePath}` };
 
-            const imageData = typeof imageNode.content === 'function' ? imageNode.content() : getDynamicContent(imageNode.content);
+            const imageData = getDynamicContent(imageNode.content);
             const { newImageDataUri } = await concealMessage({ imageDataUri: imageData, message });
             
             const saveResult = await saveFile(imagePath, newImageDataUri);
@@ -936,6 +926,17 @@ export const useCommand = (
     }
   }
 
+  const executeCommandsSequentially = useCallback(async (commandsToExecute: { command: string, args: string[] }[]) => {
+      setIsProcessing(true);
+      for (const cmd of commandsToExecute) {
+          const fullCommand = `${cmd.command} ${cmd.args.join(' ')}`;
+          // eslint-disable-next-line @typescript-eslint/no-use-before-define
+          await processCommand(fullCommand, true); 
+      }
+      setIsProcessing(false);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const processCommand = useCallback(async (command: string, isPlannedExecution: boolean = false): Promise<CommandResult> => {
     setIsProcessing(true);
     
@@ -1021,7 +1022,7 @@ export const useCommand = (
     } finally {
         setIsProcessing(false);
     }
-  }, [aliases, cwd, executeCommandsSequentially, fetchUserFilesystem, getParentNodeFromPath, getPrompt, getNodeFromPath, isMobile, isRoot, resolvePath, saveFile, setAwaitingConfirmation, toast, updateWarlockAwareness, user, userFilesystem, viewedUser, executeFile]);
+  }, [aliases, cwd, executeCommandsSequentially, executeFile, fetchUserFilesystem, getParentNodeFromPath, getPrompt, getNodeFromPath, isMobile, isRoot, resolvePath, saveFile, setAwaitingConfirmation, toast, updateWarlockAwareness, user, userFilesystem, viewedUser]);
   
   return { 
       prompt, 
