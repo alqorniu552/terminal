@@ -6,7 +6,7 @@ import { generateCommandHelp } from '@/ai/flows/generate-command-help';
 import { databaseQuery } from '@/ai/flows/database-query-flow';
 import { initialFilesystem, Directory, FilesystemNode, File } from '@/lib/filesystem';
 import { db, auth } from '@/lib/firebase';
-import { collection, query, where, getDocs, WhereFilterOp, doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, WhereFilterOp, doc, setDoc, getDoc, updateDoc, collectionGroup } from 'firebase/firestore';
 import { User, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import ImageDisplay from '@/components/image-display';
 
@@ -93,8 +93,8 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean) => {
     
     const loggedOutCommands = [
       { command: 'help', args: '', description: 'Show this help message.' },
-      { command: 'login', args: '[email] [pw]', description: 'Log in to your account.' },
-      { command: 'register', args: '[email] [pw]', description: 'Create a new account.' },
+      { command: 'login', args: '', description: 'Log in to your account.' },
+      { command: 'register', args: '', description: 'Create a new account.' },
       { command: 'clear', args: '', description: 'Clear the terminal screen.' },
     ];
     return formatCommandsToTable('Available Commands', loggedOutCommands);
@@ -123,9 +123,9 @@ export const useCommand = (user: User | null | undefined) => {
         const username = viewedUser?.email?.split('@')[0] || 'user';
         const path = cwd === '/' ? '~' : `~${cwd}`;
         const promptChar = isRoot && viewedUser?.uid === user.uid ? '#' : '$';
-        return `${username}@cyber:${path}${promptChar}`;
+        return `${username}@cyber:${path}${promptChar} `;
     }
-    return 'guest@cyber:~$';
+    return 'guest@cyber:~$ ';
   }, [user, cwd, isRoot, viewedUser]);
 
   const [prompt, setPrompt] = useState(getPrompt());
@@ -144,7 +144,8 @@ export const useCommand = (user: User | null | undefined) => {
             setUserFilesystem(userDoc.data().filesystem);
         } else if (user) {
             // This case might happen if a user doc is created without a filesystem
-            const newUserDoc = { email: user.email, filesystem: initialFilesystem };
+            const userDocData = userDoc.exists() ? userDoc.data() : { email: user.email };
+            const newUserDoc = { ...userDocData, filesystem: initialFilesystem };
             await setDoc(userDocRef, newUserDoc, { merge: true });
             setUserFilesystem(initialFilesystem);
         }
@@ -609,7 +610,7 @@ End of assembler dump.` };
     } finally {
         setIsProcessing(false);
     }
-  }, [cwd, toast, user, userFilesystem, resolvePath, getNodeFromPath, getParentNodeFromPath, updateFirestoreFilesystem, saveFile, exitEditor, isRoot, viewedUser]);
+  }, [cwd, toast, user, userFilesystem, resolvePath, getNodeFromPath, getParentNodeFromPath, updateFirestoreFilesystem, saveFile, exitEditor, isRoot, viewedUser, processCommand]);
 
   return { prompt, processCommand, getWelcomeMessage, isProcessing, editingFile, saveFile, exitEditor };
 };
