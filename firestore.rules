@@ -1,31 +1,27 @@
-
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Users can only read/write their own data
+    // Users can only read/write to their own user document
     match /users/{userId} {
-      allow read, write: if request.auth.uid == userId;
+      allow read, write: if request.auth != null && request.auth.uid == userId;
     }
 
-    // Anyone authenticated can read missions, nobody can write from client
+    // Missions are public to read for any authenticated user
     match /missions/{missionId} {
       allow read: if request.auth != null;
-      allow write: if false;
+      allow write: if false; // Disallow client-side writes
     }
     
-    // Users can only read/write their own progress
+    // User can only read/write to their own progress
     match /user-progress/{userId} {
-      allow read, create, update: if request.auth.uid == userId;
+      allow read, write: if request.auth != null && request.auth.uid == userId;
     }
 
-    // Anyone can read the full leaderboard.
-    // Users can only update their own score.
-    // A 'get' is allowed on individual documents for the batch write to work.
+    // Anyone can read the leaderboard, but only authenticated users can write to their own doc
     match /leaderboard/{userId} {
-      allow get: if request.auth != null;
-      allow list: if request.auth != null;
-      allow create, update: if request.auth.uid == userId;
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == userId;
     }
   }
 }
