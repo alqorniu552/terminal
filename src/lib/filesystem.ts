@@ -80,7 +80,7 @@ export const initialFilesystem: Directory = {
     },
     'linpeas.sh': {
         type: 'file',
-        content: linpeasOutput
+        content: '#!/bin/bash\n# PEASS-NG - Privilege Escalation Awesome Scripts SUITE\n# This is a placeholder. Executing it will generate dynamic output.\n# DYNAMIC_CONTENT::LINPEAS'
     },
     'gobuster.txt': {
         type: 'file',
@@ -157,3 +157,10 @@ May 10 10:09:00 server systemd: SERVICE_START pid=1 uid=0 auid=4294967295 ses=42
     },
   },
 };
+
+export const getDynamicContent = (placeholder: string): string => {
+    if (placeholder.includes('DYNAMIC_CONTENT::LINPEAS')) {
+        return linpeasOutput();
+    }
+    return placeholder;
+}
