@@ -53,7 +53,7 @@ export const initialFilesystem: Directory = {
     },
     'secret_recipe.txt': {
         type: 'file',
-        content: 'ZRIF! Vlr fnr jia ve mgqf jdrw gsv kvof zqam.'
+        content: 'Tf aycq wj ingg, ylq cjgz qjg gtjrvog. Jvu hsccegv rwvf jrwp pqqr jb hspy zs zaoaf wvejot.'
     },
     'credentials.enc': {
         type: 'file',
@@ -110,7 +110,7 @@ May 10 10:07:00 server sudo:  user1 : TTY=pts/0 ; PWD=/home/user1 ; USER=root ; 
 May 10 10:07:01 server su: (to root) user1 on pts/0
 May 10 10:07:02 server su: pam_unix(su:session): session opened for user root by user1(uid=1000)
 May 10 10:08:00 server sshd[1275]: Strange situation: user guest attempted to log in with a password but is not in the system. The secret is FLAG{L0G_F0R3NS1CS_R0CKS}
-May 10 10:09:00 server systemd: SERVICE_START pid=1 uid=0 auid=4294967295 ses=4294967295 msg='unit=badactor_service comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=success' data='vigenerekey'
+May 10 10:09:00 server systemd: SERVICE_START pid=1 uid=0 auid=4294967295 ses=4294967295 msg='unit=badactor_service comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=failed' data='vigenerekey'
 `
     },
     'credentials.zip': {
