@@ -1,6 +1,8 @@
 export interface File {
   type: 'file';
-  content: string | (() => string);
+  content: string;
+  path?: string;
+  logicBomb?: boolean;
 }
 
 export interface Directory {
@@ -52,10 +54,12 @@ export const initialFilesystem: Directory = {
   children: {
     '.bashrc': {
         type: 'file',
+        path: '/.bashrc',
         content: '# Add your custom aliases here\nalias ll=\'ls -l\'\nalias c=\'clear\'\n'
     },
     'welcome.txt': {
         type: 'file',
+        path: '/welcome.txt',
         content: 'Welcome to your personal filesystem! Use CTF tools to find secrets.'
     },
     'projects': {
@@ -64,26 +68,32 @@ export const initialFilesystem: Directory = {
     },
     'secret.jpg': {
         type: 'file',
+        path: '/secret.jpg',
         content: 'This is not a real image file, but you can run `strings` on it to find a secret. FLAG{3X1F_M3T4D4T4_H1DD3N_S3CR3T}'
     },
     'mission_image.jpg': {
         type: 'file',
+        path: '/mission_image.jpg',
         content: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='
     },
     'shadow.bak': {
         type: 'file',
+        path: '/shadow.bak',
         content: 'root:5f4dcc3b5aa765d61d8327deb882cf99' // md5 for 'password'
     },
     'a.out': {
         type: 'file',
+        path: '/a.out',
         content: 'ELF 64-bit LSB executable... not stripped. Maybe try `strings`? FLAG{B4S1C_R3V3RS1NG_W1TH_STR1NGS}'
     },
     'linpeas.sh': {
         type: 'file',
-        content: '#!/bin/bash\n# PEASS-NG - Privilege Escalation Awesome Scripts SUITE\n# This is a placeholder. Executing it will generate dynamic output.\n# DYNAMIC_CONTENT::LINPEAS'
+        path: '/linpeas.sh',
+        content: 'DYNAMIC_CONTENT::LINPEAS'
     },
     'gobuster.txt': {
         type: 'file',
+        path: '/gobuster.txt',
         content: `
 ===============================================================
 Gobuster v3.1.0
@@ -111,6 +121,7 @@ Gobuster v3.1.0
         children: {
             'wordlist.txt': {
                 type: 'file',
+                path: '/lib/wordlist.txt',
                 content: wordlistContent
             }
         }
@@ -123,6 +134,7 @@ Gobuster v3.1.0
           children: {
             'warlock.core': {
               type: 'file',
+              path: '/var/lib/warlock.core',
               content: 'Warlock Active Defense System v1.0\nSTATUS: ACTIVE\nTHREAT LEVEL: DANGEROUS\nDO NOT DELETE'
             }
           }
@@ -131,6 +143,7 @@ Gobuster v3.1.0
     },
     'auth.log': {
         type: 'file',
+        path: '/auth.log',
         content: `May 10 10:00:01 server sshd[1234]: Accepted password for user1 from 192.168.1.10 port 1234 ssh2
 May 10 10:00:02 server sshd[1234]: pam_unix(sshd:session): session opened for user user1 by (uid=0)
 May 10 10:01:00 server sshd[1238]: Failed password for invalid user admin from 10.0.0.5 port 54321 ssh2
@@ -158,9 +171,11 @@ May 10 10:09:00 server systemd: SERVICE_START pid=1 uid=0 auid=4294967295 ses=42
   },
 };
 
-export const getDynamicContent = (placeholder: string): string => {
-    if (placeholder.includes('DYNAMIC_CONTENT::LINPEAS')) {
+export const getDynamicContent = (placeholder: string, path: string): string => {
+    if (placeholder === 'DYNAMIC_CONTENT::LINPEAS') {
         return linpeasOutput();
     }
+    // Return original content if no dynamic key matches
+    // This also handles cases where content is just a regular string
     return placeholder;
 }
