@@ -18,6 +18,7 @@ import { generateWarlockTaunt } from '@/ai/flows/warlock-threat-flow';
 import { analyzeImage } from '@/ai/flows/analyze-image-flow';
 import { investigateTarget } from '@/ai/flows/osint-investigation-flow';
 import { craftPhish } from '@/ai/flows/craft-phish-flow';
+import { forgeTool } from '@/ai/flows/forge-tool-flow';
 
 type EditingFile = { path: string; content: string } | null;
 type CommandResult = 
@@ -172,6 +173,7 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean, isMobile: boolean) 
             { command: 'analyze-image', args: '<url>', description: 'Analyze an image for clues.' },
             { command: 'investigate', args: '<target>', description: 'Run an OSINT investigation.' },
             { command: 'craft-phish', args: '--to <email>', description: 'Craft a phishing email.' },
+            { command: 'forge', args: '<file> --prompt "<desc>"', description: 'Forge a new tool with AI.'},
         ];
         
         const rootCommands = [
@@ -488,7 +490,7 @@ export const useCommand = (
           console.log(`Executing planned command: ${fullCommand}`);
           // The processCommand function is defined below and will be in scope.
           // eslint-disable-next-line @typescript-eslint/no-use-before-define
-          const result = await processCommand(fullCommand, true); 
+          await processCommand(fullCommand, true); 
       }
       setIsProcessing(false);
   }, []); 
@@ -865,6 +867,21 @@ export const useCommand = (
             const { phishingEmail } = await craftPhish({ targetEmail, topic });
             return { type: 'text', text: `Phishing Email Draft:\n\n${phishingEmail}` };
           }
+          case 'forge': {
+            const promptIndex = finalArgs.findIndex(arg => arg === '--prompt');
+            if (promptIndex === -1 || finalArgs.length <= 1) {
+              return { type: 'text', text: 'Usage: forge <filename> --prompt "<description>"' };
+            }
+            const filename = finalArgs[0];
+            const prompt = argString.split(/--prompt/)[1]?.trim().slice(1, -1);
+            if (!prompt) {
+              return { type: 'text', text: 'Error: Prompt description cannot be empty.' };
+            }
+            updateWarlockAwareness(35, 'forged a new tool');
+            const { code } = await forgeTool({ filename, prompt });
+            const saveResult = await saveFile(resolvePath(filename), code);
+            return { type: 'text', text: `Ghost: Tool '${filename}' has been forged.\n${saveResult}` };
+          }
           case 'db': {
             if (!isRoot) return { type: 'text', text: `bash: command not found: db` };
             if (!argString.startsWith('"') || !argString.endsWith('"')) return { type: 'text', text: 'db: query must be enclosed in quotes. Usage: db "your natural language query"' };
@@ -919,15 +936,8 @@ export const useCommand = (
     } finally {
         setIsProcessing(false);
     }
-  }, [aliases, cwd, executeCommandsSequentially, fetchUserFilesystem, getParentNodeFromPath, getPrompt, getNodeFromPath, isMobile, isRoot, resolvePath, saveFile, setAwaitingConfirmation, toast, updateWarlockAwareness, user, userFilesystem, viewedUser]);
+  }, [aliases, cwd, getParentNodeFromPath, getPrompt, getNodeFromPath, isMobile, isRoot, resolvePath, saveFile, setAwaitingConfirmation, toast, updateWarlockAwareness, user, userFilesystem, viewedUser, fetchUserFilesystem, executeCommandsSequentially]);
   
-  useEffect(() => {
-      if (executeCommandsSequentially) {
-          // This is just to satisfy the dependency checker that it is used.
-      }
-  }, [executeCommandsSequentially]);
-
-
   const clearWarlockMessages = useCallback(() => {
     setWarlockMessages([]);
   }, []);
