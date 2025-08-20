@@ -7,7 +7,7 @@ import { databaseQuery } from '@/ai/flows/database-query-flow';
 import { initialFilesystem, Directory, FilesystemNode, File } from '@/lib/filesystem';
 import { db, auth } from '@/lib/firebase';
 import { collection, query, where, getDocs, WhereFilterOp, doc, setDoc, getDoc, updateDoc, collectionGroup } from 'firebase/firestore';
-import { User, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
+import { User } from 'firebase/auth';
 import ImageDisplay from '@/components/image-display';
 
 type EditingFile = { path: string; content: string } | null;
@@ -52,38 +52,33 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean) => {
 `;
 
     const formatCommandsToTable = (title: string, commands: { command: string, args: string, description: string }[]) => {
+        if (commands.length === 0) return '';
+        
         const colWidths = {
             command: Math.max(...commands.map(c => c.command.length), 'Command'.length),
             args: Math.max(...commands.map(c => c.args.length), 'Arguments'.length),
             description: Math.max(...commands.map(c => c.description.length), 'Description'.length)
         };
 
-        const totalWidth = colWidths.command + colWidths.args + colWidths.description + 10;
-
         const pad = (str: string, width: number) => str.padEnd(width);
 
-        const drawLine = (left: string, mid1: string, mid2: string, right: string) => 
-            `${left}─`.padEnd(colWidths.command + 3, '─') +
-            `${mid1}─`.padEnd(colWidths.args + 4, '─') +
-            `${mid2}─`.padEnd(colWidths.description + 3, '─') + right;
+        const drawLine = (left: string, mid1: string, mid2: string, right: string) =>
+            `${left}─${'─'.repeat(colWidths.command)}─${mid1}─${'─'.repeat(colWidths.args)}─${mid2}─${'─'.repeat(colWidths.description)}─${right}`;
 
         let output = '\n';
 
-        // Title
+        const totalWidth = colWidths.command + colWidths.args + colWidths.description + 7;
         const titlePadding = Math.floor((totalWidth - title.length) / 2);
-        output += ' '.repeat(titlePadding) + title + '\n';
-        output += drawLine('┌', '┬', '┬', '┐') + '\n';
+        output += `${' '.repeat(Math.max(0, titlePadding))}${title}\n`;
 
-        // Header
+        output += drawLine('┌', '┬', '┬', '┐') + '\n';
         output += `│ ${pad('Command', colWidths.command)} │ ${pad('Arguments', colWidths.args)} │ ${pad('Description', colWidths.description)} │\n`;
         output += drawLine('├', '┼', '┼', '┤') + '\n';
 
-        // Body
         commands.forEach(c => {
             output += `│ ${pad(c.command, colWidths.command)} │ ${pad(c.args, colWidths.args)} │ ${pad(c.description, colWidths.description)} │\n`;
         });
 
-        // Footer
         output += drawLine('└', '┴', '┴', '┘') + '\n';
 
         return output;
@@ -188,7 +183,6 @@ export const useCommand = (user: User | null | undefined) => {
         if (userDoc.exists() && userDoc.data().filesystem) {
             setUserFilesystem(userDoc.data().filesystem);
         } else if (user) {
-            // This case might happen if a user doc is created without a filesystem
             const userDocData = userDoc.exists() ? userDoc.data() : { email: user.email };
             const newUserDoc = { ...userDocData, filesystem: initialFilesystem };
             await setDoc(userDocRef, newUserDoc, { merge: true });
@@ -307,22 +301,18 @@ export const useCommand = (user: User | null | undefined) => {
     // This is a workaround to allow recursive calls for 'sudo' without a lint error.
     const processCommandAlias = async (cmd: string): Promise<CommandResult> => processCommand(cmd);
 
-    // This case is handled in the terminal component
-    if (!isLoggedIn && (cmd.toLowerCase() === 'login' || cmd.toLowerCase() === 'register')) {
-        setIsProcessing(false);
-        return { type: 'none' };
-    }
-    
-    // This case is handled in the terminal component for multi-step auth
-    if (!user) {
+    if (!isLoggedIn) {
         switch (cmd.toLowerCase()) {
             case 'help':
                  return { type: 'text', text: getHelpOutput(false, false) };
             case '':
                 return { type: 'none' };
             default:
-                setIsProcessing(false);
-                return { type: 'text', text: `Command not found: ${cmd}. Please 'login' or 'register'.` };
+                if (!cmd.toLowerCase().startsWith('login') && !cmd.toLowerCase().startsWith('register')) {
+                    setIsProcessing(false);
+                    return { type: 'text', text: `Command not found: ${cmd}. Please 'login' or 'register'.` };
+                }
+                break;
         }
     }
 
@@ -501,7 +491,6 @@ export const useCommand = (user: User | null | undefined) => {
           case 'sudo': {
             if (isRoot) {
                 const commandWithoutSudo = args.join(' ');
-                // Recursive call to self
                 return processCommandAlias(commandWithoutSudo);
             }
             return { type: 'text', text: `${user.email} is not in the sudoers file. This incident will be reported.` };
@@ -600,7 +589,7 @@ End of assembler dump.` };
           case 'chuser': {
               if (!isRoot) return { type: 'text', text: `command not found: ${cmd}` };
               if (!argString) return { type: 'text', text: 'Usage: chuser <email>' };
-              if (argString === user.email) {
+              if (user && argString === user.email) {
                   setViewedUser({ uid: user.uid, email: user.email! });
                   return { type: 'none' };
               }
@@ -617,30 +606,6 @@ End of assembler dump.` };
           case 'logout': {
             await auth.signOut();
             return { type: 'text', text: 'Logged out successfully.' };
-          }
-          
-          case 'login':
-          case 'register': {
-              const [email, password] = args;
-              if (!email || !password) {
-                  return { type: 'text' as const, text: `Usage: ${cmd} [email] [password]` };
-              }
-              try {
-                  const authFn = cmd === 'login' ? signInWithEmailAndPassword : createUserWithEmailAndPassword;
-                  if (authFn === createUserWithEmailAndPassword) {
-                      const userCredential = await authFn(auth, email, password);
-                      const userDocRef = doc(db, "users", userCredential.user.uid);
-                      await setDoc(userDocRef, {
-                          email: userCredential.user.email,
-                          filesystem: initialFilesystem
-                      });
-                  } else {
-                      await authFn(auth, email, password);
-                  }
-                  return { type: 'text' as const, text: `${cmd === 'login' ? 'Login' : 'Registration'} successful.` };
-              } catch (error: any) {
-                  return { type: 'text' as const, text: `Authentication Error: ${error.code}` };
-              }
           }
           
           case '':
@@ -666,3 +631,5 @@ End of assembler dump.` };
 
   return { prompt, processCommand, getWelcomeMessage, isProcessing, editingFile, saveFile, exitEditor };
 };
+
+    
