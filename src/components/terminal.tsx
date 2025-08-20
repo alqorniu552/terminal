@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { useCommand } from '@/hooks/use-command.tsx';
+import { useCommand } from '@/hooks/use-command';
 import Typewriter from './typewriter';
 import { User } from 'firebase/auth';
 import { Progress } from "@/components/ui/progress"
@@ -156,7 +156,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
   useEffect(() => {
     if (!user) {
         setHistory([]);
-        resetAuth();
+        if (resetAuth) resetAuth();
     }
   }, [user, resetAuth]);
 
@@ -179,7 +179,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     
     let newHistoryItem: HistoryItem = { 
         id: history.length + 1,
-        command: authStep.includes('password') ? '********' : currentCommand, 
+        command: authStep && authStep.includes('password') ? '********' : currentCommand, 
         output: '', 
         prompt: `${currentPrompt} ` 
     };
@@ -194,7 +194,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     let onFinishedCallback = () => setIsTyping(false);
 
     if (result && typeof result === 'object') {
-        if ('type' in result && result.type === 'install') {
+        if ('type' in result && result.type === 'install' && setOsSelectionStep) {
              output = <OSInstaller os={result.os} onFinished={async () => {
                 if (user) {
                     await updateDoc(doc(db, 'users', user.uid), { osInstalled: true });
@@ -218,7 +218,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     setHistory(prev => prev.map(h => h.id === updatedHistoryItem.id ? updatedHistoryItem : h));
   };
   
-  const isPasswordInput = authStep.includes('password');
+  const isPasswordInput = authStep && authStep.includes('password');
   const showInput = !isTyping && osSelectionStep !== 'installing' && !editingFile;
 
   if (editingFile) {
@@ -227,7 +227,9 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
         filename={editingFile.path}
         initialContent={editingFile.content}
         onSave={async (newContent) => {
-            await saveFile(editingFile.path, newContent);
+            if(saveFile) {
+                await saveFile(editingFile.path, newContent);
+            }
             const saveMessage = `File saved: ${editingFile.path}`;
             const newHistoryItem: HistoryItem = { 
                 id: history.length + 1,
@@ -285,3 +287,5 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     </div>
   );
 }
+
+    

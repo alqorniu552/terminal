@@ -48,11 +48,12 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean, osInstalled: boolea
     type CommandInfo = { command: string, args: string, description: string };
 
     const formatCommandsToTable = (title: string, commands: CommandInfo[]): string => {
-        let output = `\n${title}:\n`;
+        let output = `\n\x1b[1;33m${title}\x1b[0m\n`;
         const maxLength = Math.max(...commands.map(c => (c.command + (c.args ? ' ' + c.args : '')).length));
+        
         commands.forEach(c => {
             const commandStr = (c.command + (c.args ? ' ' + c.args : '')).padEnd(maxLength + 4, ' ');
-            output += `  ${commandStr}- ${c.description}\n`;
+            output += `  \x1b[1;32m${commandStr}\x1b[0m- ${c.description}\n`;
         });
         return output;
     };
@@ -102,8 +103,8 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean, osInstalled: boolea
         { command: 'hash-identifier', args: 'hash', description: 'Identify hash type.' },
         { command: 'base64', args: '-d|-e text', description: 'Decode/Encode Base64.' },
         { command: 'rot13', args: 'text', description: 'Apply ROT13 cipher to text.' },
-        { command: 'crypto', args: 'caesar <e|d> <shift> <text>', description: 'Encrypt/decrypt with Caesar cipher.' },
-        { command: 'crypto', args: 'vigenere <e|d> <key> <text>', description: 'Encrypt/decrypt with Vigenere cipher.' },
+        { command: 'crypto', args: 'caesar <e|d> shift text', description: 'Encrypt/decrypt with Caesar cipher.' },
+        { command: 'crypto', args: 'vigenere <e|d> key text', description: 'Encrypt/decrypt with Vigenere cipher.' },
         { command: 'strings', args: 'file', description: 'Display printable strings from a file.' },
         { command: 'exiftool', args: 'file', description: 'Display EXIF data from an image.' },
         { command: 'gdb', args: 'file', description: 'GNU Debugger simulation.' },
@@ -143,6 +144,7 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean, osInstalled: boolea
     output += "\nFor unrecognized commands, AI will try to provide assistance.";
     return output;
 };
+
 
 export const useCommand = (user: User | null | undefined) => {
   const [cwd, setCwd] = useState('/');
@@ -578,7 +580,7 @@ End of assembler dump.
           const content = Object.keys(node.children);
           if (content.length === 0) return '';
           return content.map(key => {
-            return node.children[key].type === 'directory' ? `${key}/` : key;
+            return node.children[key].type === 'directory' ? `\x1b[1;34m${key}/\x1b[0m` : key;
           }).join('\n');
         }
         return `ls: cannot access '${argString || '.'}': No such file or directory`;
@@ -640,7 +642,7 @@ End of assembler dump.
         const contentMatch = command.match(/"(.*?)"/);
         
         if (!filenameMatch || !contentMatch) {
-            return 'Usage: createfile [filename] "[content]"';
+            return 'Usage: createfile filename "[content]"';
         }
 
         const filename = filenameMatch[1];
@@ -1210,7 +1212,7 @@ HelpAssistant:1000:long_hash_value:FLAG{H45H_DUMP3D_FR0M_M3M0RY}:::
       }
 
       case 'grep': {
-        const pattern = extractQuotedArg(command);
+        const pattern = extractQuotedArg(command) || args[0];
         const filename = args[args.length - 1];
         if (!pattern || !filename) {
           return 'Usage: grep "pattern" filename';
@@ -1221,7 +1223,7 @@ HelpAssistant:1000:long_hash_value:FLAG{H45H_DUMP3D_FR0M_M3M0RY}:::
             const lines = content.split('\n');
             const matchedLines = lines.filter(line => line.includes(pattern));
             if (matchedLines.length > 0) {
-                return matchedLines.join('\n');
+                return matchedLines.join('\n').replace(new RegExp(pattern, 'g'), `\x1b[1;31m${pattern}\x1b[0m`);
             }
             return '';
         }
@@ -1397,3 +1399,5 @@ Using binary mode to transfer files.
 
   return { prompt, processCommand, getWelcomeMessage, authStep, resetAuth, osSelectionStep, setOsSelectionStep, editingFile, saveFile, exitEditor };
 };
+
+    
