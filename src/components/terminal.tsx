@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { useCommand, EditingFile, WarlockMessage, AuthCommand, AuthStep } from '@/hooks/use-command';
+import { useCommand } from '@/hooks/use-command';
 import Typewriter from './typewriter';
 import NanoEditor from './nano-editor';
 import { User } from 'firebase/auth';
@@ -27,25 +27,15 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
   const [isTyping, setIsTyping] = useState(true);
   const isMobile = useIsMobile();
   
-  // Auth state
-  const [authCommand, setAuthCommand] = useState<AuthCommand>(null);
-  const [authStep, setAuthStep] = useState<AuthStep>('idle');
-  const authCredentials = useRef({ email: '', pass: '' });
-
   // Awaiting confirmation state
   const [confirmation, setConfirmation] = useState<{
       message: string;
       onConfirm: () => Promise<void>;
       onDeny: () => void;
   } | null>(null);
-
-  const setAwaitingConfirmation = (message: string, onConfirm: () => Promise<void>, onDeny: () => void) => {
-      setConfirmation({ message, onConfirm, onDeny });
-  };
   
   const { 
       prompt, 
-      getPrompt,
       processCommand, 
       getWelcomeMessage, 
       isProcessing, 
@@ -54,7 +44,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
       exitEditor,
       warlockMessages,
       clearWarlockMessages
-  } = useCommand(user, isMobile, setAwaitingConfirmation, authCommand, setAuthCommand, authStep, setAuthStep, authCredentials);
+  } = useCommand(user);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const endOfHistoryRef = useRef<HTMLDivElement>(null);
@@ -93,7 +83,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
   }, [history, isTyping]);
   
   useEffect(() => {
-    if(warlockMessages.length > 0) {
+    if(warlockMessages && warlockMessages.length > 0) {
       const message = warlockMessages[0];
        setHistory(prev => [...prev, {
          id: message.id,
@@ -115,16 +105,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
         return;
     }
 
-    const currentPrompt = getPrompt();
-
-    // Special handling for auth commands
-    if (!user && (command.toLowerCase() === 'login' || command.toLowerCase() === 'register')) {
-        setAuthCommand(command.toLowerCase() as AuthCommand);
-        setAuthStep('email');
-        setHistory(prev => [...prev, { id: Date.now(), command, output: '', prompt: currentPrompt }]);
-        setCommand('');
-        return;
-    }
+    const currentPrompt = prompt;
 
     const newHistoryItem: HistoryItem = { 
       id: Date.now(),
@@ -139,14 +120,9 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
 
     const result = await processCommand(command);
 
-    if (result.type !== 'none') {
-        const output = result.type === 'text' ? result.text : result.component;
-        setHistory(prev => prev.map(h => 
-            h.id === newHistoryItem.id ? { ...h, output } : h
-        ));
-    } else {
-        setHistory(prev => prev.filter(h => h.id !== newHistoryItem.id));
-    }
+    setHistory(prev => prev.map(h => 
+        h.id === newHistoryItem.id ? { ...h, output: result } : h
+    ));
     
     setIsTyping(false);
   };
@@ -229,7 +205,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
            <input
                 ref={inputRef}
                 id="command-input"
-                type={authStep === 'password' ? 'password' : 'text'}
+                type='text'
                 value={command}
                 onChange={(e) => setCommand(e.target.value)}
                 autoComplete="off"
