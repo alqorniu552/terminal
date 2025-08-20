@@ -1,27 +1,29 @@
 rules_version = '2';
+
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // Users can only read/write to their own user document
+  
+    // Users can only read/write their own document
     match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
-    }
-
-    // Missions are public to read for any authenticated user
-    match /missions/{missionId} {
-      allow read: if request.auth != null;
-      allow write: if false; // Disallow client-side writes
+      allow read, write: if request.auth.uid == userId;
     }
     
-    // User can only read/write to their own progress
-    match /user-progress/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+    // Missions are public to read for any authenticated user, but not writable from the client
+    match /missions/{missionId} {
+        allow read: if request.auth != null;
+        allow write: if false;
     }
-
-    // Anyone can read the leaderboard, but only authenticated users can write to their own doc
+    
+    // User can read, create, and update their own progress document
+    match /user-progress/{userId} {
+      allow read: if request.auth.uid == userId;
+      allow create, update: if request.auth.uid == userId;
+    }
+    
+    // Leaderboard is public to read, but users can only update their own score.
     match /leaderboard/{userId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null && request.auth.uid == userId;
+        allow read: if request.auth != null;
+        allow create, update: if request.auth.uid == userId;
     }
   }
 }
