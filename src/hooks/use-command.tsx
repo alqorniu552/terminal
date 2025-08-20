@@ -2,11 +2,11 @@
 
 import React, { useState, useCallback, useEffect } from 'react';
 import { useToast } from "@/hooks/use-toast";
-import { generateCommandHelp } from '@/ai/flows/generate-command-help';
 import { databaseQuery } from '@/ai/flows/database-query-flow';
-import { initialFilesystem, Directory, FilesystemNode, File } from '@/lib/filesystem';
+import { askSidekick } from '@/ai/flows/ai-sidekick-flow';
+import { initialFilesystem, Directory, FilesystemNode } from '@/lib/filesystem';
 import { db, auth } from '@/lib/firebase';
-import { collection, query, where, getDocs, WhereFilterOp, doc, setDoc, getDoc, updateDoc, collectionGroup } from 'firebase/firestore';
+import { collection, query, where, getDocs, WhereFilterOp, doc, setDoc, getDoc, updateDoc, collectionGroup, writeBatch, increment, orderBy, limit } from 'firebase/firestore';
 import { User } from 'firebase/auth';
 import ImageDisplay from '@/components/image-display';
 
@@ -17,7 +17,6 @@ type CommandResult =
   | { type: 'none' };
 
 const ROOT_EMAIL = "alqorniu552@gmail.com";
-
 
 const getNeofetchOutput = (user: User | null | undefined) => {
     let uptime = 0;
@@ -54,24 +53,31 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean, isMobile: boolean) 
     const formatCommandsToTable = (title: string, commands: { command: string, args: string, description: string }[]): string => {
         if (commands.length === 0) return '';
         const headers = { command: 'Command', args: 'Arguments', description: 'Description' };
+        
         const colWidths = {
             command: Math.max(headers.command.length, ...commands.map(c => c.command.length)),
             args: Math.max(headers.args.length, ...commands.map(c => c.args.length)),
-            description: Math.max(headers.description.length, ...commands.map(c => c.description.length))
+            description: 40 
         };
+
         const pad = (str: string, width: number) => str.padEnd(width);
+        
         const drawLine = (left: string, mid1: string, mid2: string, right: string) =>
             `${left}${'─'.repeat(colWidths.command + 2)}${mid1}${'─'.repeat(colWidths.args + 2)}${mid2}${'─'.repeat(colWidths.description + 2)}${right}`;
+        
         let output = '\n';
-        const totalWidth = colWidths.command + colWidths.args + colWidths.description + 7;
+        const totalWidth = colWidths.command + colWidths.args + colWidths.description + 10;
         const titlePadding = Math.floor((totalWidth - title.length) / 2);
         output += `${' '.repeat(Math.max(0, titlePadding))}${title}\n`;
+
         output += drawLine('┌', '┬', '┬', '┐') + '\n';
         output += `│ ${pad(headers.command, colWidths.command)} │ ${pad(headers.args, colWidths.args)} │ ${pad(headers.description, colWidths.description)} │\n`;
         output += drawLine('├', '┼', '┼', '┤') + '\n';
+        
         commands.forEach(c => {
-            output += `│ ${pad(c.command, colWidths.command)} │ ${pad(c.args, colWidths.args)} │ ${pad(c.description, colWidths.description)} │\n`;
+             output += `│ ${pad(c.command, colWidths.command)} │ ${pad(c.args, colWidths.args)} │ ${pad(c.description, colWidths.description)} │\n`;
         });
+        
         output += drawLine('└', '┴', '┴', '┘') + '\n';
         return output;
     };
@@ -79,8 +85,9 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean, isMobile: boolean) 
     const formatCommandsToList = (title: string, commands: { command: string, args: string, description: string }[]): string => {
         if (commands.length === 0) return '';
         let output = `\n${title}\n`;
+        const maxCommandLength = Math.max(...commands.map(c => (c.command + (c.args ? ` ${c.args}` : '')).length));
         commands.forEach(c => {
-            const commandStr = c.command + (c.args ? ` ${c.args}` : '');
+            const commandStr = (c.command + (c.args ? ` ${c.args}` : '')).padEnd(maxCommandLength + 2, ' ');
             output += `- ${commandStr}: ${c.description}\n`;
         });
         return output;
@@ -92,7 +99,6 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean, isMobile: boolean) 
 
     if (isLoggedIn) {
         const userCommands = [
-          { command: 'help', args: '', description: 'Show this help message.' },
           { command: 'ls', args: '[path]', description: 'List directory contents.' },
           { command: 'cd', args: '<path>', description: 'Change directory.' },
           { command: 'cat', args: '<file>', description: 'Display file content.' },
@@ -101,29 +107,29 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean, isMobile: boolean) 
           { command: 'touch', args: '<filename>', description: 'Create an empty file.' },
           { command: 'rm', args: '<file/dir>', description: 'Remove a file or directory.' },
           { command: 'neofetch', args: '', description: 'Display system information.' },
-          { command: 'imagine', args: '"prompt"', description: 'Generate an image with AI.'},
           { command: 'clear', args: '', description: 'Clear the terminal screen.' },
           { command: 'logout', args: '', description: 'Log out from the application.' },
         ];
         
         const ctfTools = [
+            { command: 'missions', args: '', description: 'List available missions.'},
+            { command: 'submit-flag', args: '<flag>', description: 'Submit a found flag.'},
+            { command: 'score', args: '', description: 'Check your current score.'},
+            { command: 'leaderboard', args: '', description: 'View the top players.'},
+            { command: 'ask', args: '"<question>"', description: 'Ask the AI sidekick for a hint.'},
+            { command: 'nmap', args: '<ip>', description: 'Scan a target IP for open ports.'},
             { command: 'exiftool', args: '<file>', description: 'Read file metadata.'},
-            { command: 'strings', args: '<file>', description: 'Print the strings of printable characters in files.'},
-            { command: 'hash-identifier', args: '', description: 'Identify hash types.'},
-            { command: 'john', args: '<hash>', description: 'Password cracker.'},
-            { command: 'steghide', args: 'extract -sf <f>', description: 'Extract hidden data from a file.'},
-            { command: 'gdb', args: '<file>', description: 'The GNU Debugger.'},
-            { command: 'sudo', args: '<command>', description: 'Execute a command with superuser privileges.'},
+            { command: 'strings', args: '<file>', description: 'Find printable strings in files.'},
         ];
         
         const rootCommands = [
-            { command: 'db', args: '"query"', description: 'Query the database using natural language.' },
+            { command: 'db', args: '"query"', description: 'Query the database (admin only).' },
             { command: 'list-users', args: '', description: 'List all registered users.'},
-            { command: 'chuser', args: '<email>', description: 'Switch to another user\'s filesystem view.'},
+            { command: 'chuser', args: '<email>', description: 'Switch to another user\'s view.'},
         ];
 
-        output += formatFn('BASIC COMMANDS', userCommands);
-        output += formatFn('CTF TOOLS', ctfTools);
+        output += formatFn('USER COMMANDS', userCommands);
+        output += formatFn('CTF & HACKING TOOLS', ctfTools);
 
         if (isRoot) {
             output += formatFn('ROOT COMMANDS', rootCommands);
@@ -142,6 +148,11 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean, isMobile: boolean) 
     return output;
 };
 
+const virtualHosts: Record<string, string> = {
+    '10.10.1.1': 'Open Ports: 22 (SSH), 80 (HTTP)\nHost is running Linux 5.4.',
+    '10.10.1.2': 'Open Ports: 21 (FTP), 80 (HTTP), 443 (HTTPS)\nFTP allows anonymous login. Found config.php.bak.',
+    '192.168.1.100': 'Open Ports: 8080 (web-proxy)\nProxy seems to be misconfigured.',
+};
 
 export const useCommand = (user: User | null | undefined, isMobile: boolean) => {
   const [cwd, setCwd] = useState('/');
@@ -153,7 +164,10 @@ export const useCommand = (user: User | null | undefined, isMobile: boolean) => 
   
   useEffect(() => {
     if (user) {
-        setIsRoot(user.email === ROOT_EMAIL);
+        const isUserRoot = user.email === ROOT_EMAIL;
+        setIsRoot(isUserRoot);
+        // If the current user is root, they start by viewing their own filesystem
+        // Otherwise, they just view their own.
         setViewedUser({ uid: user.uid, email: user.email! });
     } else {
         setIsRoot(false);
@@ -165,7 +179,7 @@ export const useCommand = (user: User | null | undefined, isMobile: boolean) => 
     if (user) {
         const username = viewedUser?.email?.split('@')[0] || 'user';
         const path = cwd === '/' ? '~' : `~${cwd}`;
-        const promptChar = isRoot && viewedUser?.uid === user.uid ? '#' : '$';
+        const promptChar = (isRoot && viewedUser?.uid === user.uid) ? '#' : '$';
         return `${username}@cyber:${path}${promptChar}`;
     }
     return 'guest@cyber:~$';
@@ -200,11 +214,7 @@ export const useCommand = (user: User | null | undefined, isMobile: boolean) => 
   }, [user]);
 
   useEffect(() => {
-    if (viewedUser) {
-        fetchUserFilesystem(viewedUser.uid);
-    } else {
-        fetchUserFilesystem(null);
-    }
+    fetchUserFilesystem(viewedUser?.uid ?? null);
   }, [viewedUser, fetchUserFilesystem]);
 
 
@@ -257,6 +267,10 @@ export const useCommand = (user: User | null | undefined, isMobile: boolean) => 
   }, [getNodeFromPath]);
 
   const updateFirestoreFilesystem = useCallback(async (newFilesystem: Directory) => {
+    if (viewedUser?.uid !== user?.uid) {
+        toast({ title: "Permission Denied", description: "You are in read-only mode for this user's filesystem." });
+        return;
+    }
     if (viewedUser) {
         try {
             const userDocRef = doc(db, 'users', viewedUser.uid);
@@ -270,9 +284,12 @@ export const useCommand = (user: User | null | undefined, isMobile: boolean) => 
             });
         }
     }
-  }, [viewedUser, toast]);
+  }, [viewedUser, user, toast]);
 
   const saveFile = useCallback(async (path: string, content: string): Promise<string> => {
+      if (viewedUser?.uid !== user?.uid) {
+        return "Error: Permission Denied. You are in read-only mode.";
+      }
       const newFs = JSON.parse(JSON.stringify(userFilesystem));
       const targetPath = resolvePath(path);
       const parentNode = getParentNodeFromPath(targetPath, newFs);
@@ -289,7 +306,7 @@ export const useCommand = (user: User | null | undefined, isMobile: boolean) => 
           return `File saved: ${path}`;
       }
       return `Error: Could not save file to path '${path}'.`;
-  }, [userFilesystem, resolvePath, getParentNodeFromPath, updateFirestoreFilesystem]);
+  }, [userFilesystem, resolvePath, getParentNodeFromPath, updateFirestoreFilesystem, viewedUser, user]);
 
   const exitEditor = useCallback(() => {
       setEditingFile(null);
@@ -300,9 +317,6 @@ export const useCommand = (user: User | null | undefined, isMobile: boolean) => 
     const [cmd, ...args] = command.trim().split(/\s+/);
     const argString = args.join(' ');
     const isLoggedIn = !!user;
-    
-    // This is a workaround to allow recursive calls for 'sudo' without a lint error.
-    const processCommandAlias = async (cmd: string): Promise<CommandResult> => processCommand(cmd);
 
     if (!isLoggedIn) {
         switch (cmd.toLowerCase()) {
@@ -315,7 +329,9 @@ export const useCommand = (user: User | null | undefined, isMobile: boolean) => 
                     setIsProcessing(false);
                     return { type: 'text', text: `Command not found: ${cmd}. Please 'login' or 'register'.` };
                 }
-                break;
+                // Let auth flow handle it in terminal.tsx
+                setIsProcessing(false);
+                return { type: 'none' }; 
         }
     }
 
@@ -439,30 +455,107 @@ export const useCommand = (user: User | null | undefined, isMobile: boolean) => 
             return { type: 'text', text: `rm: cannot remove '${argString}': No such file or directory` };
           }
           
-          case './config-loader': {
-            const configPath = resolvePath('config.dat');
-            const node = getNodeFromPath(configPath, userFilesystem);
-            if (!node || node.type !== 'file') {
-                return { type: 'text', text: './config-loader: config.dat not found in current directory.'};
+          case 'imagine': {
+             if (!argString.startsWith('"') || !argString.endsWith('"')) {
+                return { type: 'text', text: 'imagine: prompt must be enclosed in quotes. Usage: imagine "[your prompt]"' };
             }
-            try {
-                const decodedConfig = atob(node.content as string);
-                const params = new URLSearchParams(decodedConfig.replace(/;/g, '&'));
-                const role = params.get('role');
-                const command = params.get('command');
-
-                if (role === 'admin' && command === 'get-flag') {
-                    return { type: 'text', text: 'FLAG{1NS3CUR3_D3S3R14L1Z4T10N_PWNS}' };
-                } else if (command === 'whoami') {
-                    return { type: 'text', text: params.get('username') || 'guest' };
-                } else {
-                    return { type: 'text', text: `./config-loader: command not found: ${command}` };
-                }
-            } catch (e) {
-                return { type: 'text', text: './config-loader: Error parsing config.dat. Is it valid Base64?' };
-            }
+            const promptText = argString.slice(1, -1);
+            return { component: <ImageDisplay prompt={promptText} onFinished={() => {}} />, type: 'component' };
           }
 
+          case 'nmap': {
+              if (!argString) return { type: 'text', text: 'Usage: nmap <ip_address>' };
+              const result = virtualHosts[argString] || `Failed to resolve "${argString}".`;
+              return { type: 'text', text: `Starting Nmap...\n${result}`};
+          }
+
+          case 'ask': {
+             if (!argString.startsWith('"') || !argString.endsWith('"')) {
+                return { type: 'text', text: 'Usage: ask "<your question>"' };
+            }
+            const question = argString.slice(1, -1);
+            const { answer } = await askSidekick({ question });
+            return { type: 'text', text: `Ghost: "${answer}"` };
+          }
+
+          case 'missions': {
+              const missionsCol = collection(db, 'missions');
+              const missionsSnapshot = await getDocs(missionsCol);
+              if (missionsSnapshot.empty) {
+                  return { type: 'text', text: 'No missions available. Check back later, agent.'};
+              }
+              const missionsList = missionsSnapshot.docs.map(doc => {
+                  const data = doc.data();
+                  return `- ${data.title} (${data.points} pts): ${data.description}`;
+              }).join('\n');
+              return { type: 'text', text: `Available Missions:\n${missionsList}` };
+          }
+            
+          case 'submit-flag': {
+                if (!argString) return { type: 'text', text: 'Usage: submit-flag <flag>' };
+                
+                const q = query(collection(db, 'missions'), where("flag", "==", argString));
+                const missionSnapshot = await getDocs(q);
+                
+                if (missionSnapshot.empty) {
+                    return { type: 'text', text: 'Incorrect flag. Keep trying.' };
+                }
+                
+                const missionDoc = missionSnapshot.docs[0];
+                const missionId = missionDoc.id;
+                const missionData = missionDoc.data();
+                const userProgressRef = doc(db, 'user-progress', user.uid);
+                const userProgressSnap = await getDoc(userProgressRef);
+
+                if (userProgressSnap.exists() && userProgressSnap.data().completed_missions?.includes(missionId)) {
+                    return { type: 'text', text: 'You have already completed this mission.' };
+                }
+
+                const batch = writeBatch(db);
+                
+                // Update user progress
+                const progressData = {
+                    completed_missions: [...(userProgressSnap.data()?.completed_missions || []), missionId],
+                    score: (userProgressSnap.data()?.score || 0) + missionData.points,
+                    last_completed: new Date(),
+                };
+                batch.set(userProgressRef, progressData, { merge: true });
+
+                // Update leaderboard
+                const leaderboardRef = doc(db, 'leaderboard', user.uid);
+                batch.set(leaderboardRef, {
+                    score: increment(missionData.points),
+                    email: user.email
+                }, { merge: true });
+
+                await batch.commit();
+
+                return { type: 'text', text: `Correct! You earned ${missionData.points} points. Your new score is ${progressData.score}.` };
+            }
+            
+            case 'score': {
+                const userProgressRef = doc(db, 'user-progress', user.uid);
+                const userProgressSnap = await getDoc(userProgressRef);
+                const currentScore = userProgressSnap.exists() ? userProgressSnap.data().score : 0;
+                return { type: 'text', text: `Your current score is: ${currentScore}` };
+            }
+            
+            case 'leaderboard': {
+                const leaderboardCol = collection(db, 'leaderboard');
+                const q = query(leaderboardCol, orderBy('score', 'desc'), limit(10));
+                const leaderboardSnapshot = await getDocs(q);
+                if (leaderboardSnapshot.empty) {
+                    return { type: 'text', text: 'Leaderboard is empty. Be the first to score!' };
+                }
+                const leaderboardList = leaderboardSnapshot.docs.map((doc, index) => {
+                    const data = doc.data();
+                    return `${index + 1}. ${data.email} - ${data.score} pts`;
+                }).join('\n');
+                return { type: 'text', text: `--- Top Players ---\n${leaderboardList}` };
+            }
+
+
+          // --- Root Commands ---
           case 'db': {
             if (!isRoot) return { type: 'text', text: `db: command not found` };
             if (!argString.startsWith('"') || !argString.endsWith('"')) {
@@ -482,105 +575,7 @@ export const useCommand = (user: User | null | undefined, isMobile: boolean) => 
             const results = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             return { type: 'text', text: JSON.stringify(results, null, 2) };
           }
-          
-          case 'imagine': {
-             if (!argString.startsWith('"') || !argString.endsWith('"')) {
-                return { type: 'text', text: 'imagine: prompt must be enclosed in quotes. Usage: imagine "[your prompt]"' };
-            }
-            const promptText = argString.slice(1, -1);
-            return { component: <ImageDisplay prompt={promptText} onFinished={() => {}} />, type: 'component' };
-          }
 
-          case 'sudo': {
-            if (isRoot) {
-                const commandWithoutSudo = args.join(' ');
-                return processCommandAlias(commandWithoutSudo);
-            }
-            return { type: 'text', text: `${user?.email} is not in the sudoers file. This incident will be reported.` };
-          }
-
-          case 'exiftool': {
-            if (!argString) return { type: 'text', text: 'exiftool: missing file operand' };
-            const targetPath = resolvePath(argString);
-             if (targetPath === '/secret.jpg') {
-                return { type: 'text', text: 'ExifTool Version Number         : 12.40\nFile Name                       : secret.jpg\nArtist                          : FLAG{3X1F_M3T4D4T4_H1DD3N_S3CR3T}'};
-            }
-            return { type: 'text', text: `exiftool: Error: File not found - ${argString}` };
-          }
-
-          case 'strings': {
-             if (!argString) return { type: 'text', text: 'strings: missing file operand' };
-            const targetPath = resolvePath(argString);
-            if (targetPath === '/secret.jpg') {
-                return { type: 'text', text: 'JFIF\nApple\nFLAG{STR1NGS_1N_B1N4RY_F1L3S}'};
-            }
-            if (targetPath === '/a.out') {
-                return { type: 'text', text: 'GCC: (Ubuntu 9.4.0-1ubuntu1~20.04.1) 9.4.0\nFLAG{B4S1C_R3V3RS1NG_W1TH_STR1NGS}\n.symtab\n.strtab\n.shstrtab'};
-            }
-            return { type: 'text', text: '' };
-          }
-            
-          case 'hash-identifier': {
-            if (!argString) return { type: 'text', text: 'Usage: hash-identifier <hash>' };
-            if (argString.toLowerCase() === '5f4dcc3b5aa765d61d8327deb882cf99') {
-                return { type: 'text', text: '[+] Most likely hash type is: MD5' };
-            }
-            return { type: 'text', text: '[-] Unknown hash type' };
-          }
-
-          case 'john': {
-            if (!argString) return { type: 'text', text: 'Usage: john <hash>' };
-             if (argString.toLowerCase() === '5f4dcc3b5aa765d61d8327deb882cf99') {
-                return { type: 'text', text: 'Loaded 1 password hash (MD5)\nCracked: opensesame' };
-            }
-            return { type: 'text', text: 'No password hashes cracked' };
-          }
-
-          case 'steghide': {
-              const sfIndex = args.indexOf('-sf');
-              const pIndex = args.indexOf('-p');
-              const file = sfIndex !== -1 ? args[sfIndex + 1] : null;
-              const pass = pIndex !== -1 ? args[pIndex + 1] : null;
-              const targetPath = file ? resolvePath(file) : '';
-
-              if (args[0] !== 'extract' || !file || !pass) {
-                  return { type: 'text', text: 'Usage: steghide extract -sf <file> -p <passphrase>' };
-              }
-              if (targetPath === '/image_with_secret.png' && pass === 'opensesame') {
-                  const newFs = JSON.parse(JSON.stringify(userFilesystem));
-                  const parentNode = getParentNodeFromPath('/', newFs)!;
-                  parentNode.children['secret_flag.txt'] = { type: 'file', content: 'FLAG{ST3G4N0GR4PHY_CH4LL3NG3_S0LV3D}'};
-                  setUserFilesystem({ ...newFs });
-                  await updateFirestoreFilesystem(newFs);
-                  return { type: 'text', text: 'wrote extracted data to "secret_flag.txt".' };
-              }
-              return { type: 'text', text: 'steghide: could not extract any data with that passphrase.' };
-          }
-            
-          case 'gdb': {
-            if (!argString) return { type: 'text', text: 'Usage: gdb <file>' };
-            const targetPath = resolvePath(argString);
-             if (targetPath === '/a.out') {
-                return { type: 'text', text: `GNU gdb (Ubuntu 9.2-0ubuntu1~20.04.1) 9.2
-...
-Reading symbols from a.out...
-(gdb) disassemble main
-Dump of assembler code for function main:
-   0x0000000000001139 <+0>:	endbr64 
-   0x000000000000113d <+4>:	push   rbp
-   0x000000000000113e <+5>:	mov    rbp,rsp
-   0x0000000000001141 <+8>:	mov    edi,0x2004
-   0x0000000000001146 <+13>:	mov    eax,0x0 ; The flag is FLAG{GDB_1S_AW3S0M3}
-   0x000000000000114b <+18>:	call   0x1030 <puts@plt>
-   0x0000000000001150 <+23>:	mov    eax,0x0
-   0x0000000000001155 <+28>:	pop    rbp
-   0x0000000000001156 <+29>:	ret    
-End of assembler dump.` };
-            }
-             return { type: 'text', text: `${argString}: No such file or directory.` };
-          }
-
-          // --- Root Commands ---
           case 'list-users': {
               if (!isRoot) return { type: 'text', text: `command not found: ${cmd}` };
               const usersCollection = collection(db, 'users');
