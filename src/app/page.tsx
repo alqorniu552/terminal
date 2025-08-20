@@ -3,7 +3,7 @@
 import { useAuthState } from 'react-firebase-hooks/auth';
 import { auth } from '@/lib/firebase';
 import Terminal from '@/components/terminal';
-import { Skeleton } from '@/components/ui/skeleton';
+import CyberLogo from '@/components/cyber-logo';
 
 export default function TerminalPage() {
   const [user, loading, error] = useAuthState(auth);
@@ -11,8 +11,8 @@ export default function TerminalPage() {
   if (loading) {
     return (
       <div className="flex h-screen w-full flex-col items-center justify-center bg-background p-4 font-code text-primary">
-        <p className="mb-4 text-lg">Connecting to Cyber...</p>
-        <Skeleton className="h-8 w-64" />
+        <CyberLogo />
+        <p className="mt-4 text-lg animate-pulse">Connecting to the Grid...</p>
       </div>
     );
   }
