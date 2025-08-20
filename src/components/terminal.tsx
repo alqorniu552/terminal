@@ -157,7 +157,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
                 aria-label="command input"
                 onFocus={(e) => e.currentTarget.setSelectionRange(e.currentTarget.value.length, e.currentTarget.value.length)}
                 disabled={!showInput}
-                autoFocus
+                autoFocus={typeof window !== 'undefined' && window.innerWidth > 768}
             />
         </form>
       )}

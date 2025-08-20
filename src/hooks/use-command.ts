@@ -90,7 +90,6 @@ const getNodeFromPath = (path: string): FilesystemNode | null => {
 
 export const useCommand = (user: User | null | undefined) => {
   const [cwd, setCwd] = useState('/');
-  const [warlockMessages, setWarlockMessages] = useState<any[]>([]);
   
   // State for multi-step authentication
   const [authCommand, setAuthCommand] = useState<'login' | 'register' | null>(null);
@@ -134,10 +133,6 @@ export const useCommand = (user: User | null | undefined) => {
     }
     return `Welcome to Command Center! Please 'login' or 'register' to continue.`;
   }, [user]);
-
-  const clearWarlockMessages = useCallback(() => {
-    setWarlockMessages([]);
-  }, []);
 
   const processCommand = useCallback(async (command: string): Promise<string | React.ReactNode> => {
     setIsProcessing(true);
@@ -324,8 +319,6 @@ export const useCommand = (user: User | null | undefined) => {
     prompt, 
     processCommand, 
     getWelcomeMessage, 
-    warlockMessages, 
-    clearWarlockMessages,
     authStep,
     isProcessing,
  };
