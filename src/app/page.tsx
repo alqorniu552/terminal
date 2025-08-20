@@ -11,7 +11,7 @@ export default function TerminalPage() {
   if (loading) {
     return (
       <div className="flex h-screen w-full flex-col items-center justify-center bg-background p-4 font-code text-primary">
-        <p className="mb-4 text-lg">Connecting to Command Center...</p>
+        <p className="mb-4 text-lg">Connecting to Cyber...</p>
         <Skeleton className="h-8 w-64" />
       </div>
     );

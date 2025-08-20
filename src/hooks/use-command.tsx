@@ -26,10 +26,10 @@ const getNeofetchOutput = (user: User | null | undefined) => {
     const email = user?.email || 'guest';
 
 return `
-${email}@command-center
+${email}@cyber
 --------------------
 OS: Web Browser
-Host: Command Center v1.0
+Host: Cyber v1.0
 Kernel: Next.js
 Uptime: ${uptime} seconds
 Shell: term-sim
@@ -122,9 +122,9 @@ export const useCommand = (user: User | null | undefined) => {
         const username = viewedUser?.email?.split('@')[0] || 'user';
         const path = cwd === '/' ? '~' : `~${cwd}`;
         const promptChar = isRoot ? '#' : '$';
-        return `${username}@command-center:${path}${promptChar}`;
+        return `${username}@cyber:${path}${promptChar}`;
     }
-    return 'guest@command-center:~$';
+    return 'guest@cyber:~$';
   }, [user, cwd, isRoot, viewedUser]);
 
   const [prompt, setPrompt] = useState(getPrompt());
@@ -170,7 +170,7 @@ export const useCommand = (user: User | null | undefined) => {
         }
         return `Welcome back, ${user.email}! Type 'help' for a list of commands.`;
     }
-    return `Welcome to Command Center! Please 'login' or 'register' to continue.`;
+    return `Welcome to Cyber! Please 'login' or 'register' to continue.`;
   }, [user]);
 
   const resolvePath = useCallback((path: string): string => {
@@ -411,6 +411,30 @@ export const useCommand = (user: User | null | undefined) => {
             }
             return { type: 'text', text: `rm: cannot remove '${argString}': No such file or directory` };
           }
+          
+          case './config-loader': {
+            const configPath = resolvePath('config.dat');
+            const node = getNodeFromPath(configPath, userFilesystem);
+            if (!node || node.type !== 'file') {
+                return { type: 'text', text: './config-loader: config.dat not found in current directory.'};
+            }
+            try {
+                const decodedConfig = atob(node.content as string);
+                const params = new URLSearchParams(decodedConfig.replace(/;/g, '&'));
+                const role = params.get('role');
+                const command = params.get('command');
+
+                if (role === 'admin' && command === 'get-flag') {
+                    return { type: 'text', text: 'FLAG{1NS3CUR3_D3S3R14L1Z4T10N_PWNS}' };
+                } else if (command === 'whoami') {
+                    return { type: 'text', text: params.get('username') || 'guest' };
+                } else {
+                    return { type: 'text', text: `./config-loader: command not found: ${command}` };
+                }
+            } catch (e) {
+                return { type: 'text', text: './config-loader: Error parsing config.dat. Is it valid Base64?' };
+            }
+          }
 
           case 'db': {
             if (!isRoot) return { type: 'text', text: `db: command not found` };
@@ -579,7 +603,7 @@ End of assembler dump.` };
     } finally {
         setIsProcessing(false);
     }
-  }, [cwd, toast, user, userFilesystem, resolvePath, getNodeFromPath, getParentNodeFromPath, updateFirestoreFilesystem, saveFile, exitEditor, isRoot, viewedUser]);
+  }, [cwd, toast, user, userFilesystem, resolvePath, getNodeFromPath, getParentNodeFromPath, updateFirestoreFilesystem, saveFile, exitEditor, isRoot, viewedUser, processCommand]);
 
   return { prompt, processCommand, getWelcomeMessage, isProcessing, editingFile, saveFile, exitEditor };
 };
