@@ -12,7 +12,20 @@ import { craftPhish } from '@/ai/flows/craft-phish-flow';
 import { generateWarlockTaunt } from '@/ai/flows/warlock-threat-flow';
 import { forgeTool } from '@/ai/flows/forge-tool-flow';
 import { analyzeImage } from '@/ai/flows/analyze-image-flow';
-import { getNodeFromPath, getDynamicContent, updateNodeInFilesystem, removeNodeFromFilesystem, getWordlist, installPackage, isPackageInstalled, triggerRansomware, restoreBackup, addNodeToFilesystem } from '@/lib/filesystem';
+import { 
+    getNodeFromPath, 
+    getDynamicContent, 
+    updateNodeInFilesystem, 
+    removeNodeFromFilesystem, 
+    getWordlist, 
+    installPackage, 
+    isPackageInstalled, 
+    triggerRansomware, 
+    restoreBackup, 
+    addNodeToFilesystem,
+    getMachine,
+    network
+} from '@/lib/filesystem';
 import { db, auth } from '@/lib/firebase';
 import { collection, query, where, getDocs, WhereFilterOp } from 'firebase/firestore';
 import { User, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
@@ -24,14 +37,13 @@ import md5 from 'md5';
 const ROOT_USER_EMAIL = 'admin@cyber.dev';
 let osintReportCache = ''; // Simple cache for OSINT report
 
-const getNeofetchOutput = (user: User | null | undefined, isRoot: boolean) => {
+const getNeofetchOutput = (user: User | null | undefined, isRoot: boolean, hostname: string) => {
     let uptime = 0;
     if (typeof window !== 'undefined') {
         uptime = Math.floor(performance.now() / 1000);
     }
     const username = isRoot ? 'root' : (user?.email?.split('@')[0] || 'guest');
-    const hostname = 'cyber';
-
+    
     const uptimeStr = `${Math.floor(uptime / 3600)}h ${Math.floor((uptime % 3600) / 60)}m ${uptime % 60}s`;
 
     const ubuntuLogo = [
@@ -57,7 +69,7 @@ const getNeofetchOutput = (user: User | null | undefined, isRoot: boolean) => {
 
     const userInfo = `${username}@${hostname}`;
     const osInfo = `OS: Ubuntu 22.04.3 LTS x86_64 (Emulated)`;
-    const hostInfo = `Host: Cyber v1.0`;
+    const hostInfo = `Host: ${hostname}`;
     const kernelInfo = `Kernel: 5.15.0-generic (Next.js)`;
     const uptimeInfo = `Uptime: ${uptimeStr}`;
     const shellInfo = `Shell: term-sim (bash 5.1.16)`;
@@ -105,6 +117,9 @@ Available commands:
   rm -r <dir>         - Remove a directory.
   cat [file]          - Display file content.
   nano [file]         - Edit a file.
+  ifconfig / ip a     - Display network configuration.
+  nmap <ip>           - Scan a target for open ports.
+  ssh <user@ip>       - Connect to a remote host.
   generate_image "[p]"- Generate an image from a prompt.
   neofetch            - Display system information.
   db "[query]"        - Query the database (e.g., "list all users").
@@ -170,14 +185,16 @@ const resolvePath = (cwd: string, path: string): string => {
 
 export const useCommand = (user: User | null | undefined) => {
   const [cwd, setCwd] = useState('/');
+  const [currentHost, setCurrentHost] = useState('192.168.1.100');
   const [isRoot, setIsRoot] = useState(false);
   const [warlockAwareness, setWarlockAwareness] = useState(0);
   const [aliases, setAliases] = useState<{ [key: string]: string }>({});
   
   // State for multi-step authentication and confirmation
   const [authCommand, setAuthCommand] = useState<'login' | 'register' | null>(null);
-  const [authStep, setAuthStep] = useState<'email' | 'password' | null>(null);
+  const [authStep, setAuthStep] = useState<'email' | 'password' | 'ssh_password' | null>(null);
   const [authCredentials, setAuthCredentials] = useState({ email: '', password: '' });
+  const [sshCredentials, setSshCredentials] = useState({ user: '', host: '', password: ''});
   const [isProcessing, setIsProcessing] = useState(false);
   const [confirmation, setConfirmation] = useState<{ message: string; onConfirm: () => Promise<string | React.ReactNode> } | null>(null);
 
@@ -188,7 +205,11 @@ export const useCommand = (user: User | null | undefined) => {
     if (confirmation) return `${confirmation.message} (y/n): `;
     if (authStep === 'email') return 'Email: ';
     if (authStep === 'password') return 'Password: ';
+    if (authStep === 'ssh_password') return `Password for ${sshCredentials.user}@${sshCredentials.host}: `;
     
+    const machine = getMachine(currentHost);
+    const hostname = machine?.hostname || 'cyber';
+
     let path;
     const userHome = user ? `/home/${user.email?.split('@')[0]}` : '/';
     
@@ -210,13 +231,12 @@ export const useCommand = (user: User | null | undefined) => {
         path = path.slice(0, -1);
     }
 
-
     const endChar = isRoot ? '#' : '$';
     const username = isRoot ? 'root' : user?.email?.split('@')[0] || 'guest';
     
-    return `${username}@cyber:${path}${endChar} `;
+    return `${username}@${hostname}:${path}${endChar} `;
 
-  }, [user, cwd, authStep, isRoot, confirmation]);
+  }, [user, cwd, authStep, isRoot, confirmation, currentHost, sshCredentials]);
 
   const [prompt, setPrompt] = useState(getInitialPrompt());
   const { toast } = useToast();
@@ -230,14 +250,15 @@ export const useCommand = (user: User | null | undefined) => {
       setAuthCommand(null);
       setAuthStep(null);
       setAuthCredentials({ email: '', password: '' });
+      setSshCredentials({ user: '', host: '', password: ''});
   }, []);
 
   const loadAliases = useCallback(() => {
     const userHome = user ? `/home/${user.email!.split('@')[0]}` : null;
     const bashrcPath = userHome ? `${userHome}/.bashrc` : '/.bashrc';
-    const bashrcNode = getNodeFromPath(bashrcPath);
+    const bashrcNode = getNodeFromPath(bashrcPath, currentHost);
     
-    const defaultAliasNode = getNodeFromPath('/.bashrc');
+    const defaultAliasNode = getNodeFromPath('/.bashrc', currentHost);
     const newAliases: { [key: string]: string } = {};
 
     const parseAliases = (content: string) => {
@@ -258,27 +279,22 @@ export const useCommand = (user: User | null | undefined) => {
     }
 
     setAliases(newAliases);
-  }, [user]);
+  }, [user, currentHost]);
   
   // Reset auth flow if user changes
   useEffect(() => {
     resetAuth();
     setIsRoot(false);
+    setCurrentHost('192.168.1.100');
     osintReportCache = ''; // Clear OSINT cache on user change
     setWarlockAwareness(0);
     
     // On login, set CWD to user's home directory if it exists, otherwise to root
     if (user) {
         const userHome = `/home/${user.email!.split('@')[0]}`;
-        const node = getNodeFromPath(userHome);
-        if (node && node.type === 'directory') {
-            setCwd(userHome);
-        } else {
-             // Create home directory if it doesn't exist
-            addNodeToFilesystem(userHome, { type: 'directory', children: {} });
-            addNodeToFilesystem(`${userHome}/.bashrc`, { type: 'file', content: '# User-specific aliases' });
-            setCwd(userHome);
-        }
+        addNodeToFilesystem(userHome, { type: 'directory', children: {} }, '192.168.1.100');
+        addNodeToFilesystem(`${userHome}/.bashrc`, { type: 'file', content: '# User-specific aliases' }, '192.168.1.100');
+        setCwd(userHome);
     } else {
         setCwd('/');
     }
@@ -323,7 +339,7 @@ export const useCommand = (user: User | null | undefined) => {
 
     const saveFile = useCallback((newContent: string) => {
         if (editingFile) {
-            updateNodeInFilesystem(editingFile.path, newContent);
+            updateNodeInFilesystem(editingFile.path, newContent, currentHost);
             if (editingFile.onSaveCallback) {
                 editingFile.onSaveCallback();
             }
@@ -333,7 +349,7 @@ export const useCommand = (user: User | null | undefined) => {
               description: `Saved changes to ${editingFile.path}`,
             });
         }
-    }, [editingFile, triggerWarlock, toast]);
+    }, [editingFile, triggerWarlock, toast, currentHost]);
 
   const processCommand = useCallback(async (command: string): Promise<string | React.ReactNode> => {
     if (editingFile) return ''; // Block commands while editing
@@ -400,6 +416,25 @@ export const useCommand = (user: User | null | undefined) => {
             }
         }
     }
+    
+     if (authStep === 'ssh_password') {
+        const { user: sshUser, host: sshHost } = sshCredentials;
+        const sshPassword = command.trim();
+        const targetMachine = getMachine(sshHost);
+        
+        resetAuth();
+
+        if (targetMachine?.credentials[sshUser] === sshPassword) {
+            setCurrentHost(sshHost);
+            setCwd('/');
+            setIsRoot(sshUser === 'root');
+            setIsProcessing(false);
+            return `Connected to ${sshHost}.`;
+        } else {
+            setIsProcessing(false);
+            return 'Permission denied, wrong password.';
+        }
+    }
 
 
     if (!isLoggedIn) {
@@ -458,8 +493,9 @@ export const useCommand = (user: User | null | undefined) => {
         return getHelpOutput(true, isRoot);
       case 'neofetch':
         warlockTaunt = await triggerWarlock(`neofetch`, 1);
+        const machine = getMachine(currentHost);
         setIsProcessing(false);
-        return getNeofetchOutput(user, isRoot) + (warlockTaunt || '');
+        return getNeofetchOutput(user, isRoot, machine?.hostname || 'cyber') + (warlockTaunt || '');
       
       case 'ls': {
         const targetPath = args[0] ? resolvePath(cwd, args[0]) : cwd;
@@ -468,7 +504,7 @@ export const useCommand = (user: User | null | undefined) => {
             setIsProcessing(false);
             return `ls: cannot open directory '${args[0] || '.'}': Permission denied` + (warlockTaunt || '');
         }
-        const node = getNodeFromPath(targetPath);
+        const node = getNodeFromPath(targetPath, currentHost);
         if (node && node.type === 'directory') {
           setIsProcessing(false);
           return Object.keys(node.children).map(key => {
@@ -488,7 +524,7 @@ export const useCommand = (user: User | null | undefined) => {
         const homeDir = isRoot ? '/root' : (user ? `/home/${user.email!.split('@')[0]}` : '/');
         const targetArg = args[0];
         if (!targetArg || targetArg === '~') {
-          const node = getNodeFromPath(homeDir);
+          const node = getNodeFromPath(homeDir, currentHost);
           if (node && node.type === 'directory') {
               setCwd(homeDir);
           } else {
@@ -503,7 +539,7 @@ export const useCommand = (user: User | null | undefined) => {
             setIsProcessing(false);
             return `cd: ${targetArg}: Permission denied` + (warlockTaunt || '');
         }
-        const node = getNodeFromPath(newPath);
+        const node = getNodeFromPath(newPath, currentHost);
         if (node && node.type === 'directory') {
           setCwd(newPath);
           setIsProcessing(false);
@@ -525,12 +561,12 @@ export const useCommand = (user: User | null | undefined) => {
           setIsProcessing(false);
           return `cat: ${targetFile}: Permission denied` + (warlockTaunt || '');
         }
-        const node = getNodeFromPath(targetPath);
+        const node = getNodeFromPath(targetPath, currentHost);
         if (node && node.type === 'file') {
             // Check for logic bomb
             if (node.logicBomb && user) {
                 const userHome = `/home/${user.email.split('@')[0]}`;
-                const encryptedFiles = triggerRansomware(userHome);
+                const encryptedFiles = triggerRansomware(userHome, currentHost);
                 let output = `\x1b[1;31m[DEADBOLT RANSOMWARE ACTIVATED]\nInitializing encryption protocol...\n\n`;
                 output += encryptedFiles.map(f => `Encrypting ${f}...`).join('\n');
                 output += `\n\nEncryption complete. Your personal files are now hostage.\nCheck the ransom note in your home directory.`;
@@ -563,11 +599,11 @@ export const useCommand = (user: User | null | undefined) => {
               setIsProcessing(false);
               return `mkdir: cannot create directory '${dirName}': Permission denied` + (warlockTaunt || '');
           }
-          if (getNodeFromPath(newDirPath)) {
+          if (getNodeFromPath(newDirPath, currentHost)) {
               setIsProcessing(false);
               return `mkdir: cannot create directory '${dirName}': File exists`;
           }
-          addNodeToFilesystem(newDirPath, { type: 'directory', children: {} });
+          addNodeToFilesystem(newDirPath, { type: 'directory', children: {} }, currentHost);
           setIsProcessing(false);
           return '';
       }
@@ -584,14 +620,14 @@ export const useCommand = (user: User | null | undefined) => {
               setIsProcessing(false);
               return `touch: cannot touch '${fileName}': Permission denied` + (warlockTaunt || '');
           }
-          const existingNode = getNodeFromPath(newFilePath);
+          const existingNode = getNodeFromPath(newFilePath, currentHost);
           if (existingNode && existingNode.type === 'directory') {
               setIsProcessing(false);
               return `touch: cannot touch '${fileName}': Is a directory`;
           }
           // If file doesn't exist, create it. If it exists, do nothing (standard touch behavior).
           if (!existingNode) {
-              addNodeToFilesystem(newFilePath, { type: 'file', content: '' });
+              addNodeToFilesystem(newFilePath, { type: 'file', content: '' }, currentHost);
           }
           setIsProcessing(false);
           return '';
@@ -611,7 +647,7 @@ export const useCommand = (user: User | null | undefined) => {
               setIsProcessing(false);
               return `rm: cannot remove '${targetName}': Permission denied` + (warlockTaunt || '');
           }
-          const node = getNodeFromPath(targetPath);
+          const node = getNodeFromPath(targetPath, currentHost);
           if (!node) {
               setIsProcessing(false);
               return `rm: cannot remove '${targetName}': No such file or directory`;
@@ -621,7 +657,7 @@ export const useCommand = (user: User | null | undefined) => {
               return `rm: cannot remove '${targetName}': Is a directory`;
           }
 
-          const success = removeNodeFromFilesystem(targetPath);
+          const success = removeNodeFromFilesystem(targetPath, currentHost);
           if (success) {
               setIsProcessing(false);
               return '';
@@ -644,7 +680,7 @@ export const useCommand = (user: User | null | undefined) => {
             return `nano: cannot edit '${targetFile}': Permission denied` + (warlockTaunt || '');
         }
 
-        const node = getNodeFromPath(targetPath);
+        const node = getNodeFromPath(targetPath, currentHost);
         let initialContent = '';
         if (node) {
             if (node.type === 'directory') {
@@ -723,7 +759,7 @@ export const useCommand = (user: User | null | undefined) => {
       }
 
       case 'news': {
-          const newsDir = getNodeFromPath('/var/news');
+          const newsDir = getNodeFromPath('/var/news', currentHost);
           if (!newsDir || newsDir.type !== 'directory') {
               setIsProcessing(false);
               return "News directory not found.";
@@ -793,7 +829,7 @@ export const useCommand = (user: User | null | undefined) => {
                       }
                       const articleName = articles[editIndex];
                       const articlePath = `/var/news/${articleName}`;
-                      const articleNode = getNodeFromPath(articlePath);
+                      const articleNode = getNodeFromPath(articlePath, currentHost);
       
                       if (articleNode && articleNode.type === 'file') {
                           const content = getDynamicContent(articleNode.content);
@@ -815,7 +851,7 @@ export const useCommand = (user: User | null | undefined) => {
                       setConfirmation({
                           message: `Are you sure you want to delete "${articleName}"?`,
                           onConfirm: async () => {
-                              const success = removeNodeFromFilesystem(articlePath);
+                              const success = removeNodeFromFilesystem(articlePath, currentHost);
                               return success ? `Article "${articleName}" deleted.` : "Failed to delete article.";
                           },
                       });
@@ -842,7 +878,7 @@ export const useCommand = (user: User | null | undefined) => {
                 return `crack: cannot open file '${wordlistFile}': Permission denied`;
             }
             
-            const wordlist = getWordlist();
+            const wordlist = getWordlist(currentHost);
             if (!wordlist) {
                  setIsProcessing(false);
                  return `crack: wordlist file not found at default location.`;
@@ -874,7 +910,7 @@ export const useCommand = (user: User | null | undefined) => {
                 return `conceal: cannot write to '${targetFile}': Permission denied`;
             }
 
-            const node = getNodeFromPath(targetPath);
+            const node = getNodeFromPath(targetPath, currentHost);
             if (!node || node.type !== 'file' || !getDynamicContent(node.content).startsWith('data:image')) {
                 setIsProcessing(false);
                 return `conceal: '${targetFile}' is not a valid image file.`;
@@ -883,7 +919,7 @@ export const useCommand = (user: User | null | undefined) => {
             try {
                 warlockTaunt = await triggerWarlock(`Steganography attempt on ${targetFile}`, 20);
                 const result = await concealMessage({ imageDataUri: getDynamicContent(node.content), message });
-                updateNodeInFilesystem(targetPath, result.newImageDataUri);
+                updateNodeInFilesystem(targetPath, result.newImageDataUri, currentHost);
                 setIsProcessing(false);
                 return `Message concealed in ${targetFile}.` + (warlockTaunt || '');
             } catch (error: any) {
@@ -904,7 +940,7 @@ export const useCommand = (user: User | null | undefined) => {
                 return `reveal: cannot read '${targetFile}': Permission denied`;
             }
 
-            const node = getNodeFromPath(targetPath);
+            const node = getNodeFromPath(targetPath, currentHost);
              if (!node || node.type !== 'file' || !getDynamicContent(node.content).startsWith('data:image')) {
                 setIsProcessing(false);
                 return `reveal: '${targetFile}' is not a valid image file.`;
@@ -977,7 +1013,7 @@ export const useCommand = (user: User | null | undefined) => {
                 warlockTaunt = await triggerWarlock(`Tool forging for ${filename}`, 30);
                 toast({ title: "AI Tool Forge", description: `Generating code for ${filename}...` });
                 const result = await forgeTool({ filename, prompt: userPrompt });
-                updateNodeInFilesystem(targetPath, result.code);
+                updateNodeInFilesystem(targetPath, result.code, currentHost);
                 setIsProcessing(false);
                 return `Successfully forged ${filename}. You can now run it or 'cat' its content.` + (warlockTaunt || '');
             } catch (error: any) {
@@ -1028,14 +1064,14 @@ export const useCommand = (user: User | null | undefined) => {
                 return `Usage: apt install <package>`;
             }
             if (pkg === 'nginx') {
-                if (isPackageInstalled('nginx')) {
+                if (isPackageInstalled('nginx', currentHost)) {
                     setIsProcessing(false);
                     return 'nginx is already the newest version (1.18.0-6ubuntu14.4).';
                 }
                 setConfirmation({
                     message: `The following NEW packages will be installed:\n  nginx nginx-common nginx-core\nAfter this operation, 8,192 kB of additional disk space will be used.\nDo you want to continue?`,
                     onConfirm: async () => {
-                        installPackage('nginx');
+                        installPackage('nginx', currentHost);
                         warlockTaunt = await triggerWarlock(`Installed nginx`, 15);
                         return 'Setting up nginx (1.18.0-6ubuntu14.4) ...\nCreated symlink /etc/systemd/system/multi-user.target.wants/nginx.service → /lib/systemd/system/nginx.service.' + (warlockTaunt || '');
                     },
@@ -1050,7 +1086,7 @@ export const useCommand = (user: User | null | undefined) => {
 
         case 'nginx': {
             const flag = args[0];
-            if (isPackageInstalled('nginx')) {
+            if (isPackageInstalled('nginx', currentHost)) {
                 if (flag === '-v') {
                     setIsProcessing(false);
                     return 'nginx version: nginx/1.18.0 (Ubuntu)';
@@ -1076,7 +1112,7 @@ export const useCommand = (user: User | null | undefined) => {
                 return "Usage: restore_system <backup_file>";
             }
             const backupPath = resolvePath(cwd, backupFile);
-            const backupNode = getNodeFromPath(backupPath);
+            const backupNode = getNodeFromPath(backupPath, currentHost);
             if (backupPath !== '/var/backups/snapshot.tgz' || !backupNode) {
                 setIsProcessing(false);
                 return "restore_system: Backup file not found or invalid.";
@@ -1087,7 +1123,7 @@ export const useCommand = (user: User | null | undefined) => {
                 onConfirm: async () => {
                     if (user) {
                         const userHome = `/home/${user.email.split('@')[0]}`;
-                        const success = restoreBackup(userHome);
+                        const success = restoreBackup(userHome, currentHost);
                         if (success) {
                             warlockTaunt = await triggerWarlock(`System restore initiated.`, -50);
                             return "System restored successfully from snapshot. Ransomware neutralized." + (warlockTaunt || '');
@@ -1099,6 +1135,70 @@ export const useCommand = (user: User | null | undefined) => {
             setIsProcessing(false);
             return '';
         }
+
+      case 'ifconfig':
+      case 'ip': {
+            if (cmd === 'ip' && args[0] !== 'a' && args[0] !== 'addr') {
+                break; // Fall through to default for other 'ip' subcommands
+            }
+            const machine = getMachine(currentHost);
+            if (machine) {
+                setIsProcessing(false);
+                return `eth0: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500
+        inet ${machine.ip}  netmask 255.255.255.0  broadcast 192.168.1.255
+        ether 00:1a:2b:3c:4d:5e  txqueuelen 1000  (Ethernet)`;
+            }
+            setIsProcessing(false);
+            return 'Error: Could not determine network configuration.';
+      }
+
+      case 'nmap': {
+          const targetIp = args[0];
+          if (!targetIp) {
+              setIsProcessing(false);
+              return 'Usage: nmap <target_ip>';
+          }
+          const targetMachine = getMachine(targetIp);
+          if (!targetMachine) {
+              setIsProcessing(false);
+              return `Host discovery disabled (-Pn). All ports on ${targetIp} are in ignored states.`;
+          }
+          let output = `Starting Nmap 7.80 ( https://nmap.org ) at ${new Date().toUTCString()}\n`;
+          output += `Nmap scan report for ${targetMachine.hostname} (${targetMachine.ip})\n`;
+          output += `Host is up (0.0020s latency).\nNot showing: ${1000 - targetMachine.openPorts.length} closed ports\n`;
+          output += 'PORT   STATE SERVICE\n';
+          targetMachine.openPorts.forEach(port => {
+              const service = { 21: 'ftp', 22: 'ssh', 80: 'http', 443: 'https' }[port] || 'unknown';
+              output += `${port}/tcp open  ${service}\n`;
+          });
+          setIsProcessing(false);
+          return output;
+      }
+      
+      case 'ssh': {
+        const target = args[0];
+        if (!target || !target.includes('@')) {
+            setIsProcessing(false);
+            return 'Usage: ssh <user@host>';
+        }
+        const [sshUser, sshHost] = target.split('@');
+        const targetMachine = getMachine(sshHost);
+        if (!targetMachine) {
+            setIsProcessing(false);
+            return `ssh: Could not resolve hostname ${sshHost}: Name or service not known`;
+        }
+
+        if (targetMachine.credentials[sshUser] !== undefined) {
+             setAuthStep('ssh_password');
+             setSshCredentials({ user: sshUser, host: sshHost, password: '' });
+             setIsProcessing(false);
+             return '';
+        } else {
+            setIsProcessing(false);
+            return `Permission denied (publickey,password).`;
+        }
+      }
+
 
       case 'su': {
         if (isRoot) {
@@ -1118,11 +1218,18 @@ export const useCommand = (user: User | null | undefined) => {
       }
 
       case 'exit': {
+        if (currentHost !== '192.168.1.100') {
+            setCurrentHost('192.168.1.100');
+            const userHome = user ? `/home/${user.email!.split('@')[0]}` : '/';
+            setCwd(userHome);
+            setIsRoot(false);
+            setIsProcessing(false);
+            return 'Connection to remote host closed.';
+        }
         if (isRoot) {
           setIsRoot(false);
           const userHome = user ? `/home/${user.email!.split('@')[0]}` : '/';
-          const node = getNodeFromPath(userHome);
-          setCwd(node && node.type === 'directory' ? userHome : '/');
+          setCwd(userHome);
           setIsProcessing(false);
           return '';
         }
@@ -1165,7 +1272,7 @@ export const useCommand = (user: User | null | undefined) => {
         }
       }
     }
-  }, [authCommand, authStep, authCredentials, cwd, toast, user, resetAuth, isRoot, editingFile, confirmation, triggerWarlock, aliases, loadAliases, saveFile, exitEditor]);
+  }, [authCommand, authStep, authCredentials, cwd, toast, user, resetAuth, isRoot, editingFile, confirmation, triggerWarlock, aliases, loadAliases, saveFile, exitEditor, currentHost, sshCredentials]);
 
   return { 
     prompt, 

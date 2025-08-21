@@ -1,4 +1,5 @@
 
+
 export interface File {
   type: 'file';
   content: string | (() => string);
@@ -15,6 +16,14 @@ export interface Directory {
 }
 
 export type FilesystemNode = File | Directory;
+
+export interface Machine {
+    ip: string;
+    hostname: string;
+    filesystem: Directory;
+    openPorts: number[];
+    credentials: { [user: string]: string };
+}
 
 const linpeasOutput = () => {
     return `
@@ -51,18 +60,22 @@ Security
 P@$$w0rd
 Ch@ll3ng3`;
 
-export const getWordlist = () => {
-    return wordlistContent.split('\n');
+export const getWordlist = (host: string) => {
+    const node = getNodeFromPath('/lib/wordlist.txt', host);
+    if(node && node.type === 'file') {
+        return getDynamicContent(node.content).split('\n');
+    }
+    return null;
 }
 
-export const initialFilesystem: Directory = {
+const initialFilesystem: Directory = {
   type: 'directory',
   path: '/',
   children: {
     '.bashrc': {
         type: 'file',
         path: '/.bashrc',
-        content: '# Add your custom aliases here\nalias ll=\'ls -alF\'\nalias c=\'clear\'\n'
+        content: '# Add your custom aliases here\nalias ll=\'ls -alF\'\nalias c=\'clear\'\nalias ip=\'ip a\'\n'
     },
     'welcome.txt': {
         type: 'file',
@@ -327,17 +340,87 @@ The vulnerability, dubbed 'Ether-Leak', is being actively exploited in the wild 
   },
 };
 
-let currentFilesystem = JSON.parse(JSON.stringify(initialFilesystem));
+const initialNetwork: { [ip: string]: Machine } = {
+    '192.168.1.100': {
+        ip: '192.168.1.100',
+        hostname: 'cyber',
+        filesystem: JSON.parse(JSON.stringify(initialFilesystem)),
+        openPorts: [22, 80],
+        credentials: { 'root': 'password' }
+    },
+    '192.168.1.205': {
+        ip: '192.168.1.205',
+        hostname: 'fileserver',
+        filesystem: {
+            type: 'directory',
+            path: '/',
+            children: {
+                'shared': {
+                    type: 'directory',
+                    path: '/shared',
+                    children: {
+                        'credentials.bak': {
+                            type: 'file',
+                            path: '/shared/credentials.bak',
+                            content: 'Backup of HR credentials\nuser: m.jensen\npass: P@$$w0rd'
+                        }
+                    }
+                }
+            }
+        },
+        openPorts: [21, 22],
+        credentials: { 'root': 'fileserver_root_pass' }
+    },
+    '192.168.1.210': {
+        ip: '192.168.1.210',
+        hostname: 'hr-workstation',
+        filesystem: {
+            type: 'directory',
+            path: '/',
+            children: {
+                'home': {
+                    type: 'directory',
+                    path: '/home',
+                    children: {
+                        'm.jensen': {
+                            type: 'directory',
+                            path: '/home/m.jensen',
+                            children: {
+                                'documents': {
+                                    type: 'directory',
+                                    path: '/home/m.jensen/documents',
+                                    children: {
+                                        'report.docx': {
+                                            type: 'file',
+                                            path: '/home/m.jensen/documents/report.docx',
+                                            content: 'FLAG{LATERAL_MOVEMENT_MASTER}'
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        openPorts: [22, 443],
+        credentials: { 'm.jensen': 'P@$$w0rd' }
+    }
+};
+
+let currentNetwork = JSON.parse(JSON.stringify(initialNetwork));
 let originalFileCache: { [path: string]: FilesystemNode } = {};
 
-export const resetFilesystem = () => {
-    currentFilesystem = JSON.parse(JSON.stringify(initialFilesystem));
-    originalFileCache = {};
+export const getMachine = (ip: string): Machine | null => {
+    return currentNetwork[ip] || null;
 }
 
-export const getNodeFromPath = (path: string): FilesystemNode | null => {
+export const getNodeFromPath = (path: string, host: string): FilesystemNode | null => {
+  const machine = getMachine(host);
+  if (!machine) return null;
+
   const parts = path.split('/').filter(p => p && p !== '~');
-  let currentNode: FilesystemNode = currentFilesystem;
+  let currentNode: FilesystemNode = machine.filesystem;
 
   for (const part of parts) {
     if (currentNode.type === 'directory' && currentNode.children[part]) {
@@ -362,12 +445,15 @@ export const getDynamicContent = (content: string | (() => string)): string => {
     return rawContent;
 }
 
-export const addNodeToFilesystem = (path: string, node: FilesystemNode): boolean => {
+export const addNodeToFilesystem = (path: string, node: FilesystemNode, host: string): boolean => {
+    const machine = getMachine(host);
+    if (!machine) return false;
+
     const parts = path.split('/').filter(p => p);
     const nodeName = parts.pop();
     if (!nodeName) return false;
 
-    let currentDir: FilesystemNode = currentFilesystem;
+    let currentDir: FilesystemNode = machine.filesystem;
     for (const part of parts) {
         if (currentDir.type === 'directory' && currentDir.children[part]) {
             currentDir = currentDir.children[part];
@@ -380,7 +466,7 @@ export const addNodeToFilesystem = (path: string, node: FilesystemNode): boolean
         }
     }
 
-    if (currentDir.type === 'directory') {
+    if (currentDir.type === 'directory' && !currentDir.children[nodeName]) {
         node.path = path;
         currentDir.children[nodeName] = node;
         return true;
@@ -389,9 +475,12 @@ export const addNodeToFilesystem = (path: string, node: FilesystemNode): boolean
 };
 
 // Helper to update the filesystem in memory
-export const updateNodeInFilesystem = (path: string, newContent: string): boolean => {
+export const updateNodeInFilesystem = (path: string, newContent: string, host: string): boolean => {
+    const machine = getMachine(host);
+    if (!machine) return false;
+
     const parts = path.split('/').filter(p => p);
-    let currentNode: FilesystemNode = currentFilesystem;
+    let currentNode: FilesystemNode = machine.filesystem;
     let parentNode: Directory | null = null;
     let lastPart = '';
 
@@ -423,12 +512,15 @@ export const updateNodeInFilesystem = (path: string, newContent: string): boolea
 };
 
 // Helper to remove a file or directory from the filesystem
-export const removeNodeFromFilesystem = (path: string): boolean => {
+export const removeNodeFromFilesystem = (path: string, host: string): boolean => {
+    const machine = getMachine(host);
+    if (!machine) return false;
+
     const parts = path.split('/').filter(p => p);
     const filename = parts.pop();
     if (!filename) return false;
 
-    let currentDir: FilesystemNode = currentFilesystem;
+    let currentDir: FilesystemNode = machine.filesystem;
     const parentParts = [...parts]; // Create a copy for traversing to the parent
     for (const part of parentParts) {
         if (currentDir.type === 'directory' && currentDir.children[part]) {
@@ -447,22 +539,22 @@ export const removeNodeFromFilesystem = (path: string): boolean => {
 };
 
 
-export const isPackageInstalled = (pkg: string): boolean => {
+export const isPackageInstalled = (pkg: string, host: string): boolean => {
     if (pkg === 'nginx') {
-        return !!getNodeFromPath('/etc/nginx');
+        return !!getNodeFromPath('/etc/nginx', host);
     }
     return false;
 };
 
-export const installPackage = (pkg: string): boolean => {
+export const installPackage = (pkg: string, host: string): boolean => {
     if (pkg === 'nginx') {
-        if (isPackageInstalled('nginx')) return true;
+        if (isPackageInstalled('nginx', host)) return true;
 
         // Create Nginx directory structure and files
-        addNodeToFilesystem('/etc/nginx', { type: 'directory', children: {} });
-        addNodeToFilesystem('/etc/nginx/sites-available', { type: 'directory', children: {} });
-        addNodeToFilesystem('/etc/nginx/sites-enabled', { type: 'directory', children: {} });
-        addNodeToFilesystem('/var/log/nginx', { type: 'directory', children: {} });
+        addNodeToFilesystem('/etc/nginx', { type: 'directory', children: {} }, host);
+        addNodeToFilesystem('/etc/nginx/sites-available', { type: 'directory', children: {} }, host);
+        addNodeToFilesystem('/etc/nginx/sites-enabled', { type: 'directory', children: {} }, host);
+        addNodeToFilesystem('/var/log/nginx', { type: 'directory', children: {} }, host);
         
         const nginxConfContent = `user www-data;
 worker_processes auto;
@@ -492,7 +584,7 @@ http {
     include /etc/nginx/conf.d/*.conf;
     include /etc/nginx/sites-enabled/*;
 }`;
-        addNodeToFilesystem('/etc/nginx/nginx.conf', { type: 'file', content: nginxConfContent });
+        addNodeToFilesystem('/etc/nginx/nginx.conf', { type: 'file', content: nginxConfContent }, host);
 
         const defaultSiteContent = `server {
     listen 80 default_server;
@@ -507,15 +599,15 @@ http {
         try_files $uri $uri/ =404;
     }
 }`;
-        addNodeToFilesystem('/etc/nginx/sites-available/default', { type: 'file', content: defaultSiteContent });
+        addNodeToFilesystem('/etc/nginx/sites-available/default', { type: 'file', content: defaultSiteContent }, host);
         
         // Simulate symlink
-        addNodeToFilesystem('/etc/nginx/sites-enabled/default', { type: 'file', content: defaultSiteContent });
+        addNodeToFilesystem('/etc/nginx/sites-enabled/default', { type: 'file', content: defaultSiteContent }, host);
         
-        addNodeToFilesystem('/var/log/nginx/access.log', { type: 'file', content: '' });
-        addNodeToFilesystem('/var/log/nginx/error.log', { type: 'file', content: '' });
+        addNodeToFilesystem('/var/log/nginx/access.log', { type: 'file', content: '' }, host);
+        addNodeToFilesystem('/var/log/nginx/error.log', { type: 'file', content: '' }, host);
 
-        addNodeToFilesystem('/usr/sbin/nginx', { type: 'file', content: 'Binary file' });
+        addNodeToFilesystem('/usr/sbin/nginx', { type: 'file', content: 'Binary file' }, host);
 
         return true;
     }
@@ -523,8 +615,8 @@ http {
 };
 
 // Ransomware Simulation
-export const triggerRansomware = (userHomePath: string): string[] => {
-    const userHomeNode = getNodeFromPath(userHomePath);
+export const triggerRansomware = (userHomePath: string, host: string): string[] => {
+    const userHomeNode = getNodeFromPath(userHomePath, host);
     if (!userHomeNode || userHomeNode.type !== 'directory') {
         return [];
     }
@@ -578,8 +670,8 @@ FLAG{DEADBOLT_DEFEATED_BY_BACKUPS}`;
     return encryptedFiles;
 };
 
-export const restoreBackup = (userHomePath: string): boolean => {
-    const userHomeNode = getNodeFromPath(userHomePath);
+export const restoreBackup = (userHomePath: string, host: string): boolean => {
+    const userHomeNode = getNodeFromPath(userHomePath, host);
     if (!userHomeNode || userHomeNode.type !== 'directory') {
         return false;
     }
@@ -610,3 +702,5 @@ export const restoreBackup = (userHomePath: string): boolean => {
     originalFileCache = {}; // Clear cache after use
     return true;
 };
+
+export const network = currentNetwork;
