@@ -283,8 +283,8 @@ Gobuster v3.1.0
                 '01-quantum-threat.txt': {
                     type: 'file',
                     path: '/var/news/01-quantum-threat.txt',
-                    content: `DATE: 2024-05-21
-TITLE: The Quantum Threat is Real
+                    content: `TITLE: The Quantum Threat is Real
+DATE: 2024-05-21
 
 Experts warn that the age of quantum computing could shatter current encryption standards within the next decade. 
 Governments and corporations are in a frantic race to develop quantum-resistant cryptography before it's too late. 
@@ -293,8 +293,8 @@ Governments and corporations are in a frantic race to develop quantum-resistant 
                 '02-ai-defenses.txt': {
                     type: 'file',
                     path: '/var/news/02-ai-defenses.txt',
-                    content: `DATE: 2024-05-20
-TITLE: Next-Gen AI Defenses Deployed
+                    content: `TITLE: Next-Gen AI Defenses Deployed
+DATE: 2024-05-20
 
 A new wave of AI-powered active defense systems are being deployed across major networks. These systems, like the infamous 'Warlock',
 don't just block attacks—they learn, adapt, and retaliate. Security analysts report that these AIs can trace back intrusions, 
@@ -303,8 +303,8 @@ deploy countermeasures, and even launch targeted counter-strikes against attacke
                 '03-zero-day-alert.txt': {
                     type: 'file',
                     path: '/var/news/03-zero-day-alert.txt',
-                    content: `DATE: 2024-05-19
-TITLE: CRITICAL: Zero-Day Exploit in "Omni-Core" Services
+                    content: `TITLE: CRITICAL: Zero-Day Exploit in "Omni-Core" Services
+DATE: 2024-05-19
 
 A critical zero-day vulnerability has been discovered in the widely used "Omni-Core" server software. 
 The exploit allows for unauthenticated remote code execution. All system administrators are urged to patch immediately.
@@ -333,3 +333,63 @@ export const getDynamicContent = (content: string | (() => string)): string => {
     }
     return rawContent;
 }
+
+// Helper to update the filesystem in memory
+export const updateNodeInFilesystem = (path: string, newContent: string): boolean => {
+    const parts = path.split('/').filter(p => p);
+    let currentNode: FilesystemNode = initialFilesystem;
+    let parentNode: Directory | null = null;
+    let lastPart = '';
+
+    for (let i = 0; i < parts.length; i++) {
+        const part = parts[i];
+        if (currentNode.type === 'directory') {
+            parentNode = currentNode;
+            lastPart = part;
+            if (!currentNode.children[part]) {
+                // If we're at the last part, we can create the file.
+                if (i === parts.length - 1) {
+                    currentNode.children[part] = { type: 'file', content: newContent, path };
+                    return true;
+                } else {
+                    return false; // Cannot create file in a path that doesn't exist
+                }
+            }
+            currentNode = currentNode.children[part];
+        } else {
+            return false; // Path goes through a file
+        }
+    }
+    
+    if (currentNode.type === 'file') {
+        currentNode.content = newContent;
+        return true;
+    }
+    
+    return false;
+};
+
+// Helper to remove a file or directory from the filesystem
+export const removeNodeFromFilesystem = (path: string): boolean => {
+    const parts = path.split('/').filter(p => p);
+    const filename = parts.pop();
+    if (!filename) return false;
+
+    let currentDir: FilesystemNode = initialFilesystem;
+    for (const part of parts) {
+        if (currentDir.type === 'directory' && currentDir.children[part]) {
+            currentDir = currentDir.children[part];
+        } else {
+            return false; // Path does not exist
+        }
+    }
+
+    if (currentDir.type === 'directory' && currentDir.children[filename]) {
+        delete currentDir.children[filename];
+        return true;
+    }
+
+    return false;
+};
+
+    

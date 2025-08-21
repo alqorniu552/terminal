@@ -5,7 +5,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { useToast } from "@/hooks/use-toast";
 import { generateCommandHelp } from '@/ai/flows/generate-command-help';
 import { databaseQuery } from '@/ai/flows/database-query-flow';
-import { initialFilesystem as filesystem, Directory, FilesystemNode, getDynamicContent } from '@/lib/filesystem';
+import { initialFilesystem as filesystem, Directory, FilesystemNode, getDynamicContent, updateNodeInFilesystem, removeNodeFromFilesystem } from '@/lib/filesystem';
 import { db, auth } from '@/lib/firebase';
 import { collection, query, where, getDocs, WhereFilterOp } from 'firebase/firestore';
 import { User, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
@@ -44,13 +44,20 @@ Available commands:
   nano [file]         - Edit a file.
   generate_image "[p]"- Generate an image from a prompt.
   neofetch            - Display system information.
-  db "[query]"        - Query the database using natural language (e.g., "list all users").
-  news [number]       - Read news articles. Type 'news' to see the list.
+  db "[query]"        - Query the database (e.g., "list all users").
+  news                - List or read news articles.
   clear               - Clear the terminal screen.
   logout              - Log out from the application.
 `;
         if (isRoot) {
-            helpText += `  exit                - Exit from root user session.\n\nRoot has elevated privileges and can access all user directories under /home.`;
+            helpText += `
+Root-only news commands:
+  news add "title"    - Create a new news article.
+  news edit <number>  - Edit an existing news article.
+  news del <number>   - Delete a news article.
+  exit                - Exit from root user session.
+
+Root has elevated privileges and can access all user directories under /home.`;
         } else {
             helpText += `  su                  - Switch to root user (requires admin privileges).\n`;
         }
@@ -103,69 +110,44 @@ const getNodeFromPath = (path: string): FilesystemNode | null => {
   return currentNode;
 };
 
-// Helper to update the filesystem in memory
-const updateNodeInFilesystem = (path: string, newContent: string) => {
-    const parts = path.split('/').filter(p => p);
-    let currentNode: FilesystemNode = filesystem;
-    let parentNode: Directory | null = null;
-    let lastPart = '';
-
-    for (const part of parts) {
-        if (currentNode.type === 'directory') {
-            parentNode = currentNode;
-            if (!currentNode.children[part]) {
-                 // If the file doesn't exist, create it.
-                 currentNode.children[part] = { type: 'file', content: newContent, path };
-                 return true;
-            }
-            currentNode = currentNode.children[part];
-            lastPart = part;
-        } else {
-            return false; // Path goes through a file
-        }
-    }
-    
-    if (currentNode.type === 'file') {
-        currentNode.content = newContent;
-        return true;
-    } else if (parentNode && lastPart) { // Create a new file in a directory
-        parentNode.children[lastPart] = { type: 'file', content: newContent, path };
-        return true;
-    }
-
-    return false;
-};
-
 export const useCommand = (user: User | null | undefined) => {
   const [cwd, setCwd] = useState('/');
   const [isRoot, setIsRoot] = useState(false);
   
-  // State for multi-step authentication
+  // State for multi-step authentication and confirmation
   const [authCommand, setAuthCommand] = useState<'login' | 'register' | null>(null);
   const [authStep, setAuthStep] = useState<'email' | 'password' | null>(null);
   const [authCredentials, setAuthCredentials] = useState({ email: '', password: '' });
   const [isProcessing, setIsProcessing] = useState(false);
+  const [confirmation, setConfirmation] = useState<{ message: string; onConfirm: () => Promise<string | React.ReactNode> } | null>(null);
 
   // State for Nano editor
-  const [editingFile, setEditingFile] = useState<{ path: string; content: string; } | null>(null);
+  const [editingFile, setEditingFile] = useState<{ path: string; content: string; onSaveCallback?: () => void } | null>(null);
 
   const getInitialPrompt = useCallback(() => {
+    if (confirmation) return `${confirmation.message} (y/n): `;
     if (authStep === 'email') return 'Email: ';
     if (authStep === 'password') return 'Password: ';
     
     let path;
-    const userHome = `/home/${user?.email?.split('@')[0]}`;
+    const userHome = user ? `/home/${user.email?.split('@')[0]}` : '/';
     
     if (isRoot) {
-        path = cwd;
+        path = cwd.startsWith('/root') ? `~${cwd.substring(5)}` : cwd;
+        if (path === '') path = '/';
     } else {
-        if (cwd === '/') path = '~';
-        else if (cwd.startsWith('/home') && user && cwd.includes(user.email!.split('@')[0])) {
+        if (cwd === userHome) {
+            path = '~';
+        } else if (cwd.startsWith(userHome + '/')) {
             path = `~${cwd.substring(userHome.length)}`;
         } else {
-            path = `~${cwd}`;
+            path = cwd;
         }
-        if (path === '~') path = '~/';
+    }
+    
+    path = path.replace('//', '/');
+    if (path !== '/' && path.endsWith('/')) {
+        path = path.slice(0, -1);
     }
 
 
@@ -174,14 +156,14 @@ export const useCommand = (user: User | null | undefined) => {
     
     return `${username}@cyber:${path}${endChar} `;
 
-  }, [user, cwd, authStep, isRoot]);
+  }, [user, cwd, authStep, isRoot, confirmation]);
 
   const [prompt, setPrompt] = useState(getInitialPrompt());
   const { toast } = useToast();
   
   useEffect(() => {
     setPrompt(getInitialPrompt());
-  }, [user, getInitialPrompt, authStep, isRoot]);
+  }, [user, getInitialPrompt, authStep, isRoot, confirmation]);
 
 
   const resetAuth = useCallback(() => {
@@ -223,6 +205,20 @@ export const useCommand = (user: User | null | undefined) => {
     if (editingFile) return ''; // Block commands while editing
 
     setIsProcessing(true);
+
+    if (confirmation) {
+        const response = command.trim().toLowerCase();
+        const { onConfirm } = confirmation;
+        setConfirmation(null);
+        if (response === 'y' || response === 'yes') {
+            const result = await onConfirm();
+            setIsProcessing(false);
+            return result;
+        }
+        setIsProcessing(false);
+        return 'Operation cancelled.';
+    }
+
     const [cmd, ...args] = command.trim().split(/\s+/);
     const isLoggedIn = !!user;
 
@@ -284,21 +280,30 @@ export const useCommand = (user: User | null | undefined) => {
         }
     }
 
-    const arg = args.join(' ');
+    const argString = command.trim().substring(cmd.length).trim();
     
-    // Regex to extract prompt from generate_image command
+    // Regex to extract prompt from generate_image command and news add
     const imagePromptMatch = command.match(/^generate_image\s+"([^"]+)"/);
+    const newsAddMatch = command.match(/^news\s+add\s+"([^"]+)"/);
 
-    const hasPermission = (path: string) => {
+    const hasPermission = (path: string, operation: 'read' | 'write' = 'read') => {
         if (isRoot) return true;
         if (!user) return false;
         
-        // Non-root users can't access /root
+        // Write operations are more restricted for non-root
+        if (operation === 'write') {
+             // For now, only allow writing in user's home directory
+            const userHome = `/home/${user.email!.split('@')[0]}`;
+            if (!path.startsWith(userHome + '/')) {
+                return false;
+            }
+        }
+
+        // Read operations
         if (path.startsWith('/root')) return false;
 
-        // Non-root users can only access their own home directory
-        const userHome = `/home/${user.email!.split('@')[0]}`;
-        if (path.startsWith('/home/') && path !== userHome && !path.startsWith(`${userHome}/`)) {
+        const parts = path.split('/').filter(p => p);
+        if (parts[0] === 'home' && parts[1] && parts[1] !== user.email!.split('@')[0]) {
             return false;
         }
 
@@ -315,10 +320,10 @@ export const useCommand = (user: User | null | undefined) => {
         return getNeofetchOutput(user, isRoot);
       
       case 'ls': {
-        const targetPath = arg ? resolvePath(cwd, arg) : cwd;
+        const targetPath = args[0] ? resolvePath(cwd, args[0]) : cwd;
         if (!hasPermission(targetPath)) {
             setIsProcessing(false);
-            return `ls: cannot open directory '${arg || '.'}': Permission denied`;
+            return `ls: cannot open directory '${args[0] || '.'}': Permission denied`;
         }
         const node = getNodeFromPath(targetPath);
         if (node && node.type === 'directory') {
@@ -328,12 +333,13 @@ export const useCommand = (user: User | null | undefined) => {
           }).join('\n');
         }
         setIsProcessing(false);
-        return `ls: cannot access '${arg || '.'}': No such file or directory`;
+        return `ls: cannot access '${args[0] || '.'}': No such file or directory`;
       }
 
       case 'cd': {
         const homeDir = isRoot ? '/root' : (user ? `/home/${user.email!.split('@')[0]}` : '/');
-        if (!arg || arg === '~') {
+        const targetArg = args[0];
+        if (!targetArg || targetArg === '~') {
           const node = getNodeFromPath(homeDir);
           if (node && node.type === 'directory') {
               setCwd(homeDir);
@@ -343,10 +349,10 @@ export const useCommand = (user: User | null | undefined) => {
           setIsProcessing(false);
           return '';
         }
-        const newPath = resolvePath(cwd, arg);
+        const newPath = resolvePath(cwd, targetArg);
         if (!hasPermission(newPath)) {
             setIsProcessing(false);
-            return `cd: ${arg}: Permission denied`;
+            return `cd: ${targetArg}: Permission denied`;
         }
         const node = getNodeFromPath(newPath);
         if (node && node.type === 'directory') {
@@ -355,18 +361,19 @@ export const useCommand = (user: User | null | undefined) => {
           return '';
         }
         setIsProcessing(false);
-        return `cd: no such file or directory: ${arg}`;
+        return `cd: no such file or directory: ${targetArg}`;
       }
       
       case 'cat': {
-        if (!arg) {
+        const targetFile = args[0];
+        if (!targetFile) {
           setIsProcessing(false);
           return 'cat: missing operand';
         }
-        const targetPath = resolvePath(cwd, arg);
+        const targetPath = resolvePath(cwd, targetFile);
         if (!hasPermission(targetPath)) {
           setIsProcessing(false);
-          return `cat: ${arg}: Permission denied`;
+          return `cat: ${targetFile}: Permission denied`;
         }
         const node = getNodeFromPath(targetPath);
         if (node && node.type === 'file') {
@@ -374,18 +381,19 @@ export const useCommand = (user: User | null | undefined) => {
           return getDynamicContent(node.content);
         }
         setIsProcessing(false);
-        return `cat: ${arg}: No such file or directory`;
+        return `cat: ${targetFile}: No such file or directory`;
       }
 
       case 'nano': {
-        if (!arg) {
+        const targetFile = args[0];
+        if (!targetFile) {
             setIsProcessing(false);
             return "nano: missing file operand";
         }
-        const targetPath = resolvePath(cwd, arg);
-        if (!hasPermission(targetPath)) {
+        const targetPath = resolvePath(cwd, targetFile);
+        if (!hasPermission(targetPath, 'write')) {
             setIsProcessing(false);
-            return `nano: cannot edit '${arg}': Permission denied`;
+            return `nano: cannot edit '${targetFile}': Permission denied`;
         }
 
         const node = getNodeFromPath(targetPath);
@@ -393,7 +401,7 @@ export const useCommand = (user: User | null | undefined) => {
         if (node) {
             if (node.type === 'directory') {
                 setIsProcessing(false);
-                return `nano: ${arg}: is a directory`;
+                return `nano: ${targetFile}: is a directory`;
             }
             initialContent = getDynamicContent(node.content);
         }
@@ -432,12 +440,13 @@ export const useCommand = (user: User | null | undefined) => {
         }
 
       case 'db': {
-        if (!arg) {
+        const dbQuery = argString.startsWith('"') && argString.endsWith('"') ? argString.slice(1, -1) : argString;
+        if (!dbQuery) {
           setIsProcessing(false);
           return 'db: missing query. Usage: db "your natural language query"';
         }
         try {
-          const queryInstruction = await databaseQuery({ query: arg });
+          const queryInstruction = await databaseQuery({ query: dbQuery });
           
           let whereClauses;
 
@@ -477,10 +486,91 @@ export const useCommand = (user: User | null | undefined) => {
           setIsProcessing(false);
           return "News directory not found.";
         }
-        
         const articles = Object.keys(newsDir.children).sort();
+        const subCmd = args[0];
 
-        if (!arg) {
+        // Root-only commands
+        if (isRoot) {
+            if (subCmd === 'add') {
+                if (!newsAddMatch || !newsAddMatch[1]) {
+                    setIsProcessing(false);
+                    return 'Usage: news add "Title of The Article"';
+                }
+                const title = newsAddMatch[1];
+                const filename = `${title.toLowerCase().replace(/\s+/g, '-')}.txt`;
+                const newFilePath = `/var/news/${filename}`;
+                
+                if (getNodeFromPath(newFilePath)) {
+                    setIsProcessing(false);
+                    return `Error: An article with a similar title already exists.`;
+                }
+
+                setEditingFile({ path: newFilePath, content: `TITLE: ${title}\nDATE: ${new Date().toISOString().split('T')[0]}\n\n` });
+                setIsProcessing(false);
+                return (
+                    <NanoEditor
+                        filename={newFilePath}
+                        initialContent={`TITLE: ${title}\nDATE: ${new Date().toISOString().split('T')[0]}\n\n`}
+                        onSave={(newContent) => {
+                            updateNodeInFilesystem(newFilePath, newContent);
+                            setEditingFile(null);
+                        }}
+                        onExit={() => setEditingFile(null)}
+                    />
+                );
+            }
+
+            if (subCmd === 'edit') {
+                const articleIndex = parseInt(args[1], 10) - 1;
+                if (isNaN(articleIndex) || articleIndex < 0 || articleIndex >= articles.length) {
+                    setIsProcessing(false);
+                    return `news: invalid article number for editing: ${args[1]}`;
+                }
+                const articleName = articles[articleIndex];
+                const articlePath = `/var/news/${articleName}`;
+                const articleNode = getNodeFromPath(articlePath);
+
+                if (articleNode && articleNode.type === 'file') {
+                    const content = getDynamicContent(articleNode.content);
+                    setEditingFile({ path: articlePath, content: content });
+                    setIsProcessing(false);
+                     return (
+                        <NanoEditor
+                            filename={articlePath}
+                            initialContent={content}
+                            onSave={(newContent) => {
+                                updateNodeInFilesystem(articlePath, newContent);
+                                setEditingFile(null);
+                            }}
+                            onExit={() => setEditingFile(null)}
+                        />
+                    );
+                }
+            }
+
+            if (subCmd === 'del') {
+                 const articleIndex = parseInt(args[1], 10) - 1;
+                 if (isNaN(articleIndex) || articleIndex < 0 || articleIndex >= articles.length) {
+                    setIsProcessing(false);
+                    return `news: invalid article number for deletion: ${args[1]}`;
+                 }
+                 const articleName = articles[articleIndex];
+                 const articlePath = `/var/news/${articleName}`;
+                 
+                 setConfirmation({
+                     message: `Are you sure you want to delete "${articleName}"?`,
+                     onConfirm: async () => {
+                         const success = removeNodeFromFilesystem(articlePath);
+                         return success ? `Article "${articleName}" deleted.` : "Failed to delete article.";
+                     },
+                 });
+                 setIsProcessing(false);
+                 return '';
+            }
+        }
+
+        // Read commands for all users
+        if (!subCmd) {
           let output = "Available News:\n";
           articles.forEach((article, index) => {
             output += `[${index + 1}] ${article}\n`;
@@ -490,10 +580,10 @@ export const useCommand = (user: User | null | undefined) => {
           return output;
         }
 
-        const articleIndex = parseInt(arg, 10) - 1;
+        const articleIndex = parseInt(subCmd, 10) - 1;
         if (isNaN(articleIndex) || articleIndex < 0 || articleIndex >= articles.length) {
           setIsProcessing(false);
-          return `news: invalid article number: ${arg}`;
+          return `news: invalid article number or command: ${subCmd}`;
         }
         
         const articleName = articles[articleIndex];
@@ -525,10 +615,9 @@ export const useCommand = (user: User | null | undefined) => {
       case 'exit': {
         if (isRoot) {
           setIsRoot(false);
-          // When exiting root, go back to user's home or /
           const userHome = user ? `/home/${user.email!.split('@')[0]}` : '/';
           const node = getNodeFromPath(userHome);
-          setCwd(node ? userHome : '/');
+          setCwd(node && node.type === 'directory' ? userHome : '/');
         }
         setIsProcessing(false);
         return '';
@@ -536,7 +625,6 @@ export const useCommand = (user: User | null | undefined) => {
 
       case 'logout': {
         await auth.signOut();
-        // The user state change will trigger a useEffect to reset everything.
         setIsProcessing(false);
         return '';
       }
@@ -562,7 +650,7 @@ export const useCommand = (user: User | null | undefined) => {
         }
       }
     }
-  }, [authCommand, authStep, authCredentials, cwd, toast, user, resetAuth, isRoot, editingFile]);
+  }, [authCommand, authStep, authCredentials, cwd, toast, user, resetAuth, isRoot, editingFile, confirmation]);
 
   return { 
     prompt, 
@@ -573,3 +661,5 @@ export const useCommand = (user: User | null | undefined) => {
     editingFile,
  };
 };
+
+    

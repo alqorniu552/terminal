@@ -38,6 +38,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
   const endOfHistoryRef = useRef<HTMLDivElement>(null);
   
   const focusInput = useCallback(() => {
+    // Only focus on non-mobile devices to prevent virtual keyboard issues
     if (typeof window !== 'undefined' && window.innerWidth > 768) {
       inputRef.current?.focus();
     }
@@ -64,7 +65,9 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
   
   useEffect(() => {
     loadWelcomeMessage();
-  }, [user, loadWelcomeMessage]);
+  // user object is a dependency for getWelcomeMessage
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
 
   useEffect(() => {
     if (!isTyping) {
@@ -105,15 +108,20 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
         setIsTyping(false); // Make sure to re-enable input
         return;
     }
+    
+    // Special handling for confirmation prompts. Result is empty string.
+    if (result === '') {
+       if (!editingFile) setIsTyping(false);
+    }
+
 
     setHistory(prev => prev.map(h => 
         h.id === newHistoryItem.id ? { ...h, output: result } : h
     ));
     
-    // For components like Nano, we don't want the typewriter effect
+    // For custom components, we don't want the typewriter effect
     const isCustomComponent = React.isValidElement(result);
-
-    if (isCustomComponent) {
+    if (isCustomComponent || (typeof result === 'string' && result.length === 0)) {
         setIsTyping(false);
     }
   };
@@ -147,7 +155,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
                 </div>
               ) : null}
               {item.output && (
-                  typeof item.output === 'string' 
+                  typeof item.output === 'string' && item.output.length > 0
                   ? <div className="whitespace-pre-wrap"><Typewriter text={item.output} onFinished={() => setIsTyping(false)} /></div>
                   : <div>{item.output}</div>
               )}
@@ -185,3 +193,5 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     </div>
   );
 }
+
+    
