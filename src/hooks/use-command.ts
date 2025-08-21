@@ -20,18 +20,68 @@ const getNeofetchOutput = (user: User | null | undefined, isRoot: boolean) => {
     if (typeof window !== 'undefined') {
         uptime = Math.floor(performance.now() / 1000);
     }
-    const email = isRoot ? 'root' : (user?.email || 'guest');
+    const username = isRoot ? 'root' : (user?.email?.split('@')[0] || 'guest');
+    const hostname = 'cyber';
 
-return `
-${email}@cyber
---------------------
-OS: Web Browser
-Host: Cyber v1.0
-Kernel: Next.js
-Uptime: ${uptime} seconds
-Shell: term-sim
-`;
+    const uptimeStr = `${Math.floor(uptime / 3600)}h ${Math.floor((uptime % 3600) / 60)}m ${uptime % 60}s`;
+
+    const ubuntuLogo = [
+        "            .-/+oossssoo+/-.               ",
+        "        `:+ssssssssssssssssss+:`           ",
+        "      -+ssssssssssssssssssyyssss+-         ",
+        "    .ossssssssssssssssssdMMMNysssso.       ",
+        "   /ssssssssssshdmmNNmmyNMMMMhssssss/      ",
+        "  +ssssssssshmydMMMMMMMNddddyssssssss+     ",
+        " /sssssssshNMMMyhhyyyyhmNMMMNhssssssss/    ",
+        ".ssssssssdMMMNhsssssssssshNMMMdssssssss.   ",
+        "ssssssssMNNsyyyyyyyyyyyyyyyMNNsssssssss",
+        "ssssssssNMMs               hMMNsssssssss",
+        "-ssssssssMMMy             .MMMdssssssss-",
+        " osssssssNMMMy.           dMMMNssssssssso ",
+        "  +ssssssssNMMMdyyyyyyyhmMMMMhssssssss+  ",
+        "   /sssssssssshdmmNNmmyNMMMMhssssss/      ",
+        "    .ossssssssssssssssssdMMMNysssso.       ",
+        "      -+ssssssssssssssssssyyssss+-         ",
+        "        `:+ssssssssssssssssss+:`           ",
+        "            .-/+oossssoo+/-.               "
+    ];
+
+    const userInfo = `${username}@${hostname}`;
+    const osInfo = `OS: Ubuntu 22.04.3 LTS x86_64 (Emulated)`;
+    const hostInfo = `Host: Cyber v1.0`;
+    const kernelInfo = `Kernel: 5.15.0-generic (Next.js)`;
+    const uptimeInfo = `Uptime: ${uptimeStr}`;
+    const shellInfo = `Shell: term-sim (bash 5.1.16)`;
+    const resolutionInfo = typeof window !== 'undefined' ? `Resolution: ${window.innerWidth}x${window.innerHeight}` : 'Resolution: N/A';
+    const cpuInfo = 'CPU: Intel Core i9 (Emulated)';
+    const gpuInfo = 'GPU: NVIDIA GeForce RTX (Emulated)';
+    const memoryInfo = 'Memory: 32GiB (Emulated)';
+
+    const infoLines = [
+        `\x1b[38;5;208m${userInfo}\x1b[0m`,
+        '--------------------',
+        `\x1b[38;5;208m${osInfo.split(': ')[0]}\x1b[0m: ${osInfo.split(': ')[1]}`,
+        `\x1b[38;5;208m${hostInfo.split(': ')[0]}\x1b[0m: ${hostInfo.split(': ')[1]}`,
+        `\x1b[38;5;208m${kernelInfo.split(': ')[0]}\x1b[0m: ${kernelInfo.split(': ')[1]}`,
+        `\x1b[38;5;208m${uptimeInfo.split(': ')[0]}\x1b[0m: ${uptimeInfo.split(': ')[1]}`,
+        `\x1b[38;5;208m${shellInfo.split(': ')[0]}\x1b[0m: ${shellInfo.split(': ')[1]}`,
+        `\x1b[38;5;208m${resolutionInfo.split(': ')[0]}\x1b[0m: ${resolutionInfo.split(': ')[1]}`,
+        `\x1b[38;5;208m${cpuInfo.split(': ')[0]}\x1b[0m: ${cpuInfo.split(': ')[1]}`,
+        `\x1b[38;5;208m${gpuInfo.split(': ')[0]}\x1b[0m: ${gpuInfo.split(': ')[1]}`,
+        `\x1b[38;5;208m${memoryInfo.split(': ')[0]}\x1b[0m: ${memoryInfo.split(': ')[1]}`,
+        '', // Spacer
+    ];
+
+    let output = '\n';
+    for (let i = 0; i < ubuntuLogo.length; i++) {
+        const logoLine = `\x1b[38;5;208m${ubuntuLogo[i] || ''}\x1b[0m`;
+        const infoLine = infoLines[i] || '';
+        output += `${logoLine} ${infoLine}\n`;
+    }
+
+    return output;
 };
+
 
 const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean) => {
     if (isLoggedIn) {
@@ -475,7 +525,7 @@ export const useCommand = (user: User | null | undefined) => {
         const articles = Object.keys(newsDir.children).sort();
         const subCmd = args[0];
         
-        // Check if reading an article by number first
+        // Handle reading article by number first
         const articleNum = parseInt(subCmd, 10);
         if (!isNaN(articleNum)) {
             const articleIndex = articleNum - 1;
@@ -669,5 +719,3 @@ export const useCommand = (user: User | null | undefined) => {
     editingFile,
  };
 };
-
-    
