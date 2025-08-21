@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect } from 'react';
@@ -36,7 +37,7 @@ const ImageDisplay = ({ prompt, onFinished }: ImageDisplayProps) => {
     };
     generate();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [prompt, toast]);
+  }, [prompt]);
 
   if (error) {
     return <div className="text-destructive">Error: {error}</div>;

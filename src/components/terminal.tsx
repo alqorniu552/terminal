@@ -29,7 +29,9 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
       getWelcomeMessage,
       authStep,
       isProcessing,
-      editingFile
+      editingFile,
+      saveFile,
+      exitEditor,
   } = useCommand(user);
 
   const [isTyping, setIsTyping] = useState(true);
@@ -39,10 +41,10 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
   
   const focusInput = useCallback(() => {
     // Only focus on non-mobile devices to prevent virtual keyboard issues
-    if (typeof window !== 'undefined' && window.innerWidth > 768) {
+    if (typeof window !== 'undefined' && window.innerWidth > 768 && !editingFile) {
       inputRef.current?.focus();
     }
-  }, []);
+  }, [editingFile]);
 
   useEffect(() => {
     focusInput();
@@ -77,7 +79,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
   
   const handleCommandSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (isTyping || isProcessing) return;
+    if (isTyping || isProcessing || editingFile) return;
 
     if (command.trim().toLowerCase() === 'clear') {
         setCommand('');
@@ -102,27 +104,24 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
 
     const result = await processCommand(command);
     
-    // If the command was to log out, we don't want to show any output
-    // The useEffect that watches the user state will handle the welcome message.
     if (command.trim().toLowerCase() === 'logout' && !result) {
-        setIsTyping(false); // Make sure to re-enable input
+        setIsTyping(false);
         return;
     }
     
-    // Special handling for confirmation prompts. Result is empty string.
     if (result === '') {
        if (!editingFile) setIsTyping(false);
     }
-
 
     setHistory(prev => prev.map(h => 
         h.id === newHistoryItem.id ? { ...h, output: result } : h
     ));
     
-    // For custom components, we don't want the typewriter effect
     const isCustomComponent = React.isValidElement(result);
     if (isCustomComponent || (typeof result === 'string' && result.length === 0)) {
-        setIsTyping(false);
+        if (!editingFile) {
+            setIsTyping(false);
+        }
     }
   };
   
@@ -133,12 +132,12 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     <div className="h-full w-full p-2 md:p-4 font-code text-base md:text-lg text-primary overflow-y-auto" onClick={focusInput}>
       
       {editingFile && (
-        <div className="fixed inset-0 bg-black z-50">
-            {
-               React.isValidElement(history[history.length-1].output) && 
-               history[history.length-1].output
-            }
-        </div>
+         <NanoEditor
+            filename={editingFile.path}
+            initialContent={editingFile.content}
+            onSave={saveFile}
+            onExit={exitEditor}
+        />
       )}
 
       <div className="text-shadow-glow">
@@ -157,7 +156,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
               {item.output && (
                   typeof item.output === 'string' && item.output.length > 0
                   ? <div className="whitespace-pre-wrap"><Typewriter text={item.output} onFinished={() => setIsTyping(false)} /></div>
-                  : <div>{item.output}</div>
+                  : (React.isValidElement(item.output) && item.output.type !== NanoEditor) ? <div>{item.output}</div> : null
               )}
              </>
             )}
@@ -193,5 +192,3 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     </div>
   );
 }
-
-    
