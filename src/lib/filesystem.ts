@@ -407,9 +407,8 @@ const initialNetwork: { [ip: string]: Machine } = {
     }
 };
 
-let network = JSON.parse(JSON.stringify(initialNetwork));
+export let network = JSON.parse(JSON.stringify(initialNetwork));
 let originalFileCache: { [path: string]: FilesystemNode } = {};
-
 
 export const resolvePath = (cwd: string, path: string): string => {
     if (path.startsWith('/')) {
@@ -432,7 +431,7 @@ export const resolvePath = (cwd: string, path: string): string => {
     }
 
     const resolved = '/' + parts.join('/');
-    return resolved === '//' ? '/' : resolved;
+    return resolved;
 };
 
 
@@ -734,4 +733,4 @@ export const restoreBackup = (userHomePath: string, host: string): boolean => {
     return true;
 };
 
-    
+      

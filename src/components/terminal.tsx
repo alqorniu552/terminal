@@ -53,7 +53,6 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
 
   const loadWelcomeMessage = useCallback(() => {
     setHistory([]);
-    setIsTyping(true);
     const welcomeHistory: HistoryItem = {
       id: 0,
       command: '',
@@ -61,6 +60,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
       prompt: '',
     };
     setHistory([welcomeHistory]);
+    setIsTyping(true);
   }, [getWelcomeMessage]);
   
   useEffect(() => {
@@ -83,9 +83,17 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
         loadWelcomeMessage();
         return;
     }
+    
+    // Don't do anything for logout command here, as it's handled by user state change
+    if (command.trim().toLowerCase() === 'logout') {
+        processCommand(command);
+        setCommand('');
+        return;
+    }
 
     const currentPrompt = prompt;
-    const commandForHistory = authStep === 'password' || authStep === 'ssh_password' ? '******' : command;
+    const isPasswordStep = authStep === 'password' || authStep === 'ssh_password';
+    const commandForHistory = isPasswordStep ? '******' : command;
 
     const newHistoryItem: HistoryItem = { 
       id: Date.now(),
@@ -97,21 +105,14 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     setHistory(prev => [...prev, newHistoryItem]);
     setCommand('');
     
-    // Only set typing if we expect text output
     const result = await processCommand(command);
     
-    if (result === null) { // This handles nano or logout
-        setHistory(prev => prev.filter(h => h.id !== newHistoryItem.id)); // Remove the command from history for clean UI
-        return;
-    }
-    
-    // For commands with output, start typing
-    if (typeof result === 'string' && result.length > 0) {
-        setIsTyping(true);
-    } else if (React.isValidElement(result)) {
-        setIsTyping(false); // Components handle their own loading state
+    const hasOutput = (result && typeof result === 'string' && result.length > 0) || React.isValidElement(result);
+
+    if (hasOutput) {
+       setIsTyping(true);
     } else {
-        setIsTyping(false); // No output, no typing
+       setIsTyping(false); 
     }
     
     setHistory(prev => prev.map(h => 
@@ -189,3 +190,5 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     </div>
   );
 }
+
+      

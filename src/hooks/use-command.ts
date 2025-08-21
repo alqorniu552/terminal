@@ -24,7 +24,8 @@ import {
     restoreBackup, 
     addNodeToFilesystem,
     getMachine,
-    network
+    network,
+    resolvePath,
 } from '@/lib/filesystem';
 import { db, auth } from '@/lib/firebase';
 import { collection, query, where, getDocs, WhereFilterOp } from 'firebase/firestore';
@@ -164,26 +165,6 @@ Available commands:
 `;
 }
 
-const resolvePath = (cwd: string, path: string): string => {
-  if (path.startsWith('/')) {
-    const newParts = path.split('/').filter(p => p);
-    return '/' + newParts.join('/');
-  }
-
-  const parts = cwd === '/' ? [] : cwd.split('/').filter(p => p);
-  const newParts = path.split('/').filter(p => p);
-
-  for (const part of newParts) {
-    if (part === '.') continue;
-    if (part === '..') {
-      parts.pop();
-    } else {
-      parts.push(part);
-    }
-  }
-  return '/' + parts.join('/');
-};
-
 export const useCommand = (user: User | null | undefined) => {
   const [cwd, setCwd] = useState('/');
   const [currentHost, setCurrentHost] = useState(Object.keys(network)[0]);
@@ -214,15 +195,23 @@ export const useCommand = (user: User | null | undefined) => {
     
     let path;
     if (isRoot) {
-      path = cwd === rootHome ? '~' : (cwd.startsWith(rootHome + '/') ? `~${cwd.substring(rootHome.length)}` : cwd);
+      if (cwd === rootHome) {
+        path = '~';
+      } else if (cwd.startsWith(rootHome + '/')) {
+        path = `~${cwd.substring(rootHome.length)}`;
+      } else {
+        path = cwd;
+      }
     } else {
-      path = cwd === userHome ? '~' : (cwd.startsWith(userHome + '/') ? `~${cwd.substring(userHome.length)}` : cwd);
+      if (cwd === userHome) {
+        path = '~';
+      } else if (cwd.startsWith(userHome + '/')) {
+        path = `~${cwd.substring(userHome.length)}`;
+      } else {
+        path = cwd;
+      }
     }
     
-    path = path.replace('//', '/');
-    if (path !== '/' && path.endsWith('/')) path = path.slice(0, -1);
-    if (path === '') path = '/';
-
     const endChar = isRoot ? '#' : '$';
     const username = isRoot ? 'root' : user?.email?.split('@')[0] || 'guest';
     
@@ -241,21 +230,21 @@ export const useCommand = (user: User | null | undefined) => {
     
     const userHome = `/home/${user.email!.split('@')[0]}`;
     const rootHome = '/root';
-    
+    const resolvedPath = resolvePath(cwd, path);
+
     if (operation === 'write') {
-      return path.startsWith(userHome) || path.startsWith('/tmp');
+      return resolvedPath.startsWith(userHome) || resolvedPath.startsWith('/tmp');
     }
     
-    // Read operation
-    if (path.startsWith(rootHome)) return false;
+    if (resolvedPath.startsWith(rootHome)) return false;
     
-    const parts = path.split('/').filter(p => p);
+    const parts = resolvedPath.split('/').filter(p => p);
     if (parts[0] === 'home' && parts.length > 1 && parts[1] !== user.email!.split('@')[0]) {
       return false;
     }
     
     return true;
-  }, [isRoot, user]);
+  }, [isRoot, user, cwd]);
 
 
   const triggerWarlock = useCallback(async (action: string, awarenessIncrease: number): Promise<string | null> => {
@@ -470,7 +459,7 @@ export const useCommand = (user: User | null | undefined) => {
         content: initialContent, 
         onSaveCallback: targetPath.endsWith('.bashrc') ? loadAliases : undefined 
     });
-    return null; // Null indicates to Terminal component to render Nano
+    return '';
   };
   const handleGenerateImage = async (_: string[], fullCommand: string): Promise<string | React.ReactNode> => {
     const match = fullCommand.match(/^generate_image\s+"([^"]+)"/);
@@ -537,7 +526,7 @@ export const useCommand = (user: User | null | undefined) => {
           const path = `/var/news/${filename}`;
           const content = `TITLE: ${title}\nDATE: ${new Date().toISOString().split('T')[0]}\n\n`;
           setEditingFile({ path, content });
-          return null;
+          return '';
         }
         case 'edit': {
           const index = parseInt(args[1], 10) - 1;
@@ -546,7 +535,7 @@ export const useCommand = (user: User | null | undefined) => {
           const node = getNodeFromPath(path, currentHost);
           if (node?.type === 'file') {
             setEditingFile({ path, content: getDynamicContent(node.content) });
-            return null;
+            return '';
           }
           break;
         }
@@ -754,7 +743,7 @@ export const useCommand = (user: User | null | undefined) => {
     setIsRoot(true);
     setCwd('/root');
     const taunt = await triggerWarlock('Root access granted', 50);
-    return '' + (taunt || '');
+    return 'Switched to root user.' + (taunt || '');
   };
   const handleExit = async (): Promise<string> => {
     if (currentHost !== Object.keys(network)[0]) {
@@ -774,7 +763,7 @@ export const useCommand = (user: User | null | undefined) => {
   };
   const handleLogout = async (): Promise<string | null> => { 
       await auth.signOut(); 
-      return null; 
+      return ''; 
   };
   const handlePlan = async (_: string[], fullCommand: string): Promise<string> => {
     const match = fullCommand.match(/^plan\s+"([^"]+)"/);
@@ -833,9 +822,9 @@ export const useCommand = (user: User | null | undefined) => {
     restore_system: { handler: handleRestoreSystem, rootOnly: true },
   };
 
-  const processCommand = useCallback(async (command: string): Promise<string | React.ReactNode | null> => {
+  const processCommand = useCallback(async (command: string): Promise<string | React.ReactNode> => {
     setIsProcessing(true);
-    let result: string | React.ReactNode | null = '';
+    let result: string | React.ReactNode = '';
 
     if (confirmation) {
       const response = command.trim().toLowerCase();
@@ -848,15 +837,14 @@ export const useCommand = (user: User | null | undefined) => {
       } else if (authStep === 'email') {
         setAuthCredentials({ ...authCredentials, email: command.trim() });
         setAuthStep('password');
-        result = '';
       } else if (authStep === 'password') {
         const { email } = authCredentials;
         const password = command.trim();
         const authFn = authCommand === 'login' ? signInWithEmailAndPassword : createUserWithEmailAndPassword;
         try {
           const userCredential = await authFn(auth, email, password);
-          if (authCommand === 'register') {
-            const userHome = `/home/${userCredential.user.email!.split('@')[0]}`;
+          if (authCommand === 'register' && userCredential.user.email) {
+            const userHome = `/home/${userCredential.user.email.split('@')[0]}`;
             addNodeToFilesystem(userHome, { type: 'directory', children: {} }, currentHost);
           }
           result = authCommand === 'login' ? 'Login successful.' : 'Registration successful.';
@@ -886,7 +874,6 @@ export const useCommand = (user: User | null | undefined) => {
         if (cmd === 'login' || cmd === 'register') {
             setAuthCommand(cmd);
             setAuthStep('email');
-            result = '';
         } else if (cmd === 'help') {
             result = getHelpOutput(false, false);
         } else if (cmd !== '' && cmd !== 'clear') {
@@ -921,8 +908,8 @@ export const useCommand = (user: User | null | undefined) => {
   }, [
     confirmation, authStep, authCredentials, authCommand, sshCredentials, user, 
     isRoot, aliases, cwd, currentHost,
-    resetAuth, triggerWarlock, toast, hasPermission,
-    editingFile // ensure it's a dependency
+    resetAuth, triggerWarlock, toast,
+    editingFile
   ]);
 
   return { 
@@ -937,4 +924,5 @@ export const useCommand = (user: User | null | undefined) => {
   };
 };
 
-    
+
+      
