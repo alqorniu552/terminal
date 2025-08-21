@@ -12,7 +12,7 @@ import { craftPhish } from '@/ai/flows/craft-phish-flow';
 import { generateWarlockTaunt } from '@/ai/flows/warlock-threat-flow';
 import { forgeTool } from '@/ai/flows/forge-tool-flow';
 import { analyzeImage } from '@/ai/flows/analyze-image-flow';
-import { getNodeFromPath, getDynamicContent, updateNodeInFilesystem, removeNodeFromFilesystem, getWordlist } from '@/lib/filesystem';
+import { getNodeFromPath, getDynamicContent, updateNodeInFilesystem, removeNodeFromFilesystem, getWordlist, installPackage, isPackageInstalled } from '@/lib/filesystem';
 import { db, auth } from '@/lib/firebase';
 import { collection, query, where, getDocs, WhereFilterOp } from 'firebase/firestore';
 import { User, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
@@ -117,7 +117,8 @@ Available commands:
 `;
         if (isRoot) {
             helpText += `
-Root-only news commands:
+Root-only commands:
+  apt install <pkg>   - Install a package (e.g., 'nginx').
   news add "title"    - Create a new news article.
   news edit <number>  - Edit an existing news article.
   news del <number>   - Delete a news article.
@@ -604,111 +605,111 @@ export const useCommand = (user: User | null | undefined) => {
       }
 
       case 'news': {
-          const newsDir = getNodeFromPath('/var/news');
-          if (!newsDir || newsDir.type !== 'directory') {
-              setIsProcessing(false);
-              return "News directory not found.";
-          }
-          const articles = Object.keys(newsDir.children).sort();
-          const subCmd = args[0];
+        const newsDir = getNodeFromPath('/var/news');
+        if (!newsDir || newsDir.type !== 'directory') {
+            setIsProcessing(false);
+            return "News directory not found.";
+        }
+        const articles = Object.keys(newsDir.children).sort();
 
-          // 1. Check for reading an article by number
-          const articleNum = parseInt(subCmd, 10);
-          if (!isNaN(articleNum)) {
-              const articleIndex = articleNum - 1;
-              if (articleIndex >= 0 && articleIndex < articles.length) {
-                  const articleName = articles[articleIndex];
-                  const articleNode = newsDir.children[articleName];
-                  if (articleNode.type === 'file') {
-                      setIsProcessing(false);
-                      return getDynamicContent(articleNode.content);
-                  }
-              }
-              setIsProcessing(false);
-              return `news: invalid article number: ${articleNum}`;
-          }
+        // 1. Check for reading an article by number
+        const articleNum = parseInt(args[0], 10);
+        if (!isNaN(articleNum)) {
+            const articleIndex = articleNum - 1;
+            if (articleIndex >= 0 && articleIndex < articles.length) {
+                const articleName = articles[articleIndex];
+                const articleNode = newsDir.children[articleName];
+                if (articleNode.type === 'file') {
+                    setIsProcessing(false);
+                    return getDynamicContent(articleNode.content);
+                }
+            }
+            setIsProcessing(false);
+            return `news: invalid article number: ${articleNum}`;
+        }
+        
+        // 2. Check for listing articles (no sub-command or invalid sub-command for non-root)
+        if (args.length === 0) {
+            let output = "Available News:\n";
+            articles.forEach((articleFilename, index) => {
+                const node = newsDir.children[articleFilename];
+                let title = articleFilename.replace(/\.txt$/, '').replace(/[-_]/g, ' ');
+                if (node.type === 'file') {
+                    const content = getDynamicContent(node.content);
+                    const titleMatch = content.match(/^TITLE:\s*(.*)/);
+                    if (titleMatch && titleMatch[1]) {
+                        title = titleMatch[1];
+                    }
+                }
+                output += `[${index + 1}] ${title}\n`;
+            });
+            output += "\nType 'news <number>' to read an article.";
+            setIsProcessing(false);
+            return output;
+        }
 
-          // 2. Check for management commands (root only)
-          if (isRoot) {
-              switch (subCmd) {
-                  case 'add': {
-                      const titleMatch = command.match(/^news\s+add\s+"([^"]+)"/);
-                      if (!titleMatch || !titleMatch[1]) {
-                          setIsProcessing(false);
-                          return 'Usage: news add "Title of The Article"';
-                      }
-                      const title = titleMatch[1];
-                      const filename = `${Date.now()}-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-').substring(0, 50)}.txt`;
-                      const newFilePath = `/var/news/${filename}`;
-                      const content = `TITLE: ${title}\nDATE: ${new Date().toISOString().split('T')[0]}\n\n`;
+        // 3. Check for management commands (root only)
+        if (isRoot) {
+            const subCmd = args[0];
+            switch (subCmd) {
+                case 'add': {
+                    const titleMatch = command.match(/^news\s+add\s+"([^"]+)"/);
+                    if (!titleMatch || !titleMatch[1]) {
+                        setIsProcessing(false);
+                        return 'Usage: news add "Title of The Article"';
+                    }
+                    const title = titleMatch[1];
+                    const filename = `${Date.now()}-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-').substring(0, 50)}.txt`;
+                    const newFilePath = `/var/news/${filename}`;
+                    const content = `TITLE: ${title}\nDATE: ${new Date().toISOString().split('T')[0]}\n\n`;
 
-                      setEditingFile({ path: newFilePath, content });
-                      setIsProcessing(true);
-                      return '';
-                  }
-                  case 'edit': {
-                      const editIndex = parseInt(args[1], 10) - 1;
-                      if (isNaN(editIndex) || editIndex < 0 || editIndex >= articles.length) {
-                          setIsProcessing(false);
-                          return `news: invalid article number for editing: ${args[1]}`;
-                      }
-                      const articleName = articles[editIndex];
-                      const articlePath = `/var/news/${articleName}`;
-                      const articleNode = getNodeFromPath(articlePath);
+                    setEditingFile({ path: newFilePath, content });
+                    setIsProcessing(true);
+                    return '';
+                }
+                case 'edit': {
+                    const editIndex = parseInt(args[1], 10) - 1;
+                    if (isNaN(editIndex) || editIndex < 0 || editIndex >= articles.length) {
+                        setIsProcessing(false);
+                        return `news: invalid article number for editing: ${args[1]}`;
+                    }
+                    const articleName = articles[editIndex];
+                    const articlePath = `/var/news/${articleName}`;
+                    const articleNode = getNodeFromPath(articlePath);
 
-                      if (articleNode && articleNode.type === 'file') {
-                          const content = getDynamicContent(articleNode.content);
-                          setEditingFile({ path: articlePath, content });
-                          setIsProcessing(true);
-                          return '';
-                      }
-                      break;
-                  }
-                  case 'del': {
-                      const delIndex = parseInt(args[1], 10) - 1;
-                      if (isNaN(delIndex) || delIndex < 0 || delIndex >= articles.length) {
-                          setIsProcessing(false);
-                          return `news: invalid article number for deletion: ${args[1]}`;
-                      }
-                      const articleName = articles[delIndex];
-                      const articlePath = `/var/news/${articleName}`;
+                    if (articleNode && articleNode.type === 'file') {
+                        const content = getDynamicContent(articleNode.content);
+                        setEditingFile({ path: articlePath, content });
+                        setIsProcessing(true);
+                        return '';
+                    }
+                    break;
+                }
+                case 'del': {
+                    const delIndex = parseInt(args[1], 10) - 1;
+                    if (isNaN(delIndex) || delIndex < 0 || delIndex >= articles.length) {
+                        setIsProcessing(false);
+                        return `news: invalid article number for deletion: ${args[1]}`;
+                    }
+                    const articleName = articles[delIndex];
+                    const articlePath = `/var/news/${articleName}`;
 
-                      setConfirmation({
-                          message: `Are you sure you want to delete "${articleName}"?`,
-                          onConfirm: async () => {
-                              const success = removeNodeFromFilesystem(articlePath);
-                              return success ? `Article "${articleName}" deleted.` : "Failed to delete article.";
-                          },
-                      });
-                      setIsProcessing(false);
-                      return '';
-                  }
-              }
-          }
+                    setConfirmation({
+                        message: `Are you sure you want to delete "${articleName}"?`,
+                        onConfirm: async () => {
+                            const success = removeNodeFromFilesystem(articlePath);
+                            return success ? `Article "${articleName}" deleted.` : "Failed to delete article.";
+                        },
+                    });
+                    setIsProcessing(false);
+                    return '';
+                }
+            }
+        }
 
-          // 3. Check for listing articles (no sub-command)
-          if (!subCmd) {
-              let output = "Available News:\n";
-              articles.forEach((articleFilename, index) => {
-                  const node = newsDir.children[articleFilename];
-                  let title = articleFilename.replace(/\.txt$/, '').replace(/[-_]/g, ' ');
-                  if (node.type === 'file') {
-                      const content = getDynamicContent(node.content);
-                      const titleMatch = content.match(/^TITLE:\s*(.*)/);
-                      if (titleMatch && titleMatch[1]) {
-                          title = titleMatch[1];
-                      }
-                  }
-                  output += `[${index + 1}] ${title}\n`;
-              });
-              output += "\nType 'news <number>' to read an article.";
-              setIsProcessing(false);
-              return output;
-          }
-
-          // 4. If none of the above, it's an invalid command
-          setIsProcessing(false);
-          return `news: invalid command or insufficient permissions for '${subCmd}'. Type 'news' to see available articles.`;
+        // 4. If none of the above, it's an invalid command
+        setIsProcessing(false);
+        return `news: invalid command or insufficient permissions for '${args[0]}'. Type 'news' to see available articles.`;
       }
       
         case 'crack': {
@@ -896,6 +897,54 @@ export const useCommand = (user: User | null | undefined) => {
                 setIsProcessing(false);
                 return `Error: AI failed to analyze the image.`;
             }
+        }
+
+        case 'apt': {
+            if (!isRoot) {
+                setIsProcessing(false);
+                return `apt: command not found. Did you mean 'cat'?`;
+            }
+            const [subCmd, pkg] = args;
+            if (subCmd !== 'install' || !pkg) {
+                setIsProcessing(false);
+                return `Usage: apt install <package>`;
+            }
+            if (pkg === 'nginx') {
+                if (isPackageInstalled('nginx')) {
+                    setIsProcessing(false);
+                    return 'nginx is already the newest version (1.18.0-6ubuntu14.4).';
+                }
+                setConfirmation({
+                    message: `The following NEW packages will be installed:\n  nginx nginx-common nginx-core\nAfter this operation, 8,192 kB of additional disk space will be used.\nDo you want to continue?`,
+                    onConfirm: async () => {
+                        installPackage('nginx');
+                        warlockTaunt = await triggerWarlock(`Installed nginx`, 15);
+                        return 'Setting up nginx (1.18.0-6ubuntu14.4) ...\nCreated symlink /etc/systemd/system/multi-user.target.wants/nginx.service → /lib/systemd/system/nginx.service.' + (warlockTaunt || '');
+                    },
+                });
+                setIsProcessing(false);
+                return '';
+            } else {
+                setIsProcessing(false);
+                return `E: Unable to locate package ${pkg}`;
+            }
+        }
+
+        case 'nginx': {
+            const flag = args[0];
+            if (isPackageInstalled('nginx')) {
+                if (flag === '-v') {
+                    setIsProcessing(false);
+                    return 'nginx version: nginx/1.18.0 (Ubuntu)';
+                }
+                 if (flag === '-t') {
+                    setIsProcessing(false);
+                    return 'nginx: the configuration file /etc/nginx/nginx.conf syntax is ok\nnginx: configuration file /etc/nginx/nginx.conf test is successful';
+                }
+                 setIsProcessing(false);
+                return 'Usage: nginx [-v | -t]';
+            }
+            // Fall through to default if not installed
         }
 
       case 'su': {

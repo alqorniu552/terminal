@@ -175,6 +175,11 @@ export const initialFilesystem: Directory = {
                     'strings': { type: 'file', path: '/usr/bin/strings', content: 'Binary file' },
                 }
             },
+            'sbin': {
+                type: 'directory',
+                path: '/usr/sbin',
+                children: {}
+            },
             'lib': { type: 'directory', path: '/usr/lib', children: {} },
             'share': { type: 'directory', path: '/usr/share', children: {} },
         }
@@ -359,6 +364,31 @@ export const getDynamicContent = (content: string | (() => string)): string => {
     return rawContent;
 }
 
+const addNodeToFilesystem = (path: string, node: FilesystemNode): boolean => {
+    const parts = path.split('/').filter(p => p);
+    const nodeName = parts.pop();
+    if (!nodeName) return false;
+
+    let currentDir: FilesystemNode = currentFilesystem;
+    for (const part of parts) {
+        if (currentDir.type === 'directory' && currentDir.children[part]) {
+            currentDir = currentDir.children[part];
+        } else if (currentDir.type === 'directory' && !currentDir.children[part]) {
+            // Create intermediate directories if they don't exist
+            currentDir.children[part] = { type: 'directory', children: {} };
+            currentDir = currentDir.children[part];
+        } else {
+            return false; // Path segment is a file, cannot add node here
+        }
+    }
+
+    if (currentDir.type === 'directory') {
+        currentDir.children[nodeName] = node;
+        return true;
+    }
+    return false;
+};
+
 // Helper to update the filesystem in memory
 export const updateNodeInFilesystem = (path: string, newContent: string): boolean => {
     const parts = path.split('/').filter(p => p);
@@ -409,5 +439,81 @@ export const removeNodeFromFilesystem = (path: string): boolean => {
         return true;
     }
 
+    return false;
+};
+
+
+export const isPackageInstalled = (pkg: string): boolean => {
+    if (pkg === 'nginx') {
+        return !!getNodeFromPath('/etc/nginx');
+    }
+    return false;
+};
+
+export const installPackage = (pkg: string): boolean => {
+    if (pkg === 'nginx') {
+        if (isPackageInstalled('nginx')) return true;
+
+        // Create Nginx directory structure and files
+        addNodeToFilesystem('/etc/nginx', { type: 'directory', children: {} });
+        addNodeToFilesystem('/etc/nginx/sites-available', { type: 'directory', children: {} });
+        addNodeToFilesystem('/etc/nginx/sites-enabled', { type: 'directory', children: {} });
+        addNodeToFilesystem('/var/log/nginx', { type: 'directory', children: {} });
+        
+        const nginxConfContent = `user www-data;
+worker_processes auto;
+pid /run/nginx.pid;
+include /etc/nginx/modules-enabled/*.conf;
+
+events {
+    worker_connections 768;
+}
+
+http {
+    sendfile on;
+    tcp_nopush on;
+    types_hash_max_size 2048;
+
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers on;
+    
+    access_log /var/log/nginx/access.log;
+    error_log /var/log/nginx/error.log;
+
+    gzip on;
+
+    include /etc/nginx/conf.d/*.conf;
+    include /etc/nginx/sites-enabled/*;
+}`;
+        addNodeToFilesystem('/etc/nginx/nginx.conf', { type: 'file', content: nginxConfContent });
+
+        const defaultSiteContent = `server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+
+    root /var/www/html;
+    index index.html index.htm;
+
+    server_name _;
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+}`;
+        addNodeToFilesystem('/etc/nginx/sites-available/default', { type: 'file', content: defaultSiteContent });
+        
+        // Simulate symlink
+        addNodeToFilesystem('/etc/nginx/sites-enabled/default', { type: 'file', content: defaultSiteContent });
+        
+        addNodeToFilesystem('/var/log/nginx/access.log', { type: 'file', content: '' });
+        addNodeToFilesystem('/var/log/nginx/error.log', { type: 'file', content: '' });
+
+        addNodeToFilesystem('/usr/sbin/nginx', { type: 'file', content: 'Binary file' });
+
+        return true;
+    }
     return false;
 };
