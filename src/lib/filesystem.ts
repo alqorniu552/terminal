@@ -160,7 +160,14 @@ export const initialFilesystem: Directory = {
     'tmp': {
         type: 'directory',
         path: '/tmp',
-        children: {}
+        children: {
+            'corrupted.dat': {
+                type: 'file',
+                path: '/tmp/corrupted.dat',
+                content: 'Binary gibberish data... looks corrupted.',
+                logicBomb: true,
+            }
+        }
     },
     'usr': {
         type: 'directory',
@@ -188,6 +195,17 @@ export const initialFilesystem: Directory = {
       type: 'directory',
       path: '/var',
       children: {
+        'backups': {
+            type: 'directory',
+            path: '/var/backups',
+            children: {
+                'snapshot.tgz': {
+                    type: 'file',
+                    path: '/var/backups/snapshot.tgz',
+                    content: 'System backup archive. Contains a copy of user files.'
+                }
+            }
+        },
         'log': {
             type: 'directory',
             path: '/var/log',
@@ -332,9 +350,11 @@ The vulnerability, dubbed 'Ether-Leak', is being actively exploited in the wild 
 };
 
 let currentFilesystem = JSON.parse(JSON.stringify(initialFilesystem));
+let originalFileCache: { [path: string]: FilesystemNode } = {};
 
 export const resetFilesystem = () => {
     currentFilesystem = JSON.parse(JSON.stringify(initialFilesystem));
+    originalFileCache = {};
 }
 
 export const getNodeFromPath = (path: string): FilesystemNode | null => {
@@ -393,26 +413,30 @@ const addNodeToFilesystem = (path: string, node: FilesystemNode): boolean => {
 export const updateNodeInFilesystem = (path: string, newContent: string): boolean => {
     const parts = path.split('/').filter(p => p);
     let currentNode: FilesystemNode = currentFilesystem;
+    let parentNode: Directory | null = null;
+    let lastPart = '';
 
-    for (let i = 0; i < parts.length - 1; i++) {
+    for (let i = 0; i < parts.length; i++) {
         const part = parts[i];
-        if (currentNode.type === 'directory' && currentNode.children[part]) {
-            currentNode = currentNode.children[part];
+        if (currentNode.type === 'directory') {
+            parentNode = currentNode;
+            lastPart = part;
+            if (currentNode.children[part]) {
+                currentNode = currentNode.children[part];
+            } else {
+                // If the last part of the path doesn't exist, we can create it
+                if (i === parts.length - 1) {
+                    break; 
+                }
+                return false;
+            }
         } else {
-            // If a directory in the path doesn't exist, we can't create the file.
-            return false;
+             return false;
         }
     }
-
-    if (currentNode.type === 'directory') {
-        const filename = parts[parts.length - 1];
-        const existingNode = currentNode.children[filename];
-        if (existingNode && existingNode.type === 'directory') {
-            // Cannot overwrite a directory with a file
-            return false;
-        }
-        // Create or update the file
-        currentNode.children[filename] = { type: 'file', content: newContent, path };
+    
+    if (parentNode && parentNode.type === 'directory') {
+        parentNode.children[lastPart] = { type: 'file', content: newContent, path };
         return true;
     }
     
@@ -516,4 +540,93 @@ http {
         return true;
     }
     return false;
+};
+
+// Ransomware Simulation
+export const triggerRansomware = (userHomePath: string): string[] => {
+    const userHomeNode = getNodeFromPath(userHomePath);
+    if (!userHomeNode || userHomeNode.type !== 'directory') {
+        return [];
+    }
+
+    const encryptedFiles: string[] = [];
+    originalFileCache = {}; // Clear previous cache
+
+    const recurseAndEncrypt = (dir: Directory, currentPath: string) => {
+        Object.keys(dir.children).forEach(name => {
+            const node = dir.children[name];
+            const fullPath = `${currentPath}/${name}`.replace('//', '/');
+            
+            if (node.type === 'file') {
+                // Cache the original file before overwriting
+                originalFileCache[fullPath] = JSON.parse(JSON.stringify(node)); 
+
+                const encryptedNode: File = {
+                    type: 'file',
+                    content: `[FILE ANDA TELAH DIENKRIPSI OLEH DEADBOLT]\nID unik: ${Math.random().toString(36).substring(2)}`,
+                    path: `${fullPath}.deadbolt`
+                };
+                dir.children[`${name}.deadbolt`] = encryptedNode;
+                delete dir.children[name];
+                encryptedFiles.push(fullPath);
+            } else if (node.type === 'directory') {
+                recurseAndEncrypt(node, fullPath);
+            }
+        });
+    };
+
+    recurseAndEncrypt(userHomeNode, userHomePath);
+
+    // Drop the ransom note
+    const ransomNoteContent = `
+Semua file pribadi Anda telah dienkripsi oleh DEADBOLT.
+File Anda tidak dapat dipulihkan dengan cara apa pun selain dengan kunci dekripsi kami.
+
+Jangan coba-coba memulihkan file Anda sendiri, Anda akan merusaknya secara permanen.
+
+Satu-satunya cara untuk mendapatkan kembali file Anda adalah dengan membayar tebusan.
+...
+PEMULIHAN SISTEM DARURAT MUNGKIN TERSEDIA UNTUK ADMINISTRATOR.
+FLAG{DEADBOLT_DEFEATED_BY_BACKUPS}`;
+
+    userHomeNode.children['RANSOM_NOTE.txt'] = {
+        type: 'file',
+        content: ransomNoteContent,
+        path: `${userHomePath}/RANSOM_NOTE.txt`
+    };
+
+    return encryptedFiles;
+};
+
+export const restoreBackup = (userHomePath: string): boolean => {
+    const userHomeNode = getNodeFromPath(userHomePath);
+    if (!userHomeNode || userHomeNode.type !== 'directory') {
+        return false;
+    }
+    
+    // Clear the current home directory
+    userHomeNode.children = {};
+
+    // Restore from cache
+    Object.keys(originalFileCache).forEach(path => {
+        if (path.startsWith(userHomePath)) {
+            const relativePath = path.substring(userHomePath.length + 1);
+            const parts = relativePath.split('/');
+            let currentNode = userHomeNode;
+
+            for (let i = 0; i < parts.length - 1; i++) {
+                const part = parts[i];
+                if (!currentNode.children[part]) {
+                    currentNode.children[part] = { type: 'directory', children: {} };
+                }
+                currentNode = currentNode.children[part] as Directory;
+            }
+            
+            const filename = parts[parts.length - 1];
+            currentNode.children[filename] = originalFileCache[path];
+        }
+    });
+
+    originalFileCache = {}; // Clear cache after use
+    return true;
 };

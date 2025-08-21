@@ -12,7 +12,7 @@ import { craftPhish } from '@/ai/flows/craft-phish-flow';
 import { generateWarlockTaunt } from '@/ai/flows/warlock-threat-flow';
 import { forgeTool } from '@/ai/flows/forge-tool-flow';
 import { analyzeImage } from '@/ai/flows/analyze-image-flow';
-import { getNodeFromPath, getDynamicContent, updateNodeInFilesystem, removeNodeFromFilesystem, getWordlist, installPackage, isPackageInstalled } from '@/lib/filesystem';
+import { getNodeFromPath, getDynamicContent, updateNodeInFilesystem, removeNodeFromFilesystem, getWordlist, installPackage, isPackageInstalled, triggerRansomware, restoreBackup } from '@/lib/filesystem';
 import { db, auth } from '@/lib/firebase';
 import { collection, query, where, getDocs, WhereFilterOp } from 'firebase/firestore';
 import { User, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
@@ -119,6 +119,7 @@ Available commands:
             helpText += `
 Root-only commands:
   apt install <pkg>   - Install a package (e.g., 'nginx').
+  restore_system <bak>- Restore system from a backup file.
   news add "title"    - Create a new news article.
   news edit <number>  - Edit an existing news article.
   news del <number>   - Delete a news article.
@@ -451,7 +452,12 @@ export const useCommand = (user: User | null | undefined) => {
         if (node && node.type === 'directory') {
           setIsProcessing(false);
           return Object.keys(node.children).map(key => {
-            return node.children[key].type === 'directory' ? `\x1b[1;34m${key}/\x1b[0m` : key;
+            const childNode = node.children[key];
+            let name = key;
+            if (childNode.type === 'directory') name = `\x1b[1;34m${key}/\x1b[0m`;
+            // Check for ransomware extension
+            if (key.endsWith('.deadbolt')) name = `\x1b[1;31m${key}\x1b[0m`;
+            return name;
           }).join('\n');
         }
         setIsProcessing(false);
@@ -501,13 +507,25 @@ export const useCommand = (user: User | null | undefined) => {
         }
         const node = getNodeFromPath(targetPath);
         if (node && node.type === 'file') {
-          if (targetPath.includes('auth.log') || targetPath.includes('shadow.bak')) {
-              warlockTaunt = await triggerWarlock(`cat on sensitive file ${targetFile}`, 15);
-          } else {
-              warlockTaunt = await triggerWarlock(`cat on ${targetFile}`, 2);
-          }
-          setIsProcessing(false);
-          return getDynamicContent(node.content) + (warlockTaunt || '');
+            // Check for logic bomb
+            if (node.logicBomb && user) {
+                const userHome = `/home/${user.email.split('@')[0]}`;
+                const encryptedFiles = triggerRansomware(userHome);
+                let output = `\x1b[1;31m[DEADBOLT RANSOMWARE ACTIVATED]\nInitializing encryption protocol...\n\n`;
+                output += encryptedFiles.map(f => `Encrypting ${f}...`).join('\n');
+                output += `\n\nEncryption complete. Your personal files are now hostage.\nCheck the ransom note in your home directory.`;
+                warlockTaunt = await triggerWarlock(`User triggered ransomware!`, 100);
+                setIsProcessing(false);
+                return output + (warlockTaunt || '');
+            }
+
+            if (targetPath.includes('auth.log') || targetPath.includes('shadow.bak')) {
+                warlockTaunt = await triggerWarlock(`cat on sensitive file ${targetFile}`, 15);
+            } else {
+                warlockTaunt = await triggerWarlock(`cat on ${targetFile}`, 2);
+            }
+            setIsProcessing(false);
+            return getDynamicContent(node.content) + (warlockTaunt || '');
         }
         setIsProcessing(false);
         return `cat: ${targetFile}: No such file or directory`;
@@ -628,7 +646,7 @@ export const useCommand = (user: User | null | undefined) => {
             return `news: invalid article number: ${articleNum}`;
         }
         
-        // 2. Check for listing articles (no sub-command or invalid sub-command for non-root)
+        // 2. Check for listing articles (no sub-command)
         if (args.length === 0) {
             let output = "Available News:\n";
             articles.forEach((articleFilename, index) => {
@@ -945,6 +963,41 @@ export const useCommand = (user: User | null | undefined) => {
                 return 'Usage: nginx [-v | -t]';
             }
             // Fall through to default if not installed
+        }
+        
+        case 'restore_system': {
+            const backupFile = args[0];
+            if (!isRoot) {
+                setIsProcessing(false);
+                return `restore_system: command not found.`;
+            }
+            if (!backupFile) {
+                setIsProcessing(false);
+                return "Usage: restore_system <backup_file>";
+            }
+            const backupPath = resolvePath(cwd, backupFile);
+            const backupNode = getNodeFromPath(backupPath);
+            if (backupPath !== '/var/backups/snapshot.tgz' || !backupNode) {
+                setIsProcessing(false);
+                return "restore_system: Backup file not found or invalid.";
+            }
+
+            setConfirmation({
+                message: "Are you sure you want to restore the system from backup? This will overwrite user files.",
+                onConfirm: async () => {
+                    if (user) {
+                        const userHome = `/home/${user.email.split('@')[0]}`;
+                        const success = restoreBackup(userHome);
+                        if (success) {
+                            warlockTaunt = await triggerWarlock(`System restore initiated.`, -50);
+                            return "System restored successfully from snapshot. Ransomware neutralized." + (warlockTaunt || '');
+                        }
+                    }
+                    return "System restore failed. User context not found.";
+                },
+            });
+            setIsProcessing(false);
+            return '';
         }
 
       case 'su': {
