@@ -227,24 +227,29 @@ export const useCommand = (user: User | null | undefined) => {
   const hasPermission = useCallback((path: string, operation: 'read' | 'write' = 'read'): boolean => {
     if (isRoot) return true;
     if (!user) return false;
-    
+
     const userHome = `/home/${user.email!.split('@')[0]}`;
     const rootHome = '/root';
-    const resolvedPath = resolvePath(cwd, path);
 
     if (operation === 'write') {
-      return resolvedPath.startsWith(userHome) || resolvedPath.startsWith('/tmp');
+        // Can only write to own home directory or /tmp
+        return path.startsWith(userHome) || path.startsWith('/tmp');
+    }
+
+    // Read permissions
+    if (path.startsWith(rootHome)) {
+        return false; // Cannot read root's home
     }
     
-    if (resolvedPath.startsWith(rootHome)) return false;
-    
-    const parts = resolvedPath.split('/').filter(p => p);
-    if (parts[0] === 'home' && parts.length > 1 && parts[1] !== user.email!.split('@')[0]) {
-      return false;
+    const pathParts = path.split('/').filter(p => p);
+    if (pathParts[0] === 'home' && pathParts.length > 1) {
+        // If path is inside /home, can only read own home directory
+        return pathParts[1] === user.email!.split('@')[0];
     }
-    
+
+    // Allow reading from other top-level directories
     return true;
-  }, [isRoot, user, cwd]);
+  }, [isRoot, user]);
 
 
   const triggerWarlock = useCallback(async (action: string, awarenessIncrease: number): Promise<string | null> => {
@@ -923,6 +928,3 @@ export const useCommand = (user: User | null | undefined) => {
     exitEditor,
   };
 };
-
-
-      
