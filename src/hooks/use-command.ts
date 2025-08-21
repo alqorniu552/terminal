@@ -26,7 +26,7 @@ return `
 ${email}@cyber
 --------------------
 OS: Web Browser
-Host: Command Center v1.0
+Host: Cyber v1.0
 Kernel: Next.js
 Uptime: ${uptime} seconds
 Shell: term-sim
@@ -45,6 +45,7 @@ Available commands:
   generate_image "[p]"- Generate an image from a prompt.
   neofetch            - Display system information.
   db "[query]"        - Query the database using natural language (e.g., "list all users").
+  news [number]       - Read news articles. Type 'news' to see the list.
   clear               - Clear the terminal screen.
   logout              - Log out from the application.
 `;
@@ -55,7 +56,6 @@ Available commands:
         }
         helpText += `
 For unrecognized commands, AI will try to provide assistance.
-Check out the latest articles in /var/news
 `;
         return helpText;
     }
@@ -216,7 +216,7 @@ export const useCommand = (user: User | null | undefined) => {
         }
         return `Welcome, ${user.email}! Type 'help' for a list of commands.`;
     }
-    return `Welcome to Command Center! Please 'login' or 'register' to continue.`;
+    return `Welcome to Cyber! Please 'login' or 'register' to continue.`;
   }, [user]);
 
   const processCommand = useCallback(async (command: string): Promise<string | React.ReactNode> => {
@@ -469,6 +469,42 @@ export const useCommand = (user: User | null | undefined) => {
           setIsProcessing(false);
           return `Error: Could not query database.`;
         }
+      }
+
+      case 'news': {
+        const newsDir = getNodeFromPath('/var/news');
+        if (!newsDir || newsDir.type !== 'directory') {
+          setIsProcessing(false);
+          return "News directory not found.";
+        }
+        
+        const articles = Object.keys(newsDir.children).sort();
+
+        if (!arg) {
+          let output = "Available News:\n";
+          articles.forEach((article, index) => {
+            output += `[${index + 1}] ${article}\n`;
+          });
+          output += "\nType 'news <number>' to read an article.";
+          setIsProcessing(false);
+          return output;
+        }
+
+        const articleIndex = parseInt(arg, 10) - 1;
+        if (isNaN(articleIndex) || articleIndex < 0 || articleIndex >= articles.length) {
+          setIsProcessing(false);
+          return `news: invalid article number: ${arg}`;
+        }
+        
+        const articleName = articles[articleIndex];
+        const articleNode = newsDir.children[articleName];
+        if (articleNode.type === 'file') {
+          setIsProcessing(false);
+          return getDynamicContent(articleNode.content);
+        }
+        
+        setIsProcessing(false);
+        return "Could not read article.";
       }
 
       case 'su': {

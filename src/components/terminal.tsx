@@ -29,6 +29,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
       getWelcomeMessage,
       authStep,
       isProcessing,
+      editingFile
   } = useCommand(user);
 
   const [isTyping, setIsTyping] = useState(true);
@@ -66,7 +67,9 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
   }, [user, loadWelcomeMessage]);
 
   useEffect(() => {
-    endOfHistoryRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (!isTyping) {
+        endOfHistoryRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [history, isTyping]);
   
   const handleCommandSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -115,12 +118,21 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     }
   };
   
-  const showInput = !isTyping && !isProcessing;
+  const showInput = !isTyping && !isProcessing && !editingFile;
   const isPasswordStep = authStep === 'password';
 
   return (
     <div className="h-full w-full p-2 md:p-4 font-code text-base md:text-lg text-primary overflow-y-auto" onClick={focusInput}>
       
+      {editingFile && (
+        <div className="fixed inset-0 bg-black z-50">
+            {
+               React.isValidElement(history[history.length-1].output) && 
+               history[history.length-1].output
+            }
+        </div>
+      )}
+
       <div className="text-shadow-glow">
         {history.map((item, index) => (
           <div key={item.id}>
