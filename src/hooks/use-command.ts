@@ -10,50 +10,6 @@ import { db, auth } from '@/lib/firebase';
 import { collection, query, where, getDocs, WhereFilterOp, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/firestore';
 import { User } from 'firebase/auth';
 
-const getNeofetchOutput = (user: User | null | undefined) => {
-    let uptime = 0;
-    if (typeof window !== 'undefined') {
-        uptime = Math.floor(performance.now() / 1000);
-    }
-    const email = user?.email || 'guest';
-
-return `
-${email}@command-center
---------------------
-OS: Web Browser
-Host: Command Center v1.0
-Kernel: Next.js
-Uptime: ${uptime} seconds
-Shell: term-sim
-`;
-};
-
-const getHelpOutput = (isLoggedIn: boolean) => {
-    if (isLoggedIn) {
-        return `
-Available commands:
-  help          - Show this help message.
-  ls [path]     - List directory contents.
-  cd [path]     - Change directory.
-  cat [file]    - Display file content.
-  neofetch      - Display system information.
-  db "[query]"  - Query the database using natural language.
-  clear         - Clear the terminal screen.
-  logout        - Log out from the application.
-
-For unrecognized commands, AI will try to provide assistance.
-`;
-    }
-    return `
-Available commands:
-  help          - Show this help message.
-  login [email] [password] - Log in to your account.
-  register [email] [password] - Create a new account.
-  clear         - Clear the terminal screen.
-`;
-}
-
-
 const resolvePath = (cwd: string, path: string): string => {
   if (path.startsWith('/')) {
     const newParts = path.split('/').filter(p => p);
@@ -88,22 +44,69 @@ const getNodeFromPath = (path: string): FilesystemNode | null => {
   return currentNode;
 };
 
+const getNeofetchOutput = (user: User | null | undefined) => {
+    let uptime = 0;
+    if (typeof window !== 'undefined') {
+        uptime = Math.floor(performance.now() / 1000);
+    }
+    const email = user?.email || 'guest';
+
+return `
+${email}@command-center
+--------------------
+OS: Web Browser
+Host: Command Center v1.0
+Kernel: Next.js
+Uptime: ${uptime} seconds
+Shell: term-sim
+`;
+};
+
+const getHelpOutput = (isLoggedIn: boolean) => {
+    if (isLoggedIn) {
+        return `
+Available commands:
+  help          - Show this help message.
+  ls [path]     - List directory contents.
+  cd [path]     - Change directory.
+  cat [file]    - Display file content.
+  neofetch      - Display system information.
+  prompt [value]- Set a new prompt.
+  db "[query]"  - Query the database using natural language.
+  clear         - Clear the terminal screen.
+  logout        - Log out from the application.
+
+For unrecognized commands, AI will try to provide assistance.
+`;
+    }
+    return `
+Available commands:
+  help          - Show this help message.
+  login [email] [password] - Log in to your account.
+  register [email] [password] - Create a new account.
+  clear         - Clear the terminal screen.
+`;
+}
+
 export const useCommand = (user: User | null | undefined) => {
   const [cwd, setCwd] = useState('/');
   const getInitialPrompt = useCallback(() => {
-    const path = cwd === '/' ? '~' : `~${cwd}`;
     if (user) {
-        return `${user.email?.split('@')[0]}@command-center:${path}$`;
+        return `${user.email?.split('@')[0]}@command-center:~$`;
     }
     return 'guest@command-center:~$';
-  }, [user, cwd]);
+  }, [user]);
 
   const [prompt, setPrompt] = useState(getInitialPrompt());
   const { toast } = useToast();
   
   useEffect(() => {
     setPrompt(getInitialPrompt());
-  }, [user, getInitialPrompt, cwd]);
+  }, [user, getInitialPrompt]);
+
+  const resetPrompt = useCallback(() => {
+      setPrompt(getInitialPrompt());
+  }, [getInitialPrompt]);
 
   const getWelcomeMessage = useCallback(() => {
     if (user) {
@@ -139,8 +142,6 @@ export const useCommand = (user: User | null | undefined) => {
                 return getHelpOutput(false);
             case '':
                 return '';
-            case 'clear':
-                return '';
             default:
                 return `Command not found: ${cmd}. Please 'login' or 'register'.`;
         }
@@ -159,7 +160,7 @@ export const useCommand = (user: User | null | undefined) => {
         const node = getNodeFromPath(targetPath);
         if (node && node.type === 'directory') {
           return Object.keys(node.children).map(key => {
-            return node.children[key].type === 'directory' ? `${key}/` : key;
+            return node.children[key].type === 'directory' ? `\x1b[1;34m${key}/\x1b[0m` : key;
           }).join('\n');
         }
         return `ls: cannot access '${arg || '.'}': No such file or directory`;
@@ -168,12 +169,15 @@ export const useCommand = (user: User | null | undefined) => {
       case 'cd': {
         if (!arg || arg === '~') {
           setCwd('/');
+          setPrompt(`${user.email?.split('@')[0]}@command-center:~$`);
           return '';
         }
         const newPath = resolvePath(cwd, arg);
         const node = getNodeFromPath(newPath);
         if (node && node.type === 'directory') {
           setCwd(newPath);
+          const newPromptPath = newPath === '/' ? '~' : `~${newPath}`;
+          setPrompt(`${user.email?.split('@')[0]}@command-center:${newPromptPath}$`);
           return '';
         }
         return `cd: no such file or directory: ${arg}`;
@@ -227,16 +231,13 @@ export const useCommand = (user: User | null | undefined) => {
         await auth.signOut();
         return 'Logged out successfully.';
       }
-
-      case 'clear':
-        return '';
       
       case '':
         return '';
 
       default: {
         try {
-          const result = await generateCommandHelp({ command: cmd, args });
+          const result = await generateCommandHelp({ command: cmd });
           return result.helpMessage;
         } catch (error) {
           console.error('AI command help failed:', error);
@@ -251,8 +252,5 @@ export const useCommand = (user: User | null | undefined) => {
     }
   }, [cwd, toast, user, prompt]);
 
-  return { prompt, processCommand, getWelcomeMessage };
+  return { prompt, setPrompt, processCommand, resetPrompt, getWelcomeMessage };
 };
-
-
-    
