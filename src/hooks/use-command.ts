@@ -37,7 +37,6 @@ Available commands:
   cd [path]     - Change directory.
   cat [file]    - Display file content.
   neofetch      - Display system information.
-  prompt [value]- Set a new prompt.
   db "[query]"  - Query the database using natural language.
   clear         - Clear the terminal screen.
   logout        - Log out from the application.
@@ -92,11 +91,11 @@ const getNodeFromPath = (path: string): FilesystemNode | null => {
 export const useCommand = (user: User | null | undefined) => {
   const [cwd, setCwd] = useState('/');
   const getInitialPrompt = useCallback(() => {
+    const path = cwd === '/' ? '~' : `~${cwd}`;
     if (user) {
-        const path = cwd === '/' ? '~' : `~${cwd}`;
-        return `${user.email?.split('@')[0]}@command-center:${path}$ `;
+        return `${user.email?.split('@')[0]}@command-center:${path}$`;
     }
-    return 'guest@command-center:~$ ';
+    return 'guest@command-center:~$';
   }, [user, cwd]);
 
   const [prompt, setPrompt] = useState(getInitialPrompt());
@@ -140,6 +139,8 @@ export const useCommand = (user: User | null | undefined) => {
                 return getHelpOutput(false);
             case '':
                 return '';
+            case 'clear':
+                return '';
             default:
                 return `Command not found: ${cmd}. Please 'login' or 'register'.`;
         }
@@ -152,12 +153,7 @@ export const useCommand = (user: User | null | undefined) => {
         return getHelpOutput(true);
       case 'neofetch':
         return getNeofetchOutput(user);
-      case 'prompt': {
-          if (arg) {
-              setPrompt(arg);
-          }
-          return '';
-      }
+      
       case 'ls': {
         const targetPath = arg ? resolvePath(cwd, arg) : cwd;
         const node = getNodeFromPath(targetPath);
@@ -199,12 +195,11 @@ export const useCommand = (user: User | null | undefined) => {
       }
 
       case 'db': {
-        const dbQuery = command.trim().substring(cmd.length).trim().slice(1, -1);
-        if (!dbQuery) {
+        if (!arg) {
           return 'db: missing query. Usage: db "your natural language query"';
         }
         try {
-          const queryInstruction = await databaseQuery({ query: dbQuery });
+          const queryInstruction = await databaseQuery({ query: arg });
           
           const whereClauses = queryInstruction.where.map(w => where(w[0], w[1] as WhereFilterOp, w[2]));
           const q = query(collection(db, queryInstruction.collection), ...whereClauses);
@@ -232,6 +227,9 @@ export const useCommand = (user: User | null | undefined) => {
         await auth.signOut();
         return 'Logged out successfully.';
       }
+
+      case 'clear':
+        return '';
       
       case '':
         return '';
@@ -251,7 +249,10 @@ export const useCommand = (user: User | null | undefined) => {
         }
       }
     }
-  }, [cwd, toast, user]);
+  }, [cwd, toast, user, prompt]);
 
   return { prompt, processCommand, getWelcomeMessage };
 };
+
+
+    
