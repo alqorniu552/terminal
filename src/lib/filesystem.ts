@@ -104,29 +104,7 @@ export const initialFilesystem: Directory = {
     'home': {
         type: 'directory',
         path: '/home',
-        children: {
-            'user1': {
-                type: 'directory',
-                path: '/home/user1',
-                children: {
-                    'documents': {
-                        type: 'directory',
-                        path: '/home/user1/documents',
-                        children: {
-                            'notes.txt': { type: 'file', path: '/home/user1/documents/notes.txt', content: 'My secret project ideas...' }
-                        }
-                    },
-                    'main.py': { type: 'file', path: '/home/user1/main.py', content: 'print("Hello from user1")' }
-                }
-            },
-            'user2': {
-                type: 'directory',
-                path: '/home/user2',
-                children: {
-                    'config.json': { type: 'file', path: '/home/user2/config.json', content: '{ "theme": "dark" }' }
-                }
-            }
-        }
+        children: {}
     },
     'lib': {
         type: 'directory',
@@ -384,7 +362,7 @@ export const getDynamicContent = (content: string | (() => string)): string => {
     return rawContent;
 }
 
-const addNodeToFilesystem = (path: string, node: FilesystemNode): boolean => {
+export const addNodeToFilesystem = (path: string, node: FilesystemNode): boolean => {
     const parts = path.split('/').filter(p => p);
     const nodeName = parts.pop();
     if (!nodeName) return false;
@@ -403,6 +381,7 @@ const addNodeToFilesystem = (path: string, node: FilesystemNode): boolean => {
     }
 
     if (currentDir.type === 'directory') {
+        node.path = path;
         currentDir.children[nodeName] = node;
         return true;
     }
@@ -450,7 +429,8 @@ export const removeNodeFromFilesystem = (path: string): boolean => {
     if (!filename) return false;
 
     let currentDir: FilesystemNode = currentFilesystem;
-    for (const part of parts) {
+    const parentParts = [...parts]; // Create a copy for traversing to the parent
+    for (const part of parentParts) {
         if (currentDir.type === 'directory' && currentDir.children[part]) {
             currentDir = currentDir.children[part];
         } else {

@@ -12,7 +12,7 @@ import { craftPhish } from '@/ai/flows/craft-phish-flow';
 import { generateWarlockTaunt } from '@/ai/flows/warlock-threat-flow';
 import { forgeTool } from '@/ai/flows/forge-tool-flow';
 import { analyzeImage } from '@/ai/flows/analyze-image-flow';
-import { getNodeFromPath, getDynamicContent, updateNodeInFilesystem, removeNodeFromFilesystem, getWordlist, installPackage, isPackageInstalled, triggerRansomware, restoreBackup } from '@/lib/filesystem';
+import { getNodeFromPath, getDynamicContent, updateNodeInFilesystem, removeNodeFromFilesystem, getWordlist, installPackage, isPackageInstalled, triggerRansomware, restoreBackup, addNodeToFilesystem } from '@/lib/filesystem';
 import { db, auth } from '@/lib/firebase';
 import { collection, query, where, getDocs, WhereFilterOp } from 'firebase/firestore';
 import { User, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
@@ -99,6 +99,10 @@ Available commands:
   help                - Show this help message.
   ls [path]           - List directory contents.
   cd [path]           - Change directory.
+  mkdir <dir>         - Create a directory.
+  touch <file>        - Create an empty file.
+  rm <file>           - Remove a file.
+  rm -r <dir>         - Remove a directory.
   cat [file]          - Display file content.
   nano [file]         - Edit a file.
   generate_image "[p]"- Generate an image from a prompt.
@@ -229,20 +233,32 @@ export const useCommand = (user: User | null | undefined) => {
   }, []);
 
   const loadAliases = useCallback(() => {
-    const bashrcNode = getNodeFromPath('/.bashrc');
-    if (bashrcNode && bashrcNode.type === 'file') {
-      const content = getDynamicContent(bashrcNode.content);
-      const newAliases: { [key: string]: string } = {};
-      const lines = content.split('\n');
-      lines.forEach(line => {
-        const match = line.trim().match(/^alias\s+([^=]+)='([^']*)'/);
-        if (match) {
-          newAliases[match[1]] = match[2];
-        }
-      });
-      setAliases(newAliases);
+    const userHome = user ? `/home/${user.email!.split('@')[0]}` : null;
+    const bashrcPath = userHome ? `${userHome}/.bashrc` : '/.bashrc';
+    const bashrcNode = getNodeFromPath(bashrcPath);
+    
+    const defaultAliasNode = getNodeFromPath('/.bashrc');
+    const newAliases: { [key: string]: string } = {};
+
+    const parseAliases = (content: string) => {
+        const lines = content.split('\n');
+        lines.forEach(line => {
+            const match = line.trim().match(/^alias\s+([^=]+)='([^']*)'/);
+            if (match) {
+            newAliases[match[1]] = match[2];
+            }
+        });
+    };
+
+    if (defaultAliasNode && defaultAliasNode.type === 'file') {
+        parseAliases(getDynamicContent(defaultAliasNode.content));
     }
-  }, []);
+    if (bashrcNode && bashrcNode.type === 'file') {
+        parseAliases(getDynamicContent(bashrcNode.content));
+    }
+
+    setAliases(newAliases);
+  }, [user]);
   
   // Reset auth flow if user changes
   useEffect(() => {
@@ -250,7 +266,7 @@ export const useCommand = (user: User | null | undefined) => {
     setIsRoot(false);
     osintReportCache = ''; // Clear OSINT cache on user change
     setWarlockAwareness(0);
-    loadAliases();
+    
     // On login, set CWD to user's home directory if it exists, otherwise to root
     if (user) {
         const userHome = `/home/${user.email!.split('@')[0]}`;
@@ -258,11 +274,15 @@ export const useCommand = (user: User | null | undefined) => {
         if (node && node.type === 'directory') {
             setCwd(userHome);
         } else {
-            setCwd('/');
+             // Create home directory if it doesn't exist
+            addNodeToFilesystem(userHome, { type: 'directory', children: {} });
+            addNodeToFilesystem(`${userHome}/.bashrc`, { type: 'file', content: '# User-specific aliases' });
+            setCwd(userHome);
         }
     } else {
         setCwd('/');
     }
+    loadAliases();
   }, [user, resetAuth, loadAliases]);
 
 
@@ -411,11 +431,11 @@ export const useCommand = (user: User | null | undefined) => {
         if (isRoot) return true;
         if (!user) return false;
         
-        // Write operations are more restricted for non-root
+        const userHome = `/home/${user.email!.split('@')[0]}`;
+
         if (operation === 'write') {
-             // For now, only allow writing in user's home directory
-            const userHome = `/home/${user.email!.split('@')[0]}`;
-             if (!path.startsWith(userHome + '/') && path !== '/.bashrc') {
+             // For write, must be within their own home directory.
+             if (!path.startsWith(userHome + '/') && path !== userHome) {
                 return false;
             }
         }
@@ -530,6 +550,86 @@ export const useCommand = (user: User | null | undefined) => {
         setIsProcessing(false);
         return `cat: ${targetFile}: No such file or directory`;
       }
+      
+      case 'mkdir': {
+          const dirName = args[0];
+          if (!dirName) {
+              setIsProcessing(false);
+              return "mkdir: missing operand";
+          }
+          const newDirPath = resolvePath(cwd, dirName);
+          if (!hasPermission(newDirPath, 'write')) {
+              warlockTaunt = await triggerWarlock(`Denied mkdir in ${cwd}`, 5);
+              setIsProcessing(false);
+              return `mkdir: cannot create directory '${dirName}': Permission denied` + (warlockTaunt || '');
+          }
+          if (getNodeFromPath(newDirPath)) {
+              setIsProcessing(false);
+              return `mkdir: cannot create directory '${dirName}': File exists`;
+          }
+          addNodeToFilesystem(newDirPath, { type: 'directory', children: {} });
+          setIsProcessing(false);
+          return '';
+      }
+
+      case 'touch': {
+          const fileName = args[0];
+          if (!fileName) {
+              setIsProcessing(false);
+              return "touch: missing file operand";
+          }
+          const newFilePath = resolvePath(cwd, fileName);
+          if (!hasPermission(newFilePath, 'write')) {
+              warlockTaunt = await triggerWarlock(`Denied touch in ${cwd}`, 5);
+              setIsProcessing(false);
+              return `touch: cannot touch '${fileName}': Permission denied` + (warlockTaunt || '');
+          }
+          const existingNode = getNodeFromPath(newFilePath);
+          if (existingNode && existingNode.type === 'directory') {
+              setIsProcessing(false);
+              return `touch: cannot touch '${fileName}': Is a directory`;
+          }
+          // If file doesn't exist, create it. If it exists, do nothing (standard touch behavior).
+          if (!existingNode) {
+              addNodeToFilesystem(newFilePath, { type: 'file', content: '' });
+          }
+          setIsProcessing(false);
+          return '';
+      }
+
+      case 'rm': {
+          const isRecursive = args[0] === '-r';
+          const targetName = isRecursive ? args[1] : args[0];
+
+          if (!targetName) {
+              setIsProcessing(false);
+              return "rm: missing operand";
+          }
+          const targetPath = resolvePath(cwd, targetName);
+          if (!hasPermission(targetPath, 'write')) {
+              warlockTaunt = await triggerWarlock(`Denied rm on ${targetPath}`, 10);
+              setIsProcessing(false);
+              return `rm: cannot remove '${targetName}': Permission denied` + (warlockTaunt || '');
+          }
+          const node = getNodeFromPath(targetPath);
+          if (!node) {
+              setIsProcessing(false);
+              return `rm: cannot remove '${targetName}': No such file or directory`;
+          }
+          if (node.type === 'directory' && !isRecursive) {
+              setIsProcessing(false);
+              return `rm: cannot remove '${targetName}': Is a directory`;
+          }
+
+          const success = removeNodeFromFilesystem(targetPath);
+          if (success) {
+              setIsProcessing(false);
+              return '';
+          } else {
+              setIsProcessing(false);
+              return `rm: could not remove '${targetName}'`;
+          }
+      }
 
       case 'nano': {
         const targetFile = args[0];
@@ -555,7 +655,7 @@ export const useCommand = (user: User | null | undefined) => {
         }
         
         let onSaveCallback;
-        if (targetPath === '/.bashrc') {
+        if (targetPath.endsWith('.bashrc')) {
             onSaveCallback = loadAliases;
         }
         
@@ -623,111 +723,111 @@ export const useCommand = (user: User | null | undefined) => {
       }
 
       case 'news': {
-        const newsDir = getNodeFromPath('/var/news');
-        if (!newsDir || newsDir.type !== 'directory') {
-            setIsProcessing(false);
-            return "News directory not found.";
-        }
-        const articles = Object.keys(newsDir.children).sort();
-
-        // 1. Check for reading an article by number
-        const articleNum = parseInt(args[0], 10);
-        if (!isNaN(articleNum)) {
-            const articleIndex = articleNum - 1;
-            if (articleIndex >= 0 && articleIndex < articles.length) {
-                const articleName = articles[articleIndex];
-                const articleNode = newsDir.children[articleName];
-                if (articleNode.type === 'file') {
-                    setIsProcessing(false);
-                    return getDynamicContent(articleNode.content);
-                }
-            }
-            setIsProcessing(false);
-            return `news: invalid article number: ${articleNum}`;
-        }
-        
-        // 2. Check for listing articles (no sub-command)
-        if (args.length === 0) {
-            let output = "Available News:\n";
-            articles.forEach((articleFilename, index) => {
-                const node = newsDir.children[articleFilename];
-                let title = articleFilename.replace(/\.txt$/, '').replace(/[-_]/g, ' ');
-                if (node.type === 'file') {
-                    const content = getDynamicContent(node.content);
-                    const titleMatch = content.match(/^TITLE:\s*(.*)/);
-                    if (titleMatch && titleMatch[1]) {
-                        title = titleMatch[1];
-                    }
-                }
-                output += `[${index + 1}] ${title}\n`;
-            });
-            output += "\nType 'news <number>' to read an article.";
-            setIsProcessing(false);
-            return output;
-        }
-
-        // 3. Check for management commands (root only)
-        if (isRoot) {
-            const subCmd = args[0];
-            switch (subCmd) {
-                case 'add': {
-                    const titleMatch = command.match(/^news\s+add\s+"([^"]+)"/);
-                    if (!titleMatch || !titleMatch[1]) {
-                        setIsProcessing(false);
-                        return 'Usage: news add "Title of The Article"';
-                    }
-                    const title = titleMatch[1];
-                    const filename = `${Date.now()}-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-').substring(0, 50)}.txt`;
-                    const newFilePath = `/var/news/${filename}`;
-                    const content = `TITLE: ${title}\nDATE: ${new Date().toISOString().split('T')[0]}\n\n`;
-
-                    setEditingFile({ path: newFilePath, content });
-                    setIsProcessing(true);
-                    return '';
-                }
-                case 'edit': {
-                    const editIndex = parseInt(args[1], 10) - 1;
-                    if (isNaN(editIndex) || editIndex < 0 || editIndex >= articles.length) {
-                        setIsProcessing(false);
-                        return `news: invalid article number for editing: ${args[1]}`;
-                    }
-                    const articleName = articles[editIndex];
-                    const articlePath = `/var/news/${articleName}`;
-                    const articleNode = getNodeFromPath(articlePath);
-
-                    if (articleNode && articleNode.type === 'file') {
-                        const content = getDynamicContent(articleNode.content);
-                        setEditingFile({ path: articlePath, content });
-                        setIsProcessing(true);
-                        return '';
-                    }
-                    break;
-                }
-                case 'del': {
-                    const delIndex = parseInt(args[1], 10) - 1;
-                    if (isNaN(delIndex) || delIndex < 0 || delIndex >= articles.length) {
-                        setIsProcessing(false);
-                        return `news: invalid article number for deletion: ${args[1]}`;
-                    }
-                    const articleName = articles[delIndex];
-                    const articlePath = `/var/news/${articleName}`;
-
-                    setConfirmation({
-                        message: `Are you sure you want to delete "${articleName}"?`,
-                        onConfirm: async () => {
-                            const success = removeNodeFromFilesystem(articlePath);
-                            return success ? `Article "${articleName}" deleted.` : "Failed to delete article.";
-                        },
-                    });
-                    setIsProcessing(false);
-                    return '';
-                }
-            }
-        }
-
-        // 4. If none of the above, it's an invalid command
-        setIsProcessing(false);
-        return `news: invalid command or insufficient permissions for '${args[0]}'. Type 'news' to see available articles.`;
+          const newsDir = getNodeFromPath('/var/news');
+          if (!newsDir || newsDir.type !== 'directory') {
+              setIsProcessing(false);
+              return "News directory not found.";
+          }
+          const articles = Object.keys(newsDir.children).sort();
+          const subCmd = args[0];
+      
+          // 1. Check for reading an article by number first.
+          const articleNum = parseInt(subCmd, 10);
+          if (!isNaN(articleNum)) {
+              const articleIndex = articleNum - 1;
+              if (articleIndex >= 0 && articleIndex < articles.length) {
+                  const articleName = articles[articleIndex];
+                  const articleNode = newsDir.children[articleName];
+                  if (articleNode.type === 'file') {
+                      setIsProcessing(false);
+                      return getDynamicContent(articleNode.content);
+                  }
+              }
+              setIsProcessing(false);
+              return `news: invalid article number: ${articleNum}`;
+          }
+          
+          // 2. Check for listing articles (no sub-command).
+          if (!subCmd) {
+              let output = "Available News:\n";
+              articles.forEach((articleFilename, index) => {
+                  const node = newsDir.children[articleFilename];
+                  let title = articleFilename.replace(/\.txt$/, '').replace(/[-_]/g, ' ');
+                  if (node.type === 'file') {
+                      const content = getDynamicContent(node.content);
+                      const titleMatch = content.match(/^TITLE:\s*(.*)/);
+                      if (titleMatch && titleMatch[1]) {
+                          title = titleMatch[1];
+                      }
+                  }
+                  output += `[${index + 1}] ${title}\n`;
+              });
+              output += "\nType 'news <number>' to read an article.";
+              setIsProcessing(false);
+              return output;
+          }
+      
+          // 3. Check for management commands (root only).
+          if (isRoot) {
+              switch (subCmd) {
+                  case 'add': {
+                      const titleMatch = command.match(/^news\s+add\s+"([^"]+)"/);
+                      if (!titleMatch || !titleMatch[1]) {
+                          setIsProcessing(false);
+                          return 'Usage: news add "Title of The Article"';
+                      }
+                      const title = titleMatch[1];
+                      const filename = `${Date.now()}-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-').substring(0, 50)}.txt`;
+                      const newFilePath = `/var/news/${filename}`;
+                      const content = `TITLE: ${title}\nDATE: ${new Date().toISOString().split('T')[0]}\n\n`;
+      
+                      setEditingFile({ path: newFilePath, content });
+                      setIsProcessing(true);
+                      return '';
+                  }
+                  case 'edit': {
+                      const editIndex = parseInt(args[1], 10) - 1;
+                      if (isNaN(editIndex) || editIndex < 0 || editIndex >= articles.length) {
+                          setIsProcessing(false);
+                          return `news: invalid article number for editing: ${args[1]}`;
+                      }
+                      const articleName = articles[editIndex];
+                      const articlePath = `/var/news/${articleName}`;
+                      const articleNode = getNodeFromPath(articlePath);
+      
+                      if (articleNode && articleNode.type === 'file') {
+                          const content = getDynamicContent(articleNode.content);
+                          setEditingFile({ path: articlePath, content });
+                          setIsProcessing(true);
+                          return '';
+                      }
+                      break;
+                  }
+                  case 'del': {
+                      const delIndex = parseInt(args[1], 10) - 1;
+                      if (isNaN(delIndex) || delIndex < 0 || delIndex >= articles.length) {
+                          setIsProcessing(false);
+                          return `news: invalid article number for deletion: ${args[1]}`;
+                      }
+                      const articleName = articles[delIndex];
+                      const articlePath = `/var/news/${articleName}`;
+      
+                      setConfirmation({
+                          message: `Are you sure you want to delete "${articleName}"?`,
+                          onConfirm: async () => {
+                              const success = removeNodeFromFilesystem(articlePath);
+                              return success ? `Article "${articleName}" deleted.` : "Failed to delete article.";
+                          },
+                      });
+                      setIsProcessing(false);
+                      return '';
+                  }
+              }
+          }
+      
+          // 4. If none of the above, it's an invalid command.
+          setIsProcessing(false);
+          return `news: invalid command or insufficient permissions for '${subCmd}'. Type 'news' to see available articles.`;
       }
       
         case 'crack': {
