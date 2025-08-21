@@ -103,11 +103,11 @@ Available commands:
   neofetch            - Display system information.
   db "[query]"        - Query the database (e.g., "list all users").
   news                - List or read news articles.
-  crack &lt;file&gt; &lt;hash&gt; - Crack a hash using a wordlist file.
-  reveal &lt;file&gt;       - Reveal a secret message from an image.
-  conceal &lt;file&gt; "[m]"- Conceal a message in an image.
-  osint &lt;target&gt;      - Perform OSINT on a target (e.g., an email).
-  craft_phish &lt;email&gt; --topic "[t]" - Craft a phishing email.
+  crack <file> <hash> - Crack a hash using a wordlist file.
+  reveal <file>       - Reveal a secret message from an image.
+  conceal <file> "[m]"- Conceal a message in an image.
+  osint <target>      - Perform OSINT on a target (e.g., an email).
+  craft_phish <email> --topic "[t]" - Craft a phishing email.
   clear               - Clear the terminal screen.
   logout              - Log out from the application.
 `;
@@ -115,8 +115,8 @@ Available commands:
             helpText += `
 Root-only news commands:
   news add "title"    - Create a new news article.
-  news edit &lt;number&gt;  - Edit an existing news article.
-  news del &lt;number&gt;   - Delete a news article.
+  news edit <number>  - Edit an existing news article.
+  news del <number>   - Delete a news article.
   exit                - Exit from root user session.
 
 Root has elevated privileges and can access all user directories under /home.`;
@@ -164,14 +164,14 @@ export const useCommand = (user: User | null | undefined) => {
   const [warlockAwareness, setWarlockAwareness] = useState(0);
   
   // State for multi-step authentication and confirmation
-  const [authCommand, setAuthCommand] = useState&lt;'login' | 'register' | null&gt;(null);
-  const [authStep, setAuthStep] = useState&lt;'email' | 'password' | null&gt;(null);
+  const [authCommand, setAuthCommand] = useState<'login' | 'register' | null>(null);
+  const [authStep, setAuthStep] = useState<'email' | 'password' | null>(null);
   const [authCredentials, setAuthCredentials] = useState({ email: '', password: '' });
   const [isProcessing, setIsProcessing] = useState(false);
-  const [confirmation, setConfirmation] = useState&lt;{ message: string; onConfirm: () => Promise&lt;string | React.ReactNode&gt; } | null&gt;(null);
+  const [confirmation, setConfirmation] = useState<{ message: string; onConfirm: () => Promise<string | React.ReactNode> } | null>(null);
 
   // State for Nano editor
-  const [editingFile, setEditingFile] = useState&lt;{ path: string; content: string; onSaveCallback?: () => void } | null&gt;(null);
+  const [editingFile, setEditingFile] = useState<{ path: string; content: string; onSaveCallback?: () => void } | null>(null);
 
   const getInitialPrompt = useCallback(() => {
     if (confirmation) return `${confirmation.message} (y/n): `;
@@ -252,14 +252,14 @@ export const useCommand = (user: User | null | undefined) => {
     return `Welcome to Cyber! Please 'login' or 'register' to continue.`;
   }, [user]);
 
-    const triggerWarlock = useCallback(async (action: string, awarenessIncrease: number): Promise&lt;string | null&gt; => {
+    const triggerWarlock = useCallback(async (action: string, awarenessIncrease: number): Promise<string | null> => {
         const newAwareness = Math.min(warlockAwareness + awarenessIncrease, 100);
         setWarlockAwareness(newAwareness);
 
         // Warlock only taunts if awareness crosses certain thresholds
-        if ((warlockAwareness &lt; 20 && newAwareness &gt;= 20) || 
-            (warlockAwareness &lt; 50 && newAwareness &gt;= 50) || 
-            (warlockAwareness &lt; 80 && newAwareness &gt;= 80) ||
+        if ((warlockAwareness < 20 && newAwareness >= 20) || 
+            (warlockAwareness < 50 && newAwareness >= 50) || 
+            (warlockAwareness < 80 && newAwareness >= 80) ||
             newAwareness === 100) {
             try {
                 const result = await generateWarlockTaunt({ action, awareness: newAwareness });
@@ -272,7 +272,7 @@ export const useCommand = (user: User | null | undefined) => {
         return null;
     }, [warlockAwareness]);
 
-  const processCommand = useCallback(async (command: string): Promise&lt;string | React.ReactNode&gt; => {
+  const processCommand = useCallback(async (command: string): Promise<string | React.ReactNode> => {
     if (editingFile) return ''; // Block commands while editing
 
     setIsProcessing(true);
@@ -373,7 +373,7 @@ export const useCommand = (user: User | null | undefined) => {
         if (path.startsWith('/root')) return false;
 
         const parts = path.split('/').filter(p => p);
-        if (parts[0] === 'home' && parts.length &gt; 1 && parts[1] !== user.email!.split('@')[0]) {
+        if (parts[0] === 'home' && parts.length > 1 && parts[1] !== user.email!.split('@')[0]) {
             return false;
         }
 
@@ -400,7 +400,7 @@ export const useCommand = (user: User | null | undefined) => {
         const node = getNodeFromPath(targetPath);
         if (node && node.type === 'directory') {
           setIsProcessing(false);
-          return Object.keys(node.children).map(key =&gt; {
+          return Object.keys(node.children).map(key => {
             return node.children[key].type === 'directory' ? `${key}/` : key;
           }).join('\n');
         }
@@ -490,18 +490,18 @@ export const useCommand = (user: User | null | undefined) => {
 
         setIsProcessing(false);
         return (
-            &lt;NanoEditor
+            <NanoEditor
                 filename={targetPath}
                 initialContent={initialContent}
-                onSave={(newContent) =&gt; {
+                onSave={(newContent) => {
                     updateNodeInFilesystem(targetPath, newContent);
                     setEditingFile(null);
                     triggerWarlock(`Saved file ${targetPath}`, 10);
                 }}
-                onExit={() =&gt; {
+                onExit={() => {
                     setEditingFile(null);
                 }}
-            /&gt;
+            />
         );
       }
       
@@ -514,10 +514,10 @@ export const useCommand = (user: User | null | undefined) => {
             const imagePrompt = imagePromptMatch[1];
             setIsProcessing(false);
             return (
-                &lt;ImageDisplay 
+                <ImageDisplay 
                     prompt={imagePrompt} 
-                    onFinished={() =&gt; { /* Potentially re-enable prompt here if needed */}} 
-                /&gt;
+                    onFinished={() => { /* Potentially re-enable prompt here if needed */}} 
+                />
             );
         }
 
@@ -534,7 +534,7 @@ export const useCommand = (user: User | null | undefined) => {
           let whereClauses;
 
           if (queryInstruction.where) {
-            whereClauses = queryInstruction.where.map(w =&gt; where(w[0], w[1] as WhereFilterOp, w[2]));
+            whereClauses = queryInstruction.where.map(w => where(w[0], w[1] as WhereFilterOp, w[2]));
           } else {
             whereClauses = [];
           }
@@ -547,7 +547,7 @@ export const useCommand = (user: User | null | undefined) => {
             return "No documents found." + (warlockTaunt || '');
           }
           
-          const results = querySnapshot.docs.map(doc =&gt; ({ id: doc.id, ...doc.data() }));
+          const results = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
           setIsProcessing(false);
           return JSON.stringify(results, null, 2) + (warlockTaunt || '');
 
@@ -564,138 +564,137 @@ export const useCommand = (user: User | null | undefined) => {
       }
 
       case 'news': {
-        const newsDir = getNodeFromPath('/var/news');
-        if (!newsDir || newsDir.type !== 'directory') {
+          const newsDir = getNodeFromPath('/var/news');
+          if (!newsDir || newsDir.type !== 'directory') {
+              setIsProcessing(false);
+              return "News directory not found.";
+          }
+          const articles = Object.keys(newsDir.children).sort();
+          const subCmd = args[0];
+          const restOfArgs = args.slice(1).join(' ');
+
+          // Logic for reading an article
+          const articleNum = parseInt(subCmd, 10);
+          if (!isNaN(articleNum)) {
+              const articleIndex = articleNum - 1;
+              if (articleIndex >= 0 && articleIndex < articles.length) {
+                  const articleName = articles[articleIndex];
+                  const articleNode = newsDir.children[articleName];
+                  if (articleNode.type === 'file') {
+                      setIsProcessing(false);
+                      return getDynamicContent(articleNode.content);
+                  }
+              }
+              setIsProcessing(false);
+              return `news: invalid article number: ${articleNum}`;
+          }
+
+          // Logic for listing articles
+          if (!subCmd) {
+              let output = "Available News:\n";
+              articles.forEach((articleFilename, index) => {
+                  const node = newsDir.children[articleFilename];
+                  let title = articleFilename.replace(/\.txt$/, '').replace(/-/g, ' '); // Default title from filename
+                  if (node.type === 'file') {
+                      const content = getDynamicContent(node.content);
+                      const titleMatch = content.match(/^TITLE:\s*(.*)/);
+                      if (titleMatch && titleMatch[1]) {
+                          title = titleMatch[1];
+                      }
+                  }
+                  output += `[${index + 1}] ${title}\n`;
+              });
+              output += "\nType 'news <number>' to read an article.";
+              setIsProcessing(false);
+              return output;
+          }
+
+          // Root-only commands
+          if (isRoot) {
+              switch (subCmd) {
+                  case 'add': {
+                      const titleMatch = command.match(/^news\s+add\s+"([^"]+)"/);
+                      if (!titleMatch || !titleMatch[1]) {
+                          setIsProcessing(false);
+                          return 'Usage: news add "Title of The Article"';
+                      }
+                      const title = titleMatch[1];
+                      const filename = `${Date.now()}-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-').substring(0, 50)}.txt`;
+                      const newFilePath = `/var/news/${filename}`;
+
+                      setEditingFile({ path: newFilePath, content: `TITLE: ${title}\nDATE: ${new Date().toISOString().split('T')[0]}\n\n` });
+                      setIsProcessing(false);
+                      return (
+                          <NanoEditor
+                              filename={newFilePath}
+                              initialContent={`TITLE: ${title}\nDATE: ${new Date().toISOString().split('T')[0]}\n\n`}
+                              onSave={(newContent) => {
+                                  updateNodeInFilesystem(newFilePath, newContent);
+                                  setEditingFile(null);
+                              }}
+                              onExit={() => setEditingFile(null)}
+                          />
+                      );
+                  }
+                  case 'edit': {
+                      const editIndex = parseInt(restOfArgs, 10) - 1;
+                      if (isNaN(editIndex) || editIndex < 0 || editIndex >= articles.length) {
+                          setIsProcessing(false);
+                          return `news: invalid article number for editing: ${restOfArgs}`;
+                      }
+                      const articleName = articles[editIndex];
+                      const articlePath = `/var/news/${articleName}`;
+                      const articleNode = getNodeFromPath(articlePath);
+
+                      if (articleNode && articleNode.type === 'file') {
+                          const content = getDynamicContent(articleNode.content);
+                          setEditingFile({ path: articlePath, content: content });
+                          setIsProcessing(false);
+                           return (
+                              <NanoEditor
+                                  filename={articlePath}
+                                  initialContent={content}
+                                  onSave={(newContent) => {
+                                      updateNodeInFilesystem(articlePath, newContent);
+                                      setEditingFile(null);
+                                  }}
+                                  onExit={() => setEditingFile(null)}
+                              />
+                          );
+                      }
+                      break;
+                  }
+                  case 'del': {
+                       const delIndex = parseInt(restOfArgs, 10) - 1;
+                       if (isNaN(delIndex) || delIndex < 0 || delIndex >= articles.length) {
+                           setIsProcessing(false);
+                           return `news: invalid article number for deletion: ${restOfArgs}`;
+                       }
+                       const articleName = articles[delIndex];
+                       const articlePath = `/var/news/${articleName}`;
+                       
+                       setConfirmation({
+                           message: `Are you sure you want to delete "${articleName}"?`,
+                           onConfirm: async () => {
+                               const success = removeNodeFromFilesystem(articlePath);
+                               return success ? `Article "${articleName}" deleted.` : "Failed to delete article.";
+                           },
+                       });
+                       setIsProcessing(false);
+                       return '';
+                  }
+              }
+          }
+
           setIsProcessing(false);
-          return "News directory not found.";
-        }
-        const articles = Object.keys(newsDir.children).sort();
-        const subCmd = args[0];
-        
-        const articleNum = parseInt(subCmd, 10);
-        if (!isNaN(articleNum)) {
-            const articleIndex = articleNum - 1;
-            if (articleIndex &gt;= 0 && articleIndex &lt; articles.length) {
-                const articleName = articles[articleIndex];
-                const articleNode = newsDir.children[articleName];
-                if (articleNode.type === 'file') {
-                    setIsProcessing(false);
-                    return getDynamicContent(articleNode.content);
-                }
-            } else {
-                setIsProcessing(false);
-                return `news: invalid article number: ${articleNum}`;
-            }
-        }
-        
-        if (isRoot) {
-            if (subCmd === 'add') {
-                const newsAddMatch = command.match(/^news\s+add\s+"([^"]+)"/);
-                if (!newsAddMatch || !newsAddMatch[1]) {
-                    setIsProcessing(false);
-                    return 'Usage: news add "Title of The Article"';
-                }
-                const title = newsAddMatch[1];
-                const filename = `${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.txt`;
-                const newFilePath = `/var/news/${filename}`;
-                
-                if (getNodeFromPath(newFilePath)) {
-                    setIsProcessing(false);
-                    return `Error: An article with a similar title already exists.`;
-                }
-
-                setEditingFile({ path: newFilePath, content: `TITLE: ${title}\nDATE: ${new Date().toISOString().split('T')[0]}\n\n` });
-                setIsProcessing(false);
-                return (
-                    &lt;NanoEditor
-                        filename={newFilePath}
-                        initialContent={`TITLE: ${title}\nDATE: ${new Date().toISOString().split('T')[0]}\n\n`}
-                        onSave={(newContent) =&gt; {
-                            updateNodeInFilesystem(newFilePath, newContent);
-                            setEditingFile(null);
-                        }}
-                        onExit={() =&gt; setEditingFile(null)}
-                    /&gt;
-                );
-            }
-
-            if (subCmd === 'edit') {
-                const editIndex = parseInt(args[1], 10) - 1;
-                if (isNaN(editIndex) || editIndex &lt; 0 || editIndex &gt;= articles.length) {
-                    setIsProcessing(false);
-                    return `news: invalid article number for editing: ${args[1]}`;
-                }
-                const articleName = articles[editIndex];
-                const articlePath = `/var/news/${articleName}`;
-                const articleNode = getNodeFromPath(articlePath);
-
-                if (articleNode && articleNode.type === 'file') {
-                    const content = getDynamicContent(articleNode.content);
-                    setEditingFile({ path: articlePath, content: content });
-                    setIsProcessing(false);
-                     return (
-                        &lt;NanoEditor
-                            filename={articlePath}
-                            initialContent={content}
-                            onSave={(newContent) =&gt; {
-                                updateNodeInFilesystem(articlePath, newContent);
-                                setEditingFile(null);
-                            }}
-                            onExit={() =&gt; setEditingFile(null)}
-                        /&gt;
-                    );
-                }
-            }
-
-            if (subCmd === 'del') {
-                 const delIndex = parseInt(args[1], 10) - 1;
-                 if (isNaN(delIndex) || delIndex &lt; 0 || delIndex &gt;= articles.length) {
-                    setIsProcessing(false);
-                    return `news: invalid article number for deletion: ${args[1]}`;
-                 }
-                 const articleName = articles[delIndex];
-                 const articlePath = `/var/news/${articleName}`;
-                 
-                 setConfirmation({
-                     message: `Are you sure you want to delete "${articleName}"?`,
-                     onConfirm: async () =&gt; {
-                         const success = removeNodeFromFilesystem(articlePath);
-                         return success ? `Article "${articleName}" deleted.` : "Failed to delete article.";
-                     },
-                 });
-                 setIsProcessing(false);
-                 return '';
-            }
-        }
-        
-        if (!subCmd) {
-          let output = "Available News:\n";
-          articles.forEach((article, index) =&gt; {
-            const node = newsDir.children[article];
-            let title = article.replace(/-/g, ' ').replace('.txt', ''); // Fallback title
-            if (node.type === 'file') {
-                const content = getDynamicContent(node.content);
-                const titleMatch = content.match(/^TITLE:\s*(.*)/);
-                if (titleMatch) {
-                    title = titleMatch[1];
-                }
-            }
-            output += `[${index + 1}] ${title}\n`;
-          });
-          output += "\nType 'news &lt;number&gt;' to read an article.";
-          setIsProcessing(false);
-          return output;
-        }
-
-        setIsProcessing(false);
-        return `news: invalid command: ${subCmd}. Type 'news' to see available articles.`;
+          return `news: invalid command or insufficient permissions for '${subCmd}'. Type 'news' to see available articles.`;
       }
       
         case 'crack': {
             const [wordlistFile, hash] = args;
             if (!wordlistFile || !hash) {
                 setIsProcessing(false);
-                return "Usage: crack &lt;wordlist_file&gt; &lt;hash&gt;";
+                return "Usage: crack <wordlist_file> <hash>";
             }
             const wordlistPath = resolvePath(cwd, wordlistFile);
             if (!hasPermission(wordlistPath)) {
@@ -725,7 +724,7 @@ export const useCommand = (user: User | null | undefined) => {
             const messageMatch = command.match(/conceal\s+\S+\s+"([^"]+)"/);
             if (!targetFile || !messageMatch) {
                 setIsProcessing(false);
-                return 'Usage: conceal &lt;file&gt; "your secret message"';
+                return 'Usage: conceal <file> "your secret message"';
             }
             const message = messageMatch[1];
             const targetPath = resolvePath(cwd, targetFile);
@@ -757,7 +756,7 @@ export const useCommand = (user: User | null | undefined) => {
             const targetFile = args[0];
             if (!targetFile) {
                 setIsProcessing(false);
-                return 'Usage: reveal &lt;file&gt;';
+                return 'Usage: reveal <file>';
             }
             const targetPath = resolvePath(cwd, targetFile);
             if (!hasPermission(targetPath)) {
@@ -786,7 +785,7 @@ export const useCommand = (user: User | null | undefined) => {
             const target = args[0];
             if (!target) {
                 setIsProcessing(false);
-                return 'Usage: osint &lt;target_email_or_username&gt;';
+                return 'Usage: osint <target_email_or_username>';
             }
             try {
                 warlockTaunt = await triggerWarlock(`OSINT on ${target}`, 15);
@@ -805,7 +804,7 @@ export const useCommand = (user: User | null | undefined) => {
             const topicMatch = command.match(/--topic\s+"([^"]+)"/);
             if (!targetEmail || !topicMatch) {
                 setIsProcessing(false);
-                return 'Usage: craft_phish &lt;target_email&gt; --topic "subject"';
+                return 'Usage: craft_phish <target_email> --topic "subject"';
             }
             const topic = topicMatch[1];
             try {
@@ -896,3 +895,5 @@ export const useCommand = (user: User | null | undefined) => {
     editingFile,
  };
 };
+
+    
