@@ -240,7 +240,7 @@ May 10 10:09:00 server systemd: SERVICE_START pid=1 uid=0 auid=4294967295 ses=42
                     type: 'directory',
                     path: '/var/www/html',
                     children: {
-                        'index.html': { type: 'file', path: '/var/www/html/index.html', content: '&lt;html&gt;&lt;body&gt;&lt;h1&gt;It works!&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;'},
+                        'index.html': { type: 'file', path: '/var/www/html/index.html', content: '<html><body><h1>It works!</h1></body></html>'},
                         'secret.jpg': {
                             type: 'file',
                             path: '/var/www/html/secret.jpg',
@@ -326,6 +326,27 @@ The vulnerability, dubbed 'Ether-Leak', is being actively exploited in the wild 
   },
 };
 
+let currentFilesystem = JSON.parse(JSON.stringify(initialFilesystem));
+
+export const resetFilesystem = () => {
+    currentFilesystem = JSON.parse(JSON.stringify(initialFilesystem));
+}
+
+export const getNodeFromPath = (path: string): FilesystemNode | null => {
+  const parts = path.split('/').filter(p => p && p !== '~');
+  let currentNode: FilesystemNode = currentFilesystem;
+
+  for (const part of parts) {
+    if (currentNode.type === 'directory' && currentNode.children[part]) {
+      currentNode = currentNode.children[part];
+    } else {
+      return null;
+    }
+  }
+  return currentNode;
+};
+
+
 export const getDynamicContent = (content: string | (() => string)): string => {
     let rawContent: string;
     if (typeof content === 'function') {
@@ -341,11 +362,11 @@ export const getDynamicContent = (content: string | (() => string)): string => {
 // Helper to update the filesystem in memory
 export const updateNodeInFilesystem = (path: string, newContent: string): boolean => {
     const parts = path.split('/').filter(p => p);
-    let currentNode: FilesystemNode = initialFilesystem;
+    let currentNode: FilesystemNode = currentFilesystem;
     let parentNode: Directory | null = null;
     let lastPart = '';
 
-    for (let i = 0; i &lt; parts.length; i++) {
+    for (let i = 0; i < parts.length; i++) {
         const part = parts[i];
         if (currentNode.type === 'directory') {
             parentNode = currentNode;
@@ -379,7 +400,7 @@ export const removeNodeFromFilesystem = (path: string): boolean => {
     const filename = parts.pop();
     if (!filename) return false;
 
-    let currentDir: FilesystemNode = initialFilesystem;
+    let currentDir: FilesystemNode = currentFilesystem;
     for (const part of parts) {
         if (currentDir.type === 'directory' && currentDir.children[part]) {
             currentDir = currentDir.children[part];
@@ -395,3 +416,5 @@ export const removeNodeFromFilesystem = (path: string): boolean => {
 
     return false;
 };
+
+    
