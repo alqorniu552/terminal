@@ -5,8 +5,7 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { useToast } from "@/hooks/use-toast";
 import { generateCommandHelp } from '@/ai/flows/generate-command-help';
 import { databaseQuery } from '@/ai/flows/database-query-flow';
-import { concealMessage } from '@/ai/flows/steganography-flow';
-import { revealMessage } from '@/ai/flows/steganography-flow';
+import { concealMessage, revealMessage } from '@/ai/flows/steganography-flow';
 import { investigateTarget } from '@/ai/flows/osint-investigation-flow';
 import { craftPhish } from '@/ai/flows/craft-phish-flow';
 import { generateWarlockTaunt } from '@/ai/flows/warlock-threat-flow';
@@ -25,6 +24,7 @@ import {
     restoreBackup, 
     addNodeToFilesystem,
     getMachine,
+    network
 } from '@/lib/filesystem';
 import { db, auth } from '@/lib/firebase';
 import { collection, query, where, getDocs, WhereFilterOp } from 'firebase/firestore';
@@ -32,9 +32,12 @@ import { User, signInWithEmailAndPassword, createUserWithEmailAndPassword } from
 import ImageDisplay from '@/components/image-display';
 import md5 from 'md5';
 
-
 const ROOT_USER_EMAIL = 'admin@cyber.dev';
-let osintReportCache = ''; // Simple cache for OSINT report
+let osintReportCache = '';
+
+type CommandHandler = (args: string[], fullCommand: string) => Promise<string | React.ReactNode>;
+type Command = { handler: CommandHandler; rootOnly: boolean };
+type CommandMap = { [key: string]: Command };
 
 const getNeofetchOutput = (user: User | null | undefined, isRoot: boolean, hostname: string) => {
     let uptime = 0;
@@ -102,7 +105,6 @@ const getNeofetchOutput = (user: User | null | undefined, isRoot: boolean, hostn
     return output;
 };
 
-
 const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean) => {
     if (isLoggedIn) {
         let helpText = `
@@ -130,6 +132,7 @@ Available commands:
   craft_phish <email> --topic "[t]" - Craft a phishing email.
   forge <file> "[p]"  - Forge a new tool with an AI prompt.
   analyze_image <url> - Use AI to run a forensic analysis on an image.
+  plan "[objective]"  - Generate a multi-step attack plan.
   clear               - Clear the terminal screen.
   logout              - Log out from the application.
 `;
@@ -161,7 +164,6 @@ Available commands:
 `;
 }
 
-
 const resolvePath = (cwd: string, path: string): string => {
   if (path.startsWith('/')) {
     const newParts = path.split('/').filter(p => p);
@@ -184,21 +186,20 @@ const resolvePath = (cwd: string, path: string): string => {
 
 export const useCommand = (user: User | null | undefined) => {
   const [cwd, setCwd] = useState('/');
-  const [currentHost, setCurrentHost] = useState('192.168.1.100');
+  const [currentHost, setCurrentHost] = useState(Object.keys(network)[0]);
   const [isRoot, setIsRoot] = useState(false);
   const [warlockAwareness, setWarlockAwareness] = useState(0);
   const [aliases, setAliases] = useState<{ [key: string]: string }>({});
   
-  // State for multi-step authentication and confirmation
   const [authCommand, setAuthCommand] = useState<'login' | 'register' | null>(null);
   const [authStep, setAuthStep] = useState<'email' | 'password' | 'ssh_password' | null>(null);
   const [authCredentials, setAuthCredentials] = useState({ email: '', password: '' });
   const [sshCredentials, setSshCredentials] = useState({ user: '', host: '', password: ''});
   const [isProcessing, setIsProcessing] = useState(false);
   const [confirmation, setConfirmation] = useState<{ message: string; onConfirm: () => Promise<string | React.ReactNode> } | null>(null);
-
-  // State for Nano editor
   const [editingFile, setEditingFile] = useState<{ path: string; content: string; onSaveCallback?: () => void } | null>(null);
+  
+  const { toast } = useToast();
 
   const getInitialPrompt = useCallback(() => {
     if (confirmation) return `${confirmation.message} (y/n): `;
@@ -208,50 +209,88 @@ export const useCommand = (user: User | null | undefined) => {
     
     const machine = getMachine(currentHost);
     const hostname = machine?.hostname || 'cyber';
-
-    let path;
     const userHome = user ? `/home/${user.email?.split('@')[0]}` : '/';
+    const rootHome = '/root';
     
+    let path;
     if (isRoot) {
-        path = cwd.startsWith('/root') ? `~${cwd.substring(5)}` : cwd;
-        if (path === '') path = '/';
+      path = cwd === rootHome ? '~' : (cwd.startsWith(rootHome + '/') ? `~${cwd.substring(rootHome.length)}` : cwd);
     } else {
-        if (cwd === userHome) {
-            path = '~';
-        } else if (cwd.startsWith(userHome + '/')) {
-            path = `~${cwd.substring(userHome.length)}`;
-        } else {
-            path = cwd;
-        }
+      path = cwd === userHome ? '~' : (cwd.startsWith(userHome + '/') ? `~${cwd.substring(userHome.length)}` : cwd);
     }
     
     path = path.replace('//', '/');
-    if (path !== '/' && path.endsWith('/')) {
-        path = path.slice(0, -1);
-    }
+    if (path !== '/' && path.endsWith('/')) path = path.slice(0, -1);
+    if (path === '') path = '/';
 
     const endChar = isRoot ? '#' : '$';
     const username = isRoot ? 'root' : user?.email?.split('@')[0] || 'guest';
     
     return `${username}@${hostname}:${path}${endChar} `;
-
   }, [user, cwd, authStep, isRoot, confirmation, currentHost, sshCredentials]);
 
   const [prompt, setPrompt] = useState(getInitialPrompt());
-  const { toast } = useToast();
   
   useEffect(() => {
     setPrompt(getInitialPrompt());
-  }, [user, getInitialPrompt, authStep, isRoot, confirmation]);
+  }, [getInitialPrompt]);
 
+  const hasPermission = useCallback((path: string, operation: 'read' | 'write' = 'read'): boolean => {
+    if (isRoot) return true;
+    if (!user) return false;
+    
+    const userHome = `/home/${user.email!.split('@')[0]}`;
+    if (operation === 'write') {
+      return path.startsWith(userHome);
+    }
+    
+    if (path.startsWith('/root')) return false;
+    const parts = path.split('/').filter(p => p);
+    if (parts[0] === 'home' && parts.length > 1 && parts[1] !== user.email!.split('@')[0]) {
+      return false;
+    }
+    
+    return true;
+  }, [isRoot, user]);
 
-  const resetAuth = useCallback(() => {
-      setAuthCommand(null);
-      setAuthStep(null);
-      setAuthCredentials({ email: '', password: '' });
-      setSshCredentials({ user: '', host: '', password: ''});
+  const triggerWarlock = useCallback(async (action: string, awarenessIncrease: number): Promise<string | null> => {
+    const newAwareness = Math.min(warlockAwareness + awarenessIncrease, 100);
+    setWarlockAwareness(newAwareness);
+    if ((warlockAwareness < 20 && newAwareness >= 20) || 
+        (warlockAwareness < 50 && newAwareness >= 50) || 
+        (warlockAwareness < 80 && newAwareness >= 80) ||
+        newAwareness === 100) {
+      try {
+        const result = await generateWarlockTaunt({ action, awareness: newAwareness });
+        return `\n\x1b[1;31mWarlock: ${result.taunt}\x1b[0m`;
+      } catch (error) {
+        console.error("Warlock taunt generation failed:", error);
+      }
+    }
+    return null;
+  }, [warlockAwareness]);
+
+  const exitEditor = useCallback(() => {
+    setEditingFile(null);
+    setIsProcessing(false);
   }, []);
 
+  const saveFile = useCallback((newContent: string) => {
+    if (editingFile) {
+      updateNodeInFilesystem(editingFile.path, newContent, currentHost);
+      editingFile.onSaveCallback?.();
+      triggerWarlock(`Saved file ${editingFile.path}`, 10);
+      toast({ title: "File Saved", description: `Saved changes to ${editingFile.path}` });
+    }
+  }, [editingFile, currentHost, triggerWarlock, toast]);
+  
+  const resetAuth = useCallback(() => {
+    setAuthCommand(null);
+    setAuthStep(null);
+    setAuthCredentials({ email: '', password: '' });
+    setSshCredentials({ user: '', host: '', password: ''});
+  }, []);
+  
   const loadAliases = useCallback(() => {
     const userHome = user ? `/home/${user.email!.split('@')[0]}` : null;
     const bashrcPath = userHome ? `${userHome}/.bashrc` : '/.bashrc';
@@ -261,1039 +300,612 @@ export const useCommand = (user: User | null | undefined) => {
     const newAliases: { [key: string]: string } = {};
 
     const parseAliases = (content: string) => {
-        const lines = content.split('\n');
-        lines.forEach(line => {
-            const match = line.trim().match(/^alias\s+([^=]+)='([^']*)'/);
-            if (match) {
-            newAliases[match[1]] = match[2];
-            }
-        });
+      content.split('\n').forEach(line => {
+        const match = line.trim().match(/^alias\s+([^=]+)='([^']*)'/);
+        if (match) newAliases[match[1]] = match[2];
+      });
     };
 
-    if (defaultAliasNode && defaultAliasNode.type === 'file') {
-        parseAliases(getDynamicContent(defaultAliasNode.content));
-    }
-    if (bashrcNode && bashrcNode.type === 'file') {
-        parseAliases(getDynamicContent(bashrcNode.content));
-    }
-
+    if (defaultAliasNode?.type === 'file') parseAliases(getDynamicContent(defaultAliasNode.content));
+    if (bashrcNode?.type === 'file') parseAliases(getDynamicContent(bashrcNode.content));
     setAliases(newAliases);
   }, [user, currentHost]);
   
-  // Reset auth flow if user changes
   useEffect(() => {
     resetAuth();
     setIsRoot(false);
-    setCurrentHost('192.168.1.100');
-    osintReportCache = ''; // Clear OSINT cache on user change
+    setCurrentHost(Object.keys(network)[0]);
+    osintReportCache = '';
     setWarlockAwareness(0);
-    
-    // On login, set CWD to user's home directory if it exists, otherwise to root
     if (user) {
-        const userHome = `/home/${user.email!.split('@')[0]}`;
-        addNodeToFilesystem(userHome, { type: 'directory', children: {} }, '192.168.1.100');
-        addNodeToFilesystem(`${userHome}/.bashrc`, { type: 'file', content: '# User-specific aliases' }, '192.168.1.100');
-        setCwd(userHome);
+      const userHome = `/home/${user.email!.split('@')[0]}`;
+      addNodeToFilesystem(userHome, { type: 'directory', children: {} }, currentHost);
+      addNodeToFilesystem(`${userHome}/.bashrc`, { type: 'file', content: '# User-specific aliases' }, currentHost);
+      setCwd(userHome);
     } else {
-        setCwd('/');
+      setCwd('/');
     }
     loadAliases();
-  }, [user, resetAuth, loadAliases]);
-
+  }, [user, resetAuth, loadAliases, currentHost]);
 
   const getWelcomeMessage = useCallback(() => {
     if (user) {
-        if (user.email === ROOT_USER_EMAIL) {
-            return `Welcome, administrator ${user.email}! You have root privileges. Type 'su' to elevate.`;
-        }
-        return `Welcome, ${user.email}! Type 'help' for a list of commands.`;
+      if (user.email === ROOT_USER_EMAIL) return `Welcome, administrator ${user.email}! You have root privileges. Type 'su' to elevate.`;
+      return `Welcome, ${user.email}! Type 'help' for a list of commands.`;
     }
     return `Welcome to Cyber! Please 'login' or 'register' to continue.`;
   }, [user]);
 
-    const triggerWarlock = useCallback(async (action: string, awarenessIncrease: number): Promise<string | null> => {
-        const newAwareness = Math.min(warlockAwareness + awarenessIncrease, 100);
-        setWarlockAwareness(newAwareness);
-
-        // Warlock only taunts if awareness crosses certain thresholds
-        if ((warlockAwareness < 20 && newAwareness >= 20) || 
-            (warlockAwareness < 50 && newAwareness >= 50) || 
-            (warlockAwareness < 80 && newAwareness >= 80) ||
-            newAwareness === 100) {
-            try {
-                const result = await generateWarlockTaunt({ action, awareness: newAwareness });
-                return `\n\x1b[1;31mWarlock: ${result.taunt}\x1b[0m`;
-            } catch (error) {
-                console.error("Warlock taunt generation failed:", error);
-                return null;
-            }
+  // Command Handlers
+  const handleHelp = async (): Promise<string> => getHelpOutput(!!user, isRoot);
+  const handleNeofetch = async (): Promise<string> => {
+    const machine = getMachine(currentHost);
+    const taunt = await triggerWarlock('neofetch', 1);
+    return getNeofetchOutput(user, isRoot, machine?.hostname || 'cyber') + (taunt || '');
+  };
+  const handleLs = async (args: string[]): Promise<string> => {
+    const targetPath = args[0] ? resolvePath(cwd, args[0]) : cwd;
+    if (!hasPermission(targetPath)) {
+      const taunt = await triggerWarlock(`Denied ls on ${targetPath}`, 5);
+      return `ls: cannot open directory '${args[0] || '.'}': Permission denied` + (taunt || '');
+    }
+    const node = getNodeFromPath(targetPath, currentHost);
+    if (node?.type === 'directory') {
+      return Object.keys(node.children).map(key => {
+        const childNode = node.children[key];
+        let name = key;
+        if (childNode.type === 'directory') name = `\x1b[1;34m${key}/\x1b[0m`;
+        if (key.endsWith('.deadbolt')) name = `\x1b[1;31m${key}\x1b[0m`;
+        return name;
+      }).join('\n');
+    }
+    return `ls: cannot access '${args[0] || '.'}': No such file or directory`;
+  };
+  const handleCd = async (args: string[]): Promise<string> => {
+    const homeDir = isRoot ? '/root' : (user ? `/home/${user.email!.split('@')[0]}` : '/');
+    const targetArg = args[0];
+    if (!targetArg || targetArg === '~') {
+      const node = getNodeFromPath(homeDir, currentHost);
+      setCwd(node?.type === 'directory' ? homeDir : '/');
+      return '';
+    }
+    const newPath = resolvePath(cwd, targetArg);
+    if (!hasPermission(newPath)) {
+      const taunt = await triggerWarlock(`Denied cd to ${newPath}`, 5);
+      return `cd: ${targetArg}: Permission denied` + (taunt || '');
+    }
+    const node = getNodeFromPath(newPath, currentHost);
+    if (node?.type === 'directory') {
+      setCwd(newPath);
+      return '';
+    }
+    return `cd: no such file or directory: ${targetArg}`;
+  };
+  const handleCat = async (args: string[]): Promise<string> => {
+    const targetFile = args[0];
+    if (!targetFile) return 'cat: missing operand';
+    const targetPath = resolvePath(cwd, targetFile);
+    if (!hasPermission(targetPath)) {
+      const taunt = await triggerWarlock(`Denied cat on ${targetPath}`, 5);
+      return `cat: ${targetFile}: Permission denied` + (taunt || '');
+    }
+    const node = getNodeFromPath(targetPath, currentHost);
+    if (node?.type === 'file') {
+      if (node.logicBomb && user) {
+        const userHome = `/home/${user.email!.split('@')[0]}`;
+        const encryptedFiles = triggerRansomware(userHome, currentHost);
+        let output = `\x1b[1;31m[DEADBOLT RANSOMWARE ACTIVATED]\nInitializing encryption protocol...\n\n`;
+        output += encryptedFiles.map(f => `Encrypting ${f}...`).join('\n');
+        output += `\n\nEncryption complete. Your personal files are now hostage.\nCheck the ransom note in your home directory.`;
+        const taunt = await triggerWarlock('User triggered ransomware!', 100);
+        return output + (taunt || '');
+      }
+      const taunt = await triggerWarlock(`cat on ${targetFile}`, targetPath.includes('auth.log') || targetPath.includes('shadow.bak') ? 15 : 2);
+      return getDynamicContent(node.content) + (taunt || '');
+    }
+    return `cat: ${targetFile}: No such file or directory`;
+  };
+  const handleMkdir = async (args: string[]): Promise<string> => {
+    const dirName = args[0];
+    if (!dirName) return "mkdir: missing operand";
+    const newDirPath = resolvePath(cwd, dirName);
+    if (!hasPermission(newDirPath, 'write')) {
+      const taunt = await triggerWarlock(`Denied mkdir in ${cwd}`, 5);
+      return `mkdir: cannot create directory '${dirName}': Permission denied` + (taunt || '');
+    }
+    if (getNodeFromPath(newDirPath, currentHost)) return `mkdir: cannot create directory '${dirName}': File exists`;
+    addNodeToFilesystem(newDirPath, { type: 'directory', children: {} }, currentHost);
+    return '';
+  };
+  const handleTouch = async (args: string[]): Promise<string> => {
+    const fileName = args[0];
+    if (!fileName) return "touch: missing file operand";
+    const newFilePath = resolvePath(cwd, fileName);
+    if (!hasPermission(newFilePath, 'write')) {
+      const taunt = await triggerWarlock(`Denied touch in ${cwd}`, 5);
+      return `touch: cannot touch '${fileName}': Permission denied` + (taunt || '');
+    }
+    const existingNode = getNodeFromPath(newFilePath, currentHost);
+    if (existingNode?.type === 'directory') return `touch: cannot touch '${fileName}': Is a directory`;
+    if (!existingNode) addNodeToFilesystem(newFilePath, { type: 'file', content: '' }, currentHost);
+    return '';
+  };
+  const handleRm = async (args: string[]): Promise<string> => {
+    const isRecursive = args[0] === '-r';
+    const targetName = isRecursive ? args[1] : args[0];
+    if (!targetName) return "rm: missing operand";
+    const targetPath = resolvePath(cwd, targetName);
+    if (!hasPermission(targetPath, 'write')) {
+      const taunt = await triggerWarlock(`Denied rm on ${targetPath}`, 10);
+      return `rm: cannot remove '${targetName}': Permission denied` + (taunt || '');
+    }
+    const node = getNodeFromPath(targetPath, currentHost);
+    if (!node) return `rm: cannot remove '${targetName}': No such file or directory`;
+    if (node.type === 'directory' && !isRecursive) return `rm: cannot remove '${targetName}': Is a directory`;
+    return removeNodeFromFilesystem(targetPath, currentHost) ? '' : `rm: could not remove '${targetName}'`;
+  };
+  const handleNano = async (args: string[]): Promise<string> => {
+    const targetFile = args[0];
+    if (!targetFile) return "nano: missing file operand";
+    const targetPath = resolvePath(cwd, targetFile);
+    if (!hasPermission(targetPath, 'write')) {
+      const taunt = await triggerWarlock(`Denied nano on ${targetPath}`, 5);
+      return `nano: cannot edit '${targetFile}': Permission denied` + (taunt || '');
+    }
+    const node = getNodeFromPath(targetPath, currentHost);
+    if (node?.type === 'directory') return `nano: ${targetFile}: is a directory`;
+    const initialContent = node ? getDynamicContent(node.content) : '';
+    setEditingFile({ path: targetPath, content: initialContent, onSaveCallback: targetPath.endsWith('.bashrc') ? loadAliases : undefined });
+    setIsProcessing(true);
+    return '';
+  };
+  const handleGenerateImage = async (_: string[], fullCommand: string): Promise<string | React.ReactNode> => {
+    const match = fullCommand.match(/^generate_image\s+"([^"]+)"/);
+    if (!match?.[1]) return 'Usage: generate_image "your image prompt"';
+    setIsProcessing(true);
+    return <ImageDisplay prompt={match[1]} onFinished={() => setIsProcessing(false)} />;
+  };
+  const handleDb = async (_: string[], fullCommand: string): Promise<string> => {
+    const match = fullCommand.match(/^db\s+"([^"]+)"/);
+    const dbQuery = match ? match[1] : fullCommand.substring(3).trim();
+    if (!dbQuery) return 'db: missing query. Usage: db "your natural language query"';
+    try {
+      const taunt = await triggerWarlock(`DB query: ${dbQuery}`, 10);
+      const instruction = await databaseQuery({ query: dbQuery });
+      const clauses = instruction.where ? instruction.where.map(w => where(w[0], w[1] as WhereFilterOp, w[2])) : [];
+      const q = query(collection(db, instruction.collection), ...clauses);
+      const snapshot = await getDocs(q);
+      if (snapshot.empty) return "No documents found." + (taunt || '');
+      const results = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      return JSON.stringify(results, null, 2) + (taunt || '');
+    } catch (error) {
+      console.error('Database query failed:', error);
+      toast({ variant: "destructive", title: "Database Query Error", description: "Could not process your database query." });
+      return `Error: Could not query database.`;
+    }
+  };
+  const handleNews = async (args: string[], fullCommand: string): Promise<string> => {
+    const newsDir = getNodeFromPath('/var/news', currentHost);
+    if (newsDir?.type !== 'directory') return "News directory not found.";
+    const articles = Object.keys(newsDir.children).sort();
+    const subCmd = args[0];
+    
+    const articleNum = parseInt(subCmd, 10);
+    if (!isNaN(articleNum)) {
+      const index = articleNum - 1;
+      if (index >= 0 && index < articles.length) {
+        const node = newsDir.children[articles[index]];
+        if (node.type === 'file') return getDynamicContent(node.content);
+      }
+      return `news: invalid article number: ${articleNum}`;
+    }
+    
+    if (!subCmd) {
+      let output = "Available News:\n";
+      articles.forEach((name, index) => {
+        const node = newsDir.children[name];
+        let title = name.replace(/\.txt$/, '').replace(/[-_]/g, ' ');
+        if (node.type === 'file') {
+          const content = getDynamicContent(node.content);
+          const titleMatch = content.match(/^TITLE:\s*(.*)/);
+          if (titleMatch?.[1]) title = titleMatch[1];
         }
-        return null;
-    }, [warlockAwareness]);
+        output += `[${index + 1}] ${title}\n`;
+      });
+      return output + "\nType 'news <number>' to read an article.";
+    }
 
-    const exitEditor = useCallback(() => {
-        setEditingFile(null);
-        setIsProcessing(false);
-    }, []);
-
-    const saveFile = useCallback((newContent: string) => {
-        if (editingFile) {
-            updateNodeInFilesystem(editingFile.path, newContent, currentHost);
-            if (editingFile.onSaveCallback) {
-                editingFile.onSaveCallback();
-            }
-            triggerWarlock(`Saved file ${editingFile.path}`, 10);
-            toast({
-              title: "File Saved",
-              description: `Saved changes to ${editingFile.path}`,
-            });
+    if (isRoot) {
+      switch (subCmd) {
+        case 'add': {
+          const match = fullCommand.match(/^news\s+add\s+"([^"]+)"/);
+          if (!match?.[1]) return 'Usage: news add "Title"';
+          const title = match[1];
+          const filename = `${Date.now()}-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-').substring(0, 50)}.txt`;
+          const path = `/var/news/${filename}`;
+          const content = `TITLE: ${title}\nDATE: ${new Date().toISOString().split('T')[0]}\n\n`;
+          setEditingFile({ path, content });
+          setIsProcessing(true);
+          return '';
         }
-    }, [editingFile, triggerWarlock, toast, currentHost]);
+        case 'edit': {
+          const index = parseInt(args[1], 10) - 1;
+          if (isNaN(index) || index < 0 || index >= articles.length) return `news: invalid article number: ${args[1]}`;
+          const path = `/var/news/${articles[index]}`;
+          const node = getNodeFromPath(path, currentHost);
+          if (node?.type === 'file') {
+            setEditingFile({ path, content: getDynamicContent(node.content) });
+            setIsProcessing(true);
+            return '';
+          }
+          break;
+        }
+        case 'del': {
+          const index = parseInt(args[1], 10) - 1;
+          if (isNaN(index) || index < 0 || index >= articles.length) return `news: invalid article number: ${args[1]}`;
+          const articleName = articles[index];
+          const path = `/var/news/${articleName}`;
+          setConfirmation({
+            message: `Are you sure you want to delete "${articleName}"?`,
+            onConfirm: async () => removeNodeFromFilesystem(path, currentHost) ? `Article "${articleName}" deleted.` : "Failed to delete article.",
+          });
+          return '';
+        }
+      }
+    }
+
+    return `news: invalid command or insufficient permissions for '${subCmd}'.`;
+  };
+  const handleCrack = async (args: string[]): Promise<string> => {
+    const [wordlistFile, hash] = args;
+    if (!wordlistFile || !hash) return "Usage: crack <wordlist_file> <hash>";
+    const wordlistPath = resolvePath(cwd, wordlistFile);
+    if (!hasPermission(wordlistPath)) return `crack: cannot open file '${wordlistFile}': Permission denied`;
+    const wordlist = getWordlist(currentHost);
+    if (!wordlist) return `crack: wordlist file not found at default location.`;
+    const taunt = await triggerWarlock(`Brute-force attempt with hash ${hash}`, 25);
+    for (const password of wordlist) if (md5(password) === hash) return `Password found: ${password}` + (taunt || '');
+    return "Password not found in wordlist." + (taunt || '');
+  };
+  const handleConceal = async (args: string[], fullCommand: string): Promise<string> => {
+    const targetFile = args[0];
+    const match = fullCommand.match(/conceal\s+\S+\s+"([^"]+)"/);
+    if (!targetFile || !match) return 'Usage: conceal <file> "your secret message"';
+    const message = match[1];
+    const path = resolvePath(cwd, targetFile);
+    if (!hasPermission(path, 'write')) return `conceal: cannot write to '${targetFile}': Permission denied`;
+    const node = getNodeFromPath(path, currentHost);
+    if (node?.type !== 'file' || !getDynamicContent(node.content).startsWith('data:image')) return `conceal: '${targetFile}' is not a valid image file.`;
+    try {
+      const taunt = await triggerWarlock(`Steganography attempt on ${targetFile}`, 20);
+      const result = await concealMessage({ imageDataUri: getDynamicContent(node.content), message });
+      updateNodeInFilesystem(path, result.newImageDataUri, currentHost);
+      return `Message concealed in ${targetFile}.` + (taunt || '');
+    } catch (e: any) { return `Error: ${e.message}`; }
+  };
+  const handleReveal = async (args: string[]): Promise<string> => {
+    const targetFile = args[0];
+    if (!targetFile) return 'Usage: reveal <file>';
+    const path = resolvePath(cwd, targetFile);
+    if (!hasPermission(path)) return `reveal: cannot read '${targetFile}': Permission denied`;
+    const node = getNodeFromPath(path, currentHost);
+    if (node?.type !== 'file' || !getDynamicContent(node.content).startsWith('data:image')) return `reveal: '${targetFile}' is not a valid image file.`;
+    try {
+      const taunt = await triggerWarlock(`Steganography reveal on ${targetFile}`, 20);
+      const result = await revealMessage({ imageDataUri: getDynamicContent(node.content) });
+      return `Revealed message: ${result.revealedMessage}` + (taunt || '');
+    } catch (e: any) { return `Error: ${e.message}`; }
+  };
+  const handleOsint = async (args: string[]): Promise<string> => {
+    const target = args[0];
+    if (!target) return 'Usage: osint <target_email_or_username>';
+    try {
+      const taunt = await triggerWarlock(`OSINT on ${target}`, 15);
+      const result = await investigateTarget({ target });
+      osintReportCache = result.report;
+      return result.report + (taunt || '');
+    } catch (e: any) { return `Error: ${e.message}`; }
+  };
+  const handleCraftPhish = async (args: string[], fullCommand: string): Promise<string> => {
+    const targetEmail = args[0];
+    const match = fullCommand.match(/--topic\s+"([^"]+)"/);
+    if (!targetEmail || !match) return 'Usage: craft_phish <email> --topic "subject"';
+    const topic = match[1];
+    try {
+      const taunt = await triggerWarlock(`Phishing craft for ${targetEmail}`, 20);
+      const result = await craftPhish({ targetEmail, topic, context: osintReportCache });
+      return result.phishingEmail + (taunt || '');
+    } catch (e: any) { return `Error: ${e.message}`; }
+  };
+  const handleForge = async (_: string[], fullCommand: string): Promise<string> => {
+    const match = fullCommand.match(/^forge\s+(\S+)\s+"([^"]+)"/);
+    if (!match) return 'Usage: forge <filename> "prompt for tool"';
+    const [, filename, userPrompt] = match;
+    const path = resolvePath(cwd, filename);
+    if (!hasPermission(path, 'write')) {
+      const taunt = await triggerWarlock(`Denied forge on ${path}`, 10);
+      return `forge: cannot create file '${filename}': Permission denied` + (taunt || '');
+    }
+    try {
+      const taunt = await triggerWarlock(`Tool forging for ${filename}`, 30);
+      toast({ title: "AI Tool Forge", description: `Generating code for ${filename}...` });
+      const result = await forgeTool({ filename, prompt: userPrompt });
+      updateNodeInFilesystem(path, result.code, currentHost);
+      return `Successfully forged ${filename}.` + (taunt || '');
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Tool Forging Failed", description: e.message });
+      return `Error: AI failed to forge the tool.`;
+    }
+  };
+  const handleAnalyzeImage = async (args: string[]): Promise<string> => {
+    const imageUrl = args[0];
+    if (!imageUrl) return 'Usage: analyze_image <image_url>';
+    try {
+      const taunt = await triggerWarlock(`Image analysis on ${imageUrl}`, 25);
+      toast({ title: "Forensic Analysis", description: "AI is analyzing the image..." });
+      const result = await analyzeImage({ imageUrl });
+      return `Forensic Report:\n----------------\n${result.analysis}` + (taunt || '');
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Image Analysis Failed", description: e.message });
+      return `Error: AI failed to analyze the image.`;
+    }
+  };
+  const handleApt = async (args: string[]): Promise<string> => {
+    const [subCmd, pkg] = args;
+    if (subCmd !== 'install' || !pkg) return 'Usage: apt install <package>';
+    if (pkg === 'nginx') {
+      if (isPackageInstalled('nginx', currentHost)) return 'nginx is already the newest version (1.18.0).';
+      setConfirmation({
+        message: `The following NEW packages will be installed:\n  nginx nginx-common nginx-core\nDo you want to continue?`,
+        onConfirm: async () => {
+          installPackage('nginx', currentHost);
+          const taunt = await triggerWarlock('Installed nginx', 15);
+          return 'Setting up nginx (1.18.0)... Done.' + (taunt || '');
+        },
+      });
+      return '';
+    }
+    return `E: Unable to locate package ${pkg}`;
+  };
+  const handleNginx = async (args: string[]): Promise<string> => {
+    const flag = args[0];
+    if (isPackageInstalled('nginx', currentHost)) {
+      if (flag === '-v') return 'nginx version: nginx/1.18.0 (Ubuntu)';
+      if (flag === '-t') return 'nginx: configuration file /etc/nginx/nginx.conf test is successful';
+      return 'Usage: nginx [-v | -t]';
+    }
+    return `Command 'nginx' not found, but can be installed with: apt install nginx`;
+  };
+  const handleRestoreSystem = async (args: string[]): Promise<string> => {
+    const backupFile = args[0];
+    if (!backupFile) return "Usage: restore_system <backup_file>";
+    const path = resolvePath(cwd, backupFile);
+    if (path !== '/var/backups/snapshot.tgz' || !getNodeFromPath(path, currentHost)) return "restore_system: Backup file not found or invalid.";
+    setConfirmation({
+      message: "Are you sure you want to restore the system from backup?",
+      onConfirm: async () => {
+        if (user) {
+          const success = restoreBackup(`/home/${user.email!.split('@')[0]}`, currentHost);
+          if (success) {
+            const taunt = await triggerWarlock('System restore initiated.', -50);
+            return "System restored from snapshot. Ransomware neutralized." + (taunt || '');
+          }
+        }
+        return "System restore failed. User context not found.";
+      },
+    });
+    return '';
+  };
+  const handleIp = async (args: string[]): Promise<string> => {
+    if (args[0] !== 'a' && args[0] !== 'addr') return handleAICommand('ip', args);
+    const machine = getMachine(currentHost);
+    if (machine) {
+      return `eth0: flags=4163<UP,BROADCAST,RUNNING,MULTICAST> mtu 1500
+      inet ${machine.ip} netmask 255.255.255.0 broadcast 192.168.1.255
+      ether 00:1a:2b:3c:4d:5e txqueuelen 1000 (Ethernet)`;
+    }
+    return 'Error: Could not determine network configuration.';
+  };
+  const handleIfconfig = async (): Promise<string> => handleIp([], '');
+  const handleNmap = async (args: string[]): Promise<string> => {
+    const targetIp = args[0];
+    if (!targetIp) return 'Usage: nmap <target_ip>';
+    const machine = getMachine(targetIp);
+    if (!machine) return `Host discovery disabled (-Pn). All ports on ${targetIp} are in ignored states.`;
+    let output = `Starting Nmap 7.80 ( https://nmap.org ) at ${new Date().toUTCString()}\n`;
+    output += `Nmap scan report for ${machine.hostname} (${machine.ip})\n`;
+    output += `Host is up (0.0020s latency).\nNot showing: ${1000 - machine.openPorts.length} closed ports\n`;
+    output += 'PORT   STATE SERVICE\n';
+    machine.openPorts.forEach(port => {
+      const service = { 21: 'ftp', 22: 'ssh', 80: 'http', 443: 'https' }[port] || 'unknown';
+      output += `${port}/tcp open  ${service}\n`;
+    });
+    return output;
+  };
+  const handleSsh = async (args: string[]): Promise<string> => {
+    const target = args[0];
+    if (!target?.includes('@')) return 'Usage: ssh <user@host>';
+    const [sshUser, sshHost] = target.split('@');
+    const machine = getMachine(sshHost);
+    if (!machine) return `ssh: Could not resolve hostname ${sshHost}: Name or service not known`;
+    if (machine.credentials[sshUser] !== undefined) {
+      setAuthStep('ssh_password');
+      setSshCredentials({ user: sshUser, host: sshHost, password: '' });
+      return '';
+    }
+    return 'Permission denied (publickey,password).';
+  };
+  const handleSu = async (): Promise<string> => {
+    if (isRoot) return "Already root.";
+    if (user?.email !== ROOT_USER_EMAIL) {
+      const taunt = await triggerWarlock(`Failed 'su' attempt`, 10);
+      return "su: Permission denied." + (taunt || '');
+    }
+    setIsRoot(true);
+    setCwd('/root');
+    const taunt = await triggerWarlock('Root access granted', 50);
+    return '' + (taunt || '');
+  };
+  const handleExit = async (): Promise<string> => {
+    if (currentHost !== Object.keys(network)[0]) {
+      setCurrentHost(Object.keys(network)[0]);
+      const userHome = user ? `/home/${user.email!.split('@')[0]}` : '/';
+      setCwd(userHome);
+      setIsRoot(false);
+      return 'Connection to remote host closed.';
+    }
+    if (isRoot) {
+      setIsRoot(false);
+      const userHome = user ? `/home/${user.email!.split('@')[0]}` : '/';
+      setCwd(userHome);
+      return '';
+    }
+    return '';
+  };
+  const handleLogout = async (): Promise<string | null> => { await auth.signOut(); return null; };
+  const handlePlan = async (_: string[], fullCommand: string): Promise<string> => {
+    const match = fullCommand.match(/^plan\s+"([^"]+)"/);
+    const objective = match ? match[1] : fullCommand.substring(5).trim();
+    if (!objective) return 'Usage: plan "[objective]"';
+    const node = getNodeFromPath(cwd, currentHost);
+    const availableFiles = node?.type === 'directory' ? Object.keys(node.children) : [];
+    const result = await generateAttackPlan({ target: currentHost, objective, availableFiles });
+    let planOutput = `Attack Plan Reasoning: ${result.reasoning}\n\nCommands:\n`;
+    result.plan.forEach((step, index) => {
+      planOutput += `${index + 1}. ${step.command} ${step.args.join(' ')}\n`;
+    });
+    return planOutput;
+  };
+  const handleAICommand = async (cmd: string, args: string[]): Promise<string> => {
+    try {
+      const taunt = await triggerWarlock(`Unrecognized command: ${cmd}`, 5);
+      const result = await generateCommandHelp({ command: cmd, args });
+      return result.helpMessage + (taunt || '');
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "AI Assistant Error", description: "Could not get help." });
+      return `command not found: ${cmd}`;
+    }
+  };
+
+  const commands: CommandMap = {
+    help: { handler: handleHelp, rootOnly: false },
+    neofetch: { handler: handleNeofetch, rootOnly: false },
+    ls: { handler: handleLs, rootOnly: false },
+    cd: { handler: handleCd, rootOnly: false },
+    cat: { handler: handleCat, rootOnly: false },
+    mkdir: { handler: handleMkdir, rootOnly: false },
+    touch: { handler: handleTouch, rootOnly: false },
+    rm: { handler: handleRm, rootOnly: false },
+    nano: { handler: handleNano, rootOnly: false },
+    generate_image: { handler: handleGenerateImage, rootOnly: false },
+    db: { handler: handleDb, rootOnly: false },
+    news: { handler: handleNews, rootOnly: false },
+    crack: { handler: handleCrack, rootOnly: false },
+    conceal: { handler: handleConceal, rootOnly: false },
+    reveal: { handler: handleReveal, rootOnly: false },
+    osint: { handler: handleOsint, rootOnly: false },
+    craft_phish: { handler: handleCraftPhish, rootOnly: false },
+    forge: { handler: handleForge, rootOnly: false },
+    analyze_image: { handler: handleAnalyzeImage, rootOnly: false },
+    ip: { handler: handleIp, rootOnly: false },
+    ifconfig: { handler: handleIfconfig, rootOnly: false },
+    nmap: { handler: handleNmap, rootOnly: false },
+    ssh: { handler: handleSsh, rootOnly: false },
+    su: { handler: handleSu, rootOnly: false },
+    exit: { handler: handleExit, rootOnly: false },
+    logout: { handler: handleLogout, rootOnly: false },
+    plan: { handler: handlePlan, rootOnly: false },
+    nginx: { handler: handleNginx, rootOnly: false },
+    apt: { handler: handleApt, rootOnly: true },
+    restore_system: { handler: handleRestoreSystem, rootOnly: true },
+  };
 
   const processCommand = useCallback(async (command: string): Promise<string | React.ReactNode | null> => {
-    if (editingFile) return ''; // Block commands while editing
-
     setIsProcessing(true);
-    let warlockTaunt: string | null = null;
+    let result: string | React.ReactNode | null = '';
 
     if (confirmation) {
-        const response = command.trim().toLowerCase();
-        const { onConfirm } = confirmation;
-        setConfirmation(null);
-        if (response === 'y' || response === 'yes') {
-            const result = await onConfirm();
-            setIsProcessing(false);
-            return result;
-        }
-        setIsProcessing(false);
-        return 'Operation cancelled.';
-    }
-
-    let [cmd, ...args] = command.trim().split(/\s+/);
-    
-    // Alias expansion
-    if (aliases[cmd]) {
-        const aliasExpansion = aliases[cmd].split(/\s+/);
-        cmd = aliasExpansion[0];
-        args = [...aliasExpansion.slice(1), ...args];
-    }
-
-    const isLoggedIn = !!user;
-
-    // Multi-step authentication logic
-    if (authCommand && authStep) {
-        if (command.trim().toLowerCase() === 'exit') {
-            resetAuth();
-            setIsProcessing(false);
-            return '';
-        }
-
-        if (authStep === 'email') {
-            setAuthCredentials({ ...authCredentials, email: command.trim() });
-            setAuthStep('password');
-            setIsProcessing(false);
-            return '';
-        }
-
-        if (authStep === 'password') {
-            const { email } = authCredentials;
-            const password = command.trim();
-            const authFn = authCommand === 'login' ? signInWithEmailAndPassword : createUserWithEmailAndPassword;
-            
-            try {
-                await authFn(auth, email, password);
-                const message = authCommand === 'login' ? 'Login successful.' : 'Registration successful.';
-                resetAuth();
-                warlockTaunt = await triggerWarlock(`User ${email} logged in`, 5);
-                setIsProcessing(false);
-                return message + (warlockTaunt || '');
-            } catch (error: any) {
-                resetAuth();
-                warlockTaunt = await triggerWarlock(`Failed login for ${email}`, 10);
-                setIsProcessing(false);
-                return `Error: ${error.message}` + (warlockTaunt || '');
-            }
-        }
-    }
-    
-     if (authStep === 'ssh_password') {
-        const { user: sshUser, host: sshHost } = sshCredentials;
-        const sshPassword = command.trim();
-        const targetMachine = getMachine(sshHost);
-        
+      const response = command.trim().toLowerCase();
+      const { onConfirm } = confirmation;
+      setConfirmation(null);
+      result = (response === 'y' || response === 'yes') ? await onConfirm() : 'Operation cancelled.';
+    } else if (authStep) {
+      if (command.trim().toLowerCase() === 'exit') {
         resetAuth();
-
-        if (targetMachine?.credentials[sshUser] === sshPassword) {
-            setCurrentHost(sshHost);
-            setCwd('/');
-            setIsRoot(sshUser === 'root');
-            setIsProcessing(false);
-            return `Connected to ${sshHost}.`;
+      } else if (authStep === 'email') {
+        setAuthCredentials({ ...authCredentials, email: command.trim() });
+        setAuthStep('password');
+      } else if (authStep === 'password') {
+        const { email } = authCredentials;
+        const password = command.trim();
+        const authFn = authCommand === 'login' ? signInWithEmailAndPassword : createUserWithEmailAndPassword;
+        try {
+          await authFn(auth, email, password);
+          result = authCommand === 'login' ? 'Login successful.' : 'Registration successful.';
+          const taunt = await triggerWarlock(`User ${email} logged in`, 5);
+          if (taunt) result += taunt;
+        } catch (error: any) {
+          result = `Error: ${error.message}`;
+          const taunt = await triggerWarlock(`Failed login for ${email}`, 10);
+          if (taunt) result += taunt;
+        }
+        resetAuth();
+      } else if (authStep === 'ssh_password') {
+        const { user: sshUser, host: sshHost } = sshCredentials;
+        const machine = getMachine(sshHost);
+        if (machine?.credentials[sshUser] === command.trim()) {
+          setCurrentHost(sshHost);
+          setCwd(sshUser === 'root' ? '/root' : `/home/${sshUser}`);
+          setIsRoot(sshUser === 'root');
+          result = `Connected to ${sshHost}.`;
         } else {
-            setIsProcessing(false);
-            return 'Permission denied, wrong password.';
+          result = 'Permission denied, wrong password.';
         }
-    }
-
-
-    if (!isLoggedIn) {
-        switch (cmd.toLowerCase()) {
-            case 'login':
-            case 'register':
-                setAuthCommand(cmd.toLowerCase() as 'login' | 'register');
-                setAuthStep('email');
-                setIsProcessing(false);
-                return '';
-            case 'help':
-                setIsProcessing(false);
-                return getHelpOutput(false, false);
-            case 'clear':
-                 setIsProcessing(false);
-                 return '';
-            case '':
-                 setIsProcessing(false);
-                return '';
-            default:
-                setIsProcessing(false);
-                return `Command not found: ${cmd}. Please 'login' or 'register'.`;
+        resetAuth();
+      }
+    } else if (!user) {
+        const cmd = command.trim().toLowerCase();
+        if (cmd === 'login' || cmd === 'register') {
+            setAuthCommand(cmd);
+            setAuthStep('email');
+        } else if (cmd === 'help') {
+            result = getHelpOutput(false, false);
+        } else if (cmd !== '' && cmd !== 'clear') {
+            result = `Command not found: ${cmd}. Please 'login' or 'register'.`;
         }
-    }
+    } else {
+      let [cmd, ...args] = command.trim().split(/\s+/);
+      const aliasExpansion = aliases[cmd];
+      if (aliasExpansion) {
+        [cmd, ...args] = [...aliasExpansion.split(/\s+/), ...args];
+      }
 
-    const fullArgString = command.trim().substring(cmd.length).trim();
+      if (cmd) {
+        const commandDef = commands[cmd];
+        if (commandDef) {
+          if (commandDef.rootOnly && !isRoot) {
+            result = `${cmd}: command not found.`;
+          } else {
+            result = await commandDef.handler(args, command);
+          }
+        } else {
+          result = await handleAICommand(cmd, args);
+        }
+      }
+    }
     
-    const hasPermission = (path: string, operation: 'read' | 'write' = 'read') => {
-        if (isRoot) return true;
-        if (!user) return false;
-        
-        const userHome = `/home/${user.email!.split('@')[0]}`;
-
-        if (operation === 'write') {
-             // For write, must be within their own home directory.
-             if (!path.startsWith(userHome + '/') && path !== userHome) {
-                return false;
-            }
-        }
-
-        // Read operations
-        if (path.startsWith('/root')) return false;
-
-        const parts = path.split('/').filter(p => p);
-        if (parts[0] === 'home' && parts.length > 1 && parts[1] !== user.email!.split('@')[0]) {
-            return false;
-        }
-
-        return true;
-    };
-
-
-    switch (cmd.toLowerCase()) {
-      case 'help':
-        setIsProcessing(false);
-        return getHelpOutput(true, isRoot);
-      case 'neofetch':
-        warlockTaunt = await triggerWarlock(`neofetch`, 1);
-        const machine = getMachine(currentHost);
-        setIsProcessing(false);
-        return getNeofetchOutput(user, isRoot, machine?.hostname || 'cyber') + (warlockTaunt || '');
-      
-      case 'ls': {
-        const targetPath = args[0] ? resolvePath(cwd, args[0]) : cwd;
-        if (!hasPermission(targetPath)) {
-            warlockTaunt = await triggerWarlock(`Denied ls on ${targetPath}`, 5);
-            setIsProcessing(false);
-            return `ls: cannot open directory '${args[0] || '.'}': Permission denied` + (warlockTaunt || '');
-        }
-        const node = getNodeFromPath(targetPath, currentHost);
-        if (node && node.type === 'directory') {
-          setIsProcessing(false);
-          return Object.keys(node.children).map(key => {
-            const childNode = node.children[key];
-            let name = key;
-            if (childNode.type === 'directory') name = `\x1b[1;34m${key}/\x1b[0m`;
-            // Check for ransomware extension
-            if (key.endsWith('.deadbolt')) name = `\x1b[1;31m${key}\x1b[0m`;
-            return name;
-          }).join('\n');
-        }
-        setIsProcessing(false);
-        return `ls: cannot access '${args[0] || '.'}': No such file or directory`;
-      }
-
-      case 'cd': {
-        const homeDir = isRoot ? '/root' : (user ? `/home/${user.email!.split('@')[0]}` : '/');
-        const targetArg = args[0];
-        if (!targetArg || targetArg === '~') {
-          const node = getNodeFromPath(homeDir, currentHost);
-          if (node && node.type === 'directory') {
-              setCwd(homeDir);
-          } else {
-              setCwd('/'); // Fallback to root if home doesn't exist
-          }
-          setIsProcessing(false);
-          return '';
-        }
-        const newPath = resolvePath(cwd, targetArg);
-        if (!hasPermission(newPath)) {
-            warlockTaunt = await triggerWarlock(`Denied cd to ${newPath}`, 5);
-            setIsProcessing(false);
-            return `cd: ${targetArg}: Permission denied` + (warlockTaunt || '');
-        }
-        const node = getNodeFromPath(newPath, currentHost);
-        if (node && node.type === 'directory') {
-          setCwd(newPath);
-          setIsProcessing(false);
-          return '';
-        }
-        setIsProcessing(false);
-        return `cd: no such file or directory: ${targetArg}`;
-      }
-      
-      case 'cat': {
-        const targetFile = args[0];
-        if (!targetFile) {
-          setIsProcessing(false);
-          return 'cat: missing operand';
-        }
-        const targetPath = resolvePath(cwd, targetFile);
-        if (!hasPermission(targetPath)) {
-          warlockTaunt = await triggerWarlock(`Denied cat on ${targetPath}`, 5);
-          setIsProcessing(false);
-          return `cat: ${targetFile}: Permission denied` + (warlockTaunt || '');
-        }
-        const node = getNodeFromPath(targetPath, currentHost);
-        if (node && node.type === 'file') {
-            // Check for logic bomb
-            if (node.logicBomb && user) {
-                const userHome = `/home/${user.email.split('@')[0]}`;
-                const encryptedFiles = triggerRansomware(userHome, currentHost);
-                let output = `\x1b[1;31m[DEADBOLT RANSOMWARE ACTIVATED]\nInitializing encryption protocol...\n\n`;
-                output += encryptedFiles.map(f => `Encrypting ${f}...`).join('\n');
-                output += `\n\nEncryption complete. Your personal files are now hostage.\nCheck the ransom note in your home directory.`;
-                warlockTaunt = await triggerWarlock(`User triggered ransomware!`, 100);
-                setIsProcessing(false);
-                return output + (warlockTaunt || '');
-            }
-
-            if (targetPath.includes('auth.log') || targetPath.includes('shadow.bak')) {
-                warlockTaunt = await triggerWarlock(`cat on sensitive file ${targetFile}`, 15);
-            } else {
-                warlockTaunt = await triggerWarlock(`cat on ${targetFile}`, 2);
-            }
-            setIsProcessing(false);
-            return getDynamicContent(node.content) + (warlockTaunt || '');
-        }
-        setIsProcessing(false);
-        return `cat: ${targetFile}: No such file or directory`;
-      }
-      
-      case 'mkdir': {
-          const dirName = args[0];
-          if (!dirName) {
-              setIsProcessing(false);
-              return "mkdir: missing operand";
-          }
-          const newDirPath = resolvePath(cwd, dirName);
-          if (!hasPermission(newDirPath, 'write')) {
-              warlockTaunt = await triggerWarlock(`Denied mkdir in ${cwd}`, 5);
-              setIsProcessing(false);
-              return `mkdir: cannot create directory '${dirName}': Permission denied` + (warlockTaunt || '');
-          }
-          if (getNodeFromPath(newDirPath, currentHost)) {
-              setIsProcessing(false);
-              return `mkdir: cannot create directory '${dirName}': File exists`;
-          }
-          addNodeToFilesystem(newDirPath, { type: 'directory', children: {} }, currentHost);
-          setIsProcessing(false);
-          return '';
-      }
-
-      case 'touch': {
-          const fileName = args[0];
-          if (!fileName) {
-              setIsProcessing(false);
-              return "touch: missing file operand";
-          }
-          const newFilePath = resolvePath(cwd, fileName);
-          if (!hasPermission(newFilePath, 'write')) {
-              warlockTaunt = await triggerWarlock(`Denied touch in ${cwd}`, 5);
-              setIsProcessing(false);
-              return `touch: cannot touch '${fileName}': Permission denied` + (warlockTaunt || '');
-          }
-          const existingNode = getNodeFromPath(newFilePath, currentHost);
-          if (existingNode && existingNode.type === 'directory') {
-              setIsProcessing(false);
-              return `touch: cannot touch '${fileName}': Is a directory`;
-          }
-          // If file doesn't exist, create it. If it exists, do nothing (standard touch behavior).
-          if (!existingNode) {
-              addNodeToFilesystem(newFilePath, { type: 'file', content: '' }, currentHost);
-          }
-          setIsProcessing(false);
-          return '';
-      }
-
-      case 'rm': {
-          const isRecursive = args[0] === '-r';
-          const targetName = isRecursive ? args[1] : args[0];
-
-          if (!targetName) {
-              setIsProcessing(false);
-              return "rm: missing operand";
-          }
-          const targetPath = resolvePath(cwd, targetName);
-          if (!hasPermission(targetPath, 'write')) {
-              warlockTaunt = await triggerWarlock(`Denied rm on ${targetPath}`, 10);
-              setIsProcessing(false);
-              return `rm: cannot remove '${targetName}': Permission denied` + (warlockTaunt || '');
-          }
-          const node = getNodeFromPath(targetPath, currentHost);
-          if (!node) {
-              setIsProcessing(false);
-              return `rm: cannot remove '${targetName}': No such file or directory`;
-          }
-          if (node.type === 'directory' && !isRecursive) {
-              setIsProcessing(false);
-              return `rm: cannot remove '${targetName}': Is a directory`;
-          }
-
-          const success = removeNodeFromFilesystem(targetPath, currentHost);
-          if (success) {
-              setIsProcessing(false);
-              return '';
-          } else {
-              setIsProcessing(false);
-              return `rm: could not remove '${targetName}'`;
-          }
-      }
-
-      case 'nano': {
-        const targetFile = args[0];
-        if (!targetFile) {
-            setIsProcessing(false);
-            return "nano: missing file operand";
-        }
-        const targetPath = resolvePath(cwd, targetFile);
-        if (!hasPermission(targetPath, 'write')) {
-            warlockTaunt = await triggerWarlock(`Denied nano on ${targetPath}`, 5);
-            setIsProcessing(false);
-            return `nano: cannot edit '${targetFile}': Permission denied` + (warlockTaunt || '');
-        }
-
-        const node = getNodeFromPath(targetPath, currentHost);
-        let initialContent = '';
-        if (node) {
-            if (node.type === 'directory') {
-                setIsProcessing(false);
-                return `nano: ${targetFile}: is a directory`;
-            }
-            initialContent = getDynamicContent(node.content);
-        }
-        
-        let onSaveCallback;
-        if (targetPath.endsWith('.bashrc')) {
-            onSaveCallback = loadAliases;
-        }
-        
-        setEditingFile({ path: targetPath, content: initialContent, onSaveCallback });
-        setIsProcessing(true); // Keep processing until editor is closed
-        return '';
-      }
-      
-      case 'generate_image': {
-            const imagePromptMatch = command.match(/^generate_image\s+"([^"]+)"/);
-            if (!imagePromptMatch || !imagePromptMatch[1]) {
-                setIsProcessing(false);
-                return 'Usage: generate_image "your image prompt"';
-            }
-            const imagePrompt = imagePromptMatch[1];
-            setIsProcessing(true); // Keep processing while image generates
-            return (
-                <ImageDisplay 
-                    prompt={imagePrompt} 
-                    onFinished={() => { setIsProcessing(false); }} 
-                />
-            );
-        }
-
-      case 'db': {
-        const dbQuery = fullArgString.startsWith('"') && fullArgString.endsWith('"') ? fullArgString.slice(1, -1) : fullArgString;
-        if (!dbQuery) {
-          setIsProcessing(false);
-          return 'db: missing query. Usage: db "your natural language query"';
-        }
-        try {
-          warlockTaunt = await triggerWarlock(`DB query: ${dbQuery}`, 10);
-          const queryInstruction = await databaseQuery({ query: dbQuery });
-          
-          let whereClauses;
-
-          if (queryInstruction.where) {
-            whereClauses = queryInstruction.where.map(w => where(w[0], w[1] as WhereFilterOp, w[2]));
-          } else {
-            whereClauses = [];
-          }
-          
-          const q = query(collection(db, queryInstruction.collection), ...whereClauses);
-          
-          const querySnapshot = await getDocs(q);
-          if (querySnapshot.empty) {
-            setIsProcessing(false);
-            return "No documents found." + (warlockTaunt || '');
-          }
-          
-          const results = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-          setIsProcessing(false);
-          return JSON.stringify(results, null, 2) + (warlockTaunt || '');
-
-        } catch (error) {
-          console.error('Database query failed:', error);
-          toast({
-            variant: "destructive",
-            title: "Database Query Error",
-            description: "Could not process your database query.",
-          });
-          setIsProcessing(false);
-          return `Error: Could not query database.`;
-        }
-      }
-
-      case 'news': {
-          const newsDir = getNodeFromPath('/var/news', currentHost);
-          if (!newsDir || newsDir.type !== 'directory') {
-              setIsProcessing(false);
-              return "News directory not found.";
-          }
-          const articles = Object.keys(newsDir.children).sort();
-          const subCmd = args[0];
-      
-          // 1. Check for reading an article by number first.
-          const articleNum = parseInt(subCmd, 10);
-          if (!isNaN(articleNum)) {
-              const articleIndex = articleNum - 1;
-              if (articleIndex >= 0 && articleIndex < articles.length) {
-                  const articleName = articles[articleIndex];
-                  const articleNode = newsDir.children[articleName];
-                  if (articleNode.type === 'file') {
-                      setIsProcessing(false);
-                      return getDynamicContent(articleNode.content);
-                  }
-              }
-              setIsProcessing(false);
-              return `news: invalid article number: ${articleNum}`;
-          }
-          
-          // 2. Check for listing articles (no sub-command).
-          if (!subCmd) {
-              let output = "Available News:\n";
-              articles.forEach((articleFilename, index) => {
-                  const node = newsDir.children[articleFilename];
-                  let title = articleFilename.replace(/\.txt$/, '').replace(/[-_]/g, ' ');
-                  if (node.type === 'file') {
-                      const content = getDynamicContent(node.content);
-                      const titleMatch = content.match(/^TITLE:\s*(.*)/);
-                      if (titleMatch && titleMatch[1]) {
-                          title = titleMatch[1];
-                      }
-                  }
-                  output += `[${index + 1}] ${title}\n`;
-              });
-              output += "\nType 'news <number>' to read an article.";
-              setIsProcessing(false);
-              return output;
-          }
-      
-          // 3. Check for management commands (root only).
-          if (isRoot) {
-              switch (subCmd) {
-                  case 'add': {
-                      const titleMatch = command.match(/^news\s+add\s+"([^"]+)"/);
-                      if (!titleMatch || !titleMatch[1]) {
-                          setIsProcessing(false);
-                          return 'Usage: news add "Title of The Article"';
-                      }
-                      const title = titleMatch[1];
-                      const filename = `${Date.now()}-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-').substring(0, 50)}.txt`;
-                      const newFilePath = `/var/news/${filename}`;
-                      const content = `TITLE: ${title}\nDATE: ${new Date().toISOString().split('T')[0]}\n\n`;
-      
-                      setEditingFile({ path: newFilePath, content });
-                      setIsProcessing(true);
-                      return '';
-                  }
-                  case 'edit': {
-                      const editIndex = parseInt(args[1], 10) - 1;
-                      if (isNaN(editIndex) || editIndex < 0 || editIndex >= articles.length) {
-                          setIsProcessing(false);
-                          return `news: invalid article number for editing: ${args[1]}`;
-                      }
-                      const articleName = articles[editIndex];
-                      const articlePath = `/var/news/${articleName}`;
-                      const articleNode = getNodeFromPath(articlePath, currentHost);
-      
-                      if (articleNode && articleNode.type === 'file') {
-                          const content = getDynamicContent(articleNode.content);
-                          setEditingFile({ path: articlePath, content });
-                          setIsProcessing(true);
-                          return '';
-                      }
-                      break;
-                  }
-                  case 'del': {
-                      const delIndex = parseInt(args[1], 10) - 1;
-                      if (isNaN(delIndex) || delIndex < 0 || delIndex >= articles.length) {
-                          setIsProcessing(false);
-                          return `news: invalid article number for deletion: ${args[1]}`;
-                      }
-                      const articleName = articles[delIndex];
-                      const articlePath = `/var/news/${articleName}`;
-      
-                      setConfirmation({
-                          message: `Are you sure you want to delete "${articleName}"?`,
-                          onConfirm: async () => {
-                              const success = removeNodeFromFilesystem(articlePath, currentHost);
-                              return success ? `Article "${articleName}" deleted.` : "Failed to delete article.";
-                          },
-                      });
-                      setIsProcessing(false);
-                      return '';
-                  }
-              }
-          }
-      
-          // 4. If none of the above, it's an invalid command.
-          setIsProcessing(false);
-          return `news: invalid command or insufficient permissions for '${subCmd}'. Type 'news' to see available articles.`;
-      }
-      
-        case 'crack': {
-            const [wordlistFile, hash] = args;
-            if (!wordlistFile || !hash) {
-                setIsProcessing(false);
-                return "Usage: crack <wordlist_file> <hash>";
-            }
-            const wordlistPath = resolvePath(cwd, wordlistFile);
-            if (!hasPermission(wordlistPath)) {
-                setIsProcessing(false);
-                return `crack: cannot open file '${wordlistFile}': Permission denied`;
-            }
-            
-            const wordlist = getWordlist(currentHost);
-            if (!wordlist) {
-                 setIsProcessing(false);
-                 return `crack: wordlist file not found at default location.`;
-            }
-            
-            warlockTaunt = await triggerWarlock(`Brute-force attempt with hash ${hash}`, 25);
-            for (const password of wordlist) {
-                if (md5(password) === hash) {
-                    setIsProcessing(false);
-                    return `Password found: ${password}` + (warlockTaunt || '');
-                }
-            }
-            setIsProcessing(false);
-            return "Password not found in wordlist." + (warlockTaunt || '');
-        }
-
-        case 'conceal': {
-            const targetFile = args[0];
-            const messageMatch = command.match(/conceal\s+\S+\s+"([^"]+)"/);
-            if (!targetFile || !messageMatch) {
-                setIsProcessing(false);
-                return 'Usage: conceal <file> "your secret message"';
-            }
-            const message = messageMatch[1];
-            const targetPath = resolvePath(cwd, targetFile);
-
-            if (!hasPermission(targetPath, 'write')) {
-                setIsProcessing(false);
-                return `conceal: cannot write to '${targetFile}': Permission denied`;
-            }
-
-            const node = getNodeFromPath(targetPath, currentHost);
-            if (!node || node.type !== 'file' || !getDynamicContent(node.content).startsWith('data:image')) {
-                setIsProcessing(false);
-                return `conceal: '${targetFile}' is not a valid image file.`;
-            }
-
-            try {
-                warlockTaunt = await triggerWarlock(`Steganography attempt on ${targetFile}`, 20);
-                const result = await concealMessage({ imageDataUri: getDynamicContent(node.content), message });
-                updateNodeInFilesystem(targetPath, result.newImageDataUri, currentHost);
-                setIsProcessing(false);
-                return `Message concealed in ${targetFile}.` + (warlockTaunt || '');
-            } catch (error: any) {
-                setIsProcessing(false);
-                return `Error: ${error.message}`;
-            }
-        }
-
-        case 'reveal': {
-            const targetFile = args[0];
-            if (!targetFile) {
-                setIsProcessing(false);
-                return 'Usage: reveal <file>';
-            }
-            const targetPath = resolvePath(cwd, targetFile);
-            if (!hasPermission(targetPath)) {
-                setIsProcessing(false);
-                return `reveal: cannot read '${targetFile}': Permission denied`;
-            }
-
-            const node = getNodeFromPath(targetPath, currentHost);
-             if (!node || node.type !== 'file' || !getDynamicContent(node.content).startsWith('data:image')) {
-                setIsProcessing(false);
-                return `reveal: '${targetFile}' is not a valid image file.`;
-            }
-            
-            try {
-                warlockTaunt = await triggerWarlock(`Steganography reveal on ${targetFile}`, 20);
-                const result = await revealMessage({ imageDataUri: getDynamicContent(node.content) });
-                setIsProcessing(false);
-                return `Revealed message: ${result.revealedMessage}` + (warlockTaunt || '');
-            } catch (error: any) {
-                 setIsProcessing(false);
-                return `Error: ${error.message}`;
-            }
-        }
-        
-        case 'osint': {
-            const target = args[0];
-            if (!target) {
-                setIsProcessing(false);
-                return 'Usage: osint <target_email_or_username>';
-            }
-            try {
-                warlockTaunt = await triggerWarlock(`OSINT on ${target}`, 15);
-                const result = await investigateTarget({ target });
-                osintReportCache = result.report; // Cache the report
-                setIsProcessing(false);
-                return result.report + (warlockTaunt || '');
-            } catch (error: any) {
-                setIsProcessing(false);
-                return `Error: ${error.message}`;
-            }
-        }
-
-        case 'craft_phish': {
-            const targetEmail = args[0];
-            const topicMatch = command.match(/--topic\s+"([^"]+)"/);
-            if (!targetEmail || !topicMatch) {
-                setIsProcessing(false);
-                return 'Usage: craft_phish <target_email> --topic "subject"';
-            }
-            const topic = topicMatch[1];
-            try {
-                warlockTaunt = await triggerWarlock(`Phishing craft for ${targetEmail}`, 20);
-                const result = await craftPhish({ targetEmail, topic, context: osintReportCache });
-                setIsProcessing(false);
-                return result.phishingEmail + (warlockTaunt || '');
-            } catch (error: any) {
-                setIsProcessing(false);
-                return `Error: ${error.message}`;
-            }
-        }
-
-        case 'forge': {
-            const forgeMatch = command.match(/^forge\s+(\S+)\s+"([^"]+)"/);
-            if (!forgeMatch) {
-                setIsProcessing(false);
-                return 'Usage: forge <filename> "prompt describing the tool"';
-            }
-            const [, filename, userPrompt] = forgeMatch;
-            const targetPath = resolvePath(cwd, filename);
-        
-            if (!hasPermission(targetPath, 'write')) {
-                warlockTaunt = await triggerWarlock(`Denied forge on ${targetPath}`, 10);
-                setIsProcessing(false);
-                return `forge: cannot create file '${filename}': Permission denied` + (warlockTaunt || '');
-            }
-        
-            try {
-                warlockTaunt = await triggerWarlock(`Tool forging for ${filename}`, 30);
-                toast({ title: "AI Tool Forge", description: `Generating code for ${filename}...` });
-                const result = await forgeTool({ filename, prompt: userPrompt });
-                updateNodeInFilesystem(targetPath, result.code, currentHost);
-                setIsProcessing(false);
-                return `Successfully forged ${filename}. You can now run it or 'cat' its content.` + (warlockTaunt || '');
-            } catch (error: any) {
-                console.error("Tool forging failed:", error);
-                toast({
-                    variant: "destructive",
-                    title: "Tool Forging Failed",
-                    description: error.message,
-                });
-                setIsProcessing(false);
-                return `Error: AI failed to forge the tool.`;
-            }
-        }
-        
-        case 'analyze_image': {
-            const imageUrl = args[0];
-            if (!imageUrl) {
-                setIsProcessing(false);
-                return 'Usage: analyze_image <image_url>';
-            }
-            
-            try {
-                warlockTaunt = await triggerWarlock(`Image analysis on ${imageUrl}`, 25);
-                toast({ title: "Forensic Analysis", description: "AI is analyzing the image for clues..." });
-                const result = await analyzeImage({ imageUrl });
-                setIsProcessing(false);
-                return `Forensic Report:\n----------------\n${result.analysis}` + (warlockTaunt || '');
-            } catch (error: any) {
-                console.error("Image analysis failed:", error);
-                toast({
-                    variant: "destructive",
-                    title: "Image Analysis Failed",
-                    description: error.message,
-                });
-                setIsProcessing(false);
-                return `Error: AI failed to analyze the image.`;
-            }
-        }
-
-        case 'apt': {
-            if (!isRoot) {
-                setIsProcessing(false);
-                return `apt: command not found. Did you mean 'cat'?`;
-            }
-            const [subCmd, pkg] = args;
-            if (subCmd !== 'install' || !pkg) {
-                setIsProcessing(false);
-                return `Usage: apt install <package>`;
-            }
-            if (pkg === 'nginx') {
-                if (isPackageInstalled('nginx', currentHost)) {
-                    setIsProcessing(false);
-                    return 'nginx is already the newest version (1.18.0-6ubuntu14.4).';
-                }
-                setConfirmation({
-                    message: `The following NEW packages will be installed:\n  nginx nginx-common nginx-core\nAfter this operation, 8,192 kB of additional disk space will be used.\nDo you want to continue?`,
-                    onConfirm: async () => {
-                        installPackage('nginx', currentHost);
-                        warlockTaunt = await triggerWarlock(`Installed nginx`, 15);
-                        return 'Setting up nginx (1.18.0-6ubuntu14.4) ...\nCreated symlink /etc/systemd/system/multi-user.target.wants/nginx.service → /lib/systemd/system/nginx.service.' + (warlockTaunt || '');
-                    },
-                });
-                setIsProcessing(false);
-                return '';
-            } else {
-                setIsProcessing(false);
-                return `E: Unable to locate package ${pkg}`;
-            }
-        }
-
-        case 'nginx': {
-            const flag = args[0];
-            if (isPackageInstalled('nginx', currentHost)) {
-                if (flag === '-v') {
-                    setIsProcessing(false);
-                    return 'nginx version: nginx/1.18.0 (Ubuntu)';
-                }
-                 if (flag === '-t') {
-                    setIsProcessing(false);
-                    return 'nginx: the configuration file /etc/nginx/nginx.conf syntax is ok\nnginx: configuration file /etc/nginx/nginx.conf test is successful';
-                }
-                 setIsProcessing(false);
-                return 'Usage: nginx [-v | -t]';
-            }
-            break; // Fall through to default if not installed
-        }
-        
-        case 'restore_system': {
-            const backupFile = args[0];
-            if (!isRoot) {
-                setIsProcessing(false);
-                return `restore_system: command not found.`;
-            }
-            if (!backupFile) {
-                setIsProcessing(false);
-                return "Usage: restore_system <backup_file>";
-            }
-            const backupPath = resolvePath(cwd, backupFile);
-            const backupNode = getNodeFromPath(backupPath, currentHost);
-            if (backupPath !== '/var/backups/snapshot.tgz' || !backupNode) {
-                setIsProcessing(false);
-                return "restore_system: Backup file not found or invalid.";
-            }
-
-            setConfirmation({
-                message: "Are you sure you want to restore the system from backup? This will overwrite user files.",
-                onConfirm: async () => {
-                    if (user) {
-                        const userHome = `/home/${user.email.split('@')[0]}`;
-                        const success = restoreBackup(userHome, currentHost);
-                        if (success) {
-                            warlockTaunt = await triggerWarlock(`System restore initiated.`, -50);
-                            return "System restored successfully from snapshot. Ransomware neutralized." + (warlockTaunt || '');
-                        }
-                    }
-                    return "System restore failed. User context not found.";
-                },
-            });
-            setIsProcessing(false);
-            return '';
-        }
-
-      case 'ifconfig':
-      case 'ip': {
-            if (cmd === 'ip' && args[0] !== 'a' && args[0] !== 'addr') {
-                break; // Fall through to default for other 'ip' subcommands
-            }
-            const machine = getMachine(currentHost);
-            if (machine) {
-                setIsProcessing(false);
-                return `eth0: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500
-        inet ${machine.ip}  netmask 255.255.255.0  broadcast 192.168.1.255
-        ether 00:1a:2b:3c:4d:5e  txqueuelen 1000  (Ethernet)`;
-            }
-            setIsProcessing(false);
-            return 'Error: Could not determine network configuration.';
-      }
-
-      case 'nmap': {
-          const targetIp = args[0];
-          if (!targetIp) {
-              setIsProcessing(false);
-              return 'Usage: nmap <target_ip>';
-          }
-          const targetMachine = getMachine(targetIp);
-          if (!targetMachine) {
-              setIsProcessing(false);
-              return `Host discovery disabled (-Pn). All ports on ${targetIp} are in ignored states.`;
-          }
-          let output = `Starting Nmap 7.80 ( https://nmap.org ) at ${new Date().toUTCString()}\n`;
-          output += `Nmap scan report for ${targetMachine.hostname} (${targetMachine.ip})\n`;
-          output += `Host is up (0.0020s latency).\nNot showing: ${1000 - targetMachine.openPorts.length} closed ports\n`;
-          output += 'PORT   STATE SERVICE\n';
-          targetMachine.openPorts.forEach(port => {
-              const service = { 21: 'ftp', 22: 'ssh', 80: 'http', 443: 'https' }[port] || 'unknown';
-              output += `${port}/tcp open  ${service}\n`;
-          });
-          setIsProcessing(false);
-          return output;
-      }
-      
-      case 'ssh': {
-        const target = args[0];
-        if (!target || !target.includes('@')) {
-            setIsProcessing(false);
-            return 'Usage: ssh <user@host>';
-        }
-        const [sshUser, sshHost] = target.split('@');
-        const targetMachine = getMachine(sshHost);
-        if (!targetMachine) {
-            setIsProcessing(false);
-            return `ssh: Could not resolve hostname ${sshHost}: Name or service not known`;
-        }
-
-        if (targetMachine.credentials[sshUser] !== undefined) {
-             setAuthStep('ssh_password');
-             setSshCredentials({ user: sshUser, host: sshHost, password: '' });
-             setIsProcessing(false);
-             return '';
-        } else {
-            setIsProcessing(false);
-            return `Permission denied (publickey,password).`;
-        }
-      }
-
-
-      case 'su': {
-        if (isRoot) {
-            setIsProcessing(false);
-            return "Already root.";
-        }
-        if (user?.email !== ROOT_USER_EMAIL) {
-            warlockTaunt = await triggerWarlock(`Failed 'su' attempt`, 10);
-            setIsProcessing(false);
-            return "su: Permission denied." + (warlockTaunt || '');
-        }
-        setIsRoot(true);
-        setCwd('/root');
-        warlockTaunt = await triggerWarlock(`Root access granted`, 50);
-        setIsProcessing(false);
-        return '' + (warlockTaunt || '');
-      }
-
-      case 'exit': {
-        if (currentHost !== '192.168.1.100') {
-            setCurrentHost('192.168.1.100');
-            const userHome = user ? `/home/${user.email!.split('@')[0]}` : '/';
-            setCwd(userHome);
-            setIsRoot(false);
-            setIsProcessing(false);
-            return 'Connection to remote host closed.';
-        }
-        if (isRoot) {
-          setIsRoot(false);
-          const userHome = user ? `/home/${user.email!.split('@')[0]}` : '/';
-          setCwd(userHome);
-          setIsProcessing(false);
-          return '';
-        }
-        // If not root, logout is more appropriate. But for now, we do nothing.
-        setIsProcessing(false);
-        return '';
-      }
-
-      case 'logout': {
-        await auth.signOut();
-        setIsProcessing(false);
-        // User state change will trigger welcome message, return null to signify no output
-        return null;
-      }
-      
-      case 'clear':
-        // The component will handle this by clearing history. Return empty.
-        setIsProcessing(false);
-        return '';
-
-      case '':
-        setIsProcessing(false);
-        return '';
-        
-      case 'plan': {
-         const objective = fullArgString;
-         if(!objective) {
-            setIsProcessing(false);
-            return 'Usage: plan "[objective]"'
-         }
-         const node = getNodeFromPath(cwd, currentHost);
-         let availableFiles: string[] = [];
-         if(node?.type === 'directory') {
-            availableFiles = Object.keys(node.children);
-         }
-         
-         const result = await generateAttackPlan({target: currentHost, objective, availableFiles});
-         let planOutput = `Attack Plan Reasoning: ${result.reasoning}\n\n`;
-         planOutput += "Commands:\n";
-         result.plan.forEach((step, index) => {
-            planOutput += `${index + 1}. ${step.command} ${step.args.join(' ')}\n`;
-         });
-         setIsProcessing(false);
-         return planOutput;
-      }
-
-      default: {
-        try {
-          warlockTaunt = await triggerWarlock(`Unrecognized command: ${cmd}`, 5);
-          const result = await generateCommandHelp({ command: cmd });
-          setIsProcessing(false);
-          return result.helpMessage + (warlockTaunt || '');
-        } catch (error) {
-          console.error('AI command help failed:', error);
-          toast({
-            variant: "destructive",
-            title: "AI Assistant Error",
-            description: "Could not get help for the command.",
-          });
-          setIsProcessing(false);
-          return `command not found: ${cmd}`;
-        }
-      }
+    // Don't set processing to false if a confirmation is set up, or editor is opened
+    if (!confirmation && !editingFile) {
+      setIsProcessing(false);
     }
-  }, [authCommand, authStep, authCredentials, cwd, toast, user, resetAuth, isRoot, editingFile, confirmation, triggerWarlock, aliases, loadAliases, saveFile, exitEditor, currentHost, sshCredentials]);
+    
+    return result;
+  }, [
+    confirmation, authStep, authCredentials, authCommand, sshCredentials, user, 
+    isRoot, aliases, cwd, currentHost,
+    resetAuth, triggerWarlock, toast, hasPermission,
+    editingFile // ensure it's a dependency
+  ]);
 
   return { 
     prompt, 
@@ -1304,5 +916,7 @@ export const useCommand = (user: User | null | undefined) => {
     editingFile,
     saveFile,
     exitEditor,
- };
+  };
 };
+
+    
