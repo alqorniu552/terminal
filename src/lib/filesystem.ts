@@ -480,32 +480,28 @@ export const updateNodeInFilesystem = (path: string, newContent: string, host: s
     if (!machine) return false;
 
     const parts = path.split('/').filter(p => p);
-    let currentNode: FilesystemNode = machine.filesystem;
-    let parentNode: Directory | null = null;
-    let lastPart = '';
+    const lastPart = parts.pop();
+    if (!lastPart) return false;
 
-    for (let i = 0; i < parts.length; i++) {
-        const part = parts[i];
-        if (currentNode.type === 'directory') {
-            parentNode = currentNode;
-            lastPart = part;
-            if (currentNode.children[part]) {
-                currentNode = currentNode.children[part];
-            } else {
-                // If the last part of the path doesn't exist, we can create it
-                if (i === parts.length - 1) {
-                    break; 
-                }
-                return false;
-            }
+    let currentDir: FilesystemNode = machine.filesystem;
+    for (const part of parts) {
+        if (currentDir.type === 'directory' && currentDir.children[part]) {
+            currentDir = currentDir.children[part];
         } else {
              return false;
         }
     }
     
-    if (parentNode && parentNode.type === 'directory') {
-        parentNode.children[lastPart] = { type: 'file', content: newContent, path };
-        return true;
+    if (currentDir.type === 'directory') {
+        const existingNode = currentDir.children[lastPart];
+        if (existingNode && existingNode.type === 'file') {
+            existingNode.content = newContent;
+            return true;
+        } else if (!existingNode) {
+            // Create the file if it doesn't exist (e.g., from nano)
+            currentDir.children[lastPart] = { type: 'file', content: newContent, path };
+            return true;
+        }
     }
     
     return false;
@@ -521,8 +517,7 @@ export const removeNodeFromFilesystem = (path: string, host: string): boolean =>
     if (!filename) return false;
 
     let currentDir: FilesystemNode = machine.filesystem;
-    const parentParts = [...parts]; // Create a copy for traversing to the parent
-    for (const part of parentParts) {
+    for (const part of parts) {
         if (currentDir.type === 'directory' && currentDir.children[part]) {
             currentDir = currentDir.children[part];
         } else {
@@ -704,3 +699,5 @@ export const restoreBackup = (userHomePath: string, host: string): boolean => {
 };
 
 export const network = currentNetwork;
+
+    
