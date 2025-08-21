@@ -75,7 +75,7 @@ const initialFilesystem: Directory = {
     '.bashrc': {
         type: 'file',
         path: '/.bashrc',
-        content: '# Add your custom aliases here\nalias ll=\'ls -alF\'\nalias c=\'clear\'\nalias ip=\'ip a\'\n'
+        content: '# Add your custom aliases here\nalias ll=\'ls -alF\'\nalias c=\'clear\'\nalias ip=\'ip a\'\nalias sudo=\'su\'\n'
     },
     'welcome.txt': {
         type: 'file',
@@ -100,11 +100,6 @@ const initialFilesystem: Directory = {
             'passwd': { type: 'file', path: '/etc/passwd', content: 'root:x:0:0:root:/root:/bin/bash\ndaemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin\nbin:x:2:2:bin:/bin:/usr/sbin/nologin\nuser1:x:1000:1000:user1:/home/user1:/bin/bash\nuser2:x:1001:1001:user2:/home/user2:/bin/bash\n' },
             'group': { type: 'file', path: '/etc/group', content: 'root:x:0:\nbin:x:2:\nuser1:x:1000:\nuser2:x:1001:\n' },
             'hosts': { type: 'file', path: '/etc/hosts', content: '127.0.0.1\tlocalhost\n::1\tlocalhost\n' },
-            'shadow.bak': {
-                type: 'file',
-                path: '/etc/shadow.bak',
-                content: 'root:5f4dcc3b5aa765d61d8327deb882cf99' // md5 for 'password'
-            },
             'ssh': {
                 type: 'directory',
                 path: '/etc/ssh',
@@ -145,7 +140,12 @@ const initialFilesystem: Directory = {
         type: 'directory',
         path: '/root',
         children: {
-            '.secret_root_file.txt': { type: 'file', path: '/root/.secret_root_file.txt', content: 'This is a secret file only accessible by root.' }
+            '.secret_root_file.txt': { type: 'file', path: '/root/.secret_root_file.txt', content: 'This is a secret file only accessible by root.' },
+            'shadow.bak': {
+                type: 'file',
+                path: '/root/shadow.bak',
+                content: 'root:5f4dcc3b5aa765d61d8327deb882cf99' // md5 for 'password'
+            },
         }
     },
     'tmp': {
@@ -700,4 +700,5 @@ export const restoreBackup = (userHomePath: string, host: string): boolean => {
 
 export const network = currentNetwork;
 
+    
     

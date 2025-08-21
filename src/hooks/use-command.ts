@@ -444,7 +444,7 @@ export const useCommand = (user: User | null | undefined) => {
     if (node.type === 'directory' && !isRecursive) return `rm: cannot remove '${targetName}': Is a directory`;
     return removeNodeFromFilesystem(targetPath, currentHost) ? '' : `rm: could not remove '${targetName}'`;
   };
-  const handleNano = async (args: string[]): Promise<string> => {
+  const handleNano = async (args: string[]): Promise<string | React.ReactNode> => {
     const targetFile = args[0];
     if (!targetFile) return "nano: missing file operand";
     const targetPath = resolvePath(cwd, targetFile);
@@ -456,7 +456,7 @@ export const useCommand = (user: User | null | undefined) => {
     if (node?.type === 'directory') return `nano: ${targetFile}: is a directory`;
     const initialContent = node ? getDynamicContent(node.content) : '';
     setEditingFile({ path: targetPath, content: initialContent, onSaveCallback: targetPath.endsWith('.bashrc') ? loadAliases : undefined });
-    setIsProcessing(true);
+    setIsProcessing(true); // This will cause the terminal to render the editor.
     return '';
   };
   const handleGenerateImage = async (_: string[], fullCommand: string): Promise<string | React.ReactNode> => {
@@ -484,7 +484,7 @@ export const useCommand = (user: User | null | undefined) => {
       return `Error: Could not query database.`;
     }
   };
-  const handleNews = async (args: string[], fullCommand: string): Promise<string> => {
+  const handleNews = async (args: string[], fullCommand: string): Promise<string | React.ReactNode> => {
     const newsDir = getNodeFromPath('/var/news', currentHost);
     if (newsDir?.type !== 'directory') return "News directory not found.";
     const articles = Object.keys(newsDir.children).sort();
@@ -840,7 +840,11 @@ export const useCommand = (user: User | null | undefined) => {
         const password = command.trim();
         const authFn = authCommand === 'login' ? signInWithEmailAndPassword : createUserWithEmailAndPassword;
         try {
-          await authFn(auth, email, password);
+          const userCredential = await authFn(auth, email, password);
+          if (authCommand === 'register') {
+            const userHome = `/home/${userCredential.user.email!.split('@')[0]}`;
+            addNodeToFilesystem(userHome, { type: 'directory', children: {} }, currentHost);
+          }
           result = authCommand === 'login' ? 'Login successful.' : 'Registration successful.';
           const taunt = await triggerWarlock(`User ${email} logged in`, 5);
           if (taunt) result += taunt;
@@ -919,4 +923,5 @@ export const useCommand = (user: User | null | undefined) => {
   };
 };
 
+    
     
