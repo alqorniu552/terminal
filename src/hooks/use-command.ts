@@ -266,7 +266,7 @@ export const useCommand = (user: User | null | undefined) => {
         }
     }
 
-    const argString = command.trim().substring(cmd.length).trim();
+    const fullArgString = command.trim().substring(cmd.length).trim();
     
     // Regex to extract prompt from generate_image command and news add
     const imagePromptMatch = command.match(/^generate_image\s+"([^"]+)"/);
@@ -426,7 +426,7 @@ export const useCommand = (user: User | null | undefined) => {
         }
 
       case 'db': {
-        const dbQuery = argString.startsWith('"') && argString.endsWith('"') ? argString.slice(1, -1) : argString;
+        const dbQuery = fullArgString.startsWith('"') && fullArgString.endsWith('"') ? fullArgString.slice(1, -1) : fullArgString;
         if (!dbQuery) {
           setIsProcessing(false);
           return 'db: missing query. Usage: db "your natural language query"';
@@ -474,20 +474,21 @@ export const useCommand = (user: User | null | undefined) => {
         }
         const articles = Object.keys(newsDir.children).sort();
         const subCmd = args[0];
-
+        
         // Check if reading an article by number first
         const articleNum = parseInt(subCmd, 10);
         if (!isNaN(articleNum)) {
             const articleIndex = articleNum - 1;
-            if (articleIndex < 0 || articleIndex >= articles.length) {
+            if (articleIndex >= 0 && articleIndex < articles.length) {
+                const articleName = articles[articleIndex];
+                const articleNode = newsDir.children[articleName];
+                if (articleNode.type === 'file') {
+                    setIsProcessing(false);
+                    return getDynamicContent(articleNode.content);
+                }
+            } else {
                 setIsProcessing(false);
                 return `news: invalid article number: ${articleNum}`;
-            }
-            const articleName = articles[articleIndex];
-            const articleNode = newsDir.children[articleName];
-            if (articleNode.type === 'file') {
-                setIsProcessing(false);
-                return getDynamicContent(articleNode.content);
             }
         }
         
@@ -571,11 +572,19 @@ export const useCommand = (user: User | null | undefined) => {
             }
         }
         
-        // Default action: list articles if no valid subcommand is found
+        // Default action: list articles if no valid subcommand is found or if it's not a root command
         if (!subCmd) {
           let output = "Available News:\n";
           articles.forEach((article, index) => {
-            const title = article.replace(/-/g, ' ').replace('.txt', '');
+            const node = newsDir.children[article];
+            let title = article.replace(/-/g, ' ').replace('.txt', ''); // Fallback title
+            if (node.type === 'file') {
+                const content = getDynamicContent(node.content);
+                const titleMatch = content.match(/^TITLE:\s*(.*)/);
+                if (titleMatch) {
+                    title = titleMatch[1];
+                }
+            }
             output += `[${index + 1}] ${title}\n`;
           });
           output += "\nType 'news <number>' to read an article.";
