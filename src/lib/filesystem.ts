@@ -51,6 +51,10 @@ Security
 P@$$w0rd
 Ch@ll3ng3`;
 
+export const getWordlist = () => {
+    return wordlistContent.split('\n');
+}
+
 export const initialFilesystem: Directory = {
   type: 'directory',
   path: '/',
@@ -236,7 +240,7 @@ May 10 10:09:00 server systemd: SERVICE_START pid=1 uid=0 auid=4294967295 ses=42
                     type: 'directory',
                     path: '/var/www/html',
                     children: {
-                        'index.html': { type: 'file', path: '/var/www/html/index.html', content: '<html><body><h1>It works!</h1></body></html>'},
+                        'index.html': { type: 'file', path: '/var/www/html/index.html', content: '&lt;html&gt;&lt;body&gt;&lt;h1&gt;It works!&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;'},
                         'secret.jpg': {
                             type: 'file',
                             path: '/var/www/html/secret.jpg',
@@ -341,7 +345,7 @@ export const updateNodeInFilesystem = (path: string, newContent: string): boolea
     let parentNode: Directory | null = null;
     let lastPart = '';
 
-    for (let i = 0; i < parts.length; i++) {
+    for (let i = 0; i &lt; parts.length; i++) {
         const part = parts[i];
         if (currentNode.type === 'directory') {
             parentNode = currentNode;
@@ -391,5 +395,3 @@ export const removeNodeFromFilesystem = (path: string): boolean => {
 
     return false;
 };
-
-    

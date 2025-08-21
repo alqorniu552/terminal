@@ -1,19 +1,26 @@
 
 "use client";
 
-import { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useToast } from "@/hooks/use-toast";
 import { generateCommandHelp } from '@/ai/flows/generate-command-help';
 import { databaseQuery } from '@/ai/flows/database-query-flow';
-import { getNodeFromPath, getDynamicContent, updateNodeInFilesystem, removeNodeFromFilesystem } from '@/lib/filesystem';
+import { concealMessage } from '@/ai/flows/steganography-flow';
+import { revealMessage } from '@/ai/flows/steganography-flow';
+import { investigateTarget } from '@/ai/flows/osint-investigation-flow';
+import { craftPhish } from '@/ai/flows/craft-phish-flow';
+import { generateWarlockTaunt } from '@/ai/flows/warlock-threat-flow';
+import { getNodeFromPath, getDynamicContent, updateNodeInFilesystem, removeNodeFromFilesystem, getWordlist } from '@/lib/filesystem';
 import { db, auth } from '@/lib/firebase';
 import { collection, query, where, getDocs, WhereFilterOp } from 'firebase/firestore';
 import { User, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import NanoEditor from '@/components/nano-editor';
 import ImageDisplay from '@/components/image-display';
+import md5 from 'md5';
 
 
 const ROOT_USER_EMAIL = 'admin@cyber.dev';
+let osintReportCache = ''; // Simple cache for OSINT report
 
 const getNeofetchOutput = (user: User | null | undefined, isRoot: boolean) => {
     let uptime = 0;
@@ -96,6 +103,11 @@ Available commands:
   neofetch            - Display system information.
   db "[query]"        - Query the database (e.g., "list all users").
   news                - List or read news articles.
+  crack &lt;file&gt; &lt;hash&gt; - Crack a hash using a wordlist file.
+  reveal &lt;file&gt;       - Reveal a secret message from an image.
+  conceal &lt;file&gt; "[m]"- Conceal a message in an image.
+  osint &lt;target&gt;      - Perform OSINT on a target (e.g., an email).
+  craft_phish &lt;email&gt; --topic "[t]" - Craft a phishing email.
   clear               - Clear the terminal screen.
   logout              - Log out from the application.
 `;
@@ -103,8 +115,8 @@ Available commands:
             helpText += `
 Root-only news commands:
   news add "title"    - Create a new news article.
-  news edit <number>  - Edit an existing news article.
-  news del <number>   - Delete a news article.
+  news edit &lt;number&gt;  - Edit an existing news article.
+  news del &lt;number&gt;   - Delete a news article.
   exit                - Exit from root user session.
 
 Root has elevated privileges and can access all user directories under /home.`;
@@ -149,16 +161,17 @@ const resolvePath = (cwd: string, path: string): string => {
 export const useCommand = (user: User | null | undefined) => {
   const [cwd, setCwd] = useState('/');
   const [isRoot, setIsRoot] = useState(false);
+  const [warlockAwareness, setWarlockAwareness] = useState(0);
   
   // State for multi-step authentication and confirmation
-  const [authCommand, setAuthCommand] = useState<'login' | 'register' | null>(null);
-  const [authStep, setAuthStep] = useState<'email' | 'password' | null>(null);
+  const [authCommand, setAuthCommand] = useState&lt;'login' | 'register' | null&gt;(null);
+  const [authStep, setAuthStep] = useState&lt;'email' | 'password' | null&gt;(null);
   const [authCredentials, setAuthCredentials] = useState({ email: '', password: '' });
   const [isProcessing, setIsProcessing] = useState(false);
-  const [confirmation, setConfirmation] = useState<{ message: string; onConfirm: () => Promise<string | React.ReactNode> } | null>(null);
+  const [confirmation, setConfirmation] = useState&lt;{ message: string; onConfirm: () => Promise&lt;string | React.ReactNode&gt; } | null&gt;(null);
 
   // State for Nano editor
-  const [editingFile, setEditingFile] = useState<{ path: string; content: string; onSaveCallback?: () => void } | null>(null);
+  const [editingFile, setEditingFile] = useState&lt;{ path: string; content: string; onSaveCallback?: () => void } | null&gt;(null);
 
   const getInitialPrompt = useCallback(() => {
     if (confirmation) return `${confirmation.message} (y/n): `;
@@ -212,6 +225,8 @@ export const useCommand = (user: User | null | undefined) => {
   useEffect(() => {
     resetAuth();
     setIsRoot(false);
+    osintReportCache = ''; // Clear OSINT cache on user change
+    setWarlockAwareness(0);
     // On login, set CWD to user's home directory if it exists, otherwise to root
     if (user) {
         const userHome = `/home/${user.email!.split('@')[0]}`;
@@ -237,10 +252,31 @@ export const useCommand = (user: User | null | undefined) => {
     return `Welcome to Cyber! Please 'login' or 'register' to continue.`;
   }, [user]);
 
-  const processCommand = useCallback(async (command: string): Promise<string | React.ReactNode> => {
+    const triggerWarlock = useCallback(async (action: string, awarenessIncrease: number): Promise&lt;string | null&gt; => {
+        const newAwareness = Math.min(warlockAwareness + awarenessIncrease, 100);
+        setWarlockAwareness(newAwareness);
+
+        // Warlock only taunts if awareness crosses certain thresholds
+        if ((warlockAwareness &lt; 20 && newAwareness &gt;= 20) || 
+            (warlockAwareness &lt; 50 && newAwareness &gt;= 50) || 
+            (warlockAwareness &lt; 80 && newAwareness &gt;= 80) ||
+            newAwareness === 100) {
+            try {
+                const result = await generateWarlockTaunt({ action, awareness: newAwareness });
+                return `\n\x1b[1;31mWarlock: ${result.taunt}\x1b[0m`;
+            } catch (error) {
+                console.error("Warlock taunt generation failed:", error);
+                return null;
+            }
+        }
+        return null;
+    }, [warlockAwareness]);
+
+  const processCommand = useCallback(async (command: string): Promise&lt;string | React.ReactNode&gt; => {
     if (editingFile) return ''; // Block commands while editing
 
     setIsProcessing(true);
+    let warlockTaunt: string | null = null;
 
     if (confirmation) {
         const response = command.trim().toLowerCase();
@@ -282,12 +318,14 @@ export const useCommand = (user: User | null | undefined) => {
                 await authFn(auth, email, password);
                 const message = authCommand === 'login' ? 'Login successful.' : 'Registration successful.';
                 resetAuth();
+                warlockTaunt = await triggerWarlock(`User ${email} logged in`, 5);
                 setIsProcessing(false);
-                return message;
+                return message + (warlockTaunt || '');
             } catch (error: any) {
                 resetAuth();
+                warlockTaunt = await triggerWarlock(`Failed login for ${email}`, 10);
                 setIsProcessing(false);
-                return `Error: ${error.message}`;
+                return `Error: ${error.message}` + (warlockTaunt || '');
             }
         }
     }
@@ -335,7 +373,7 @@ export const useCommand = (user: User | null | undefined) => {
         if (path.startsWith('/root')) return false;
 
         const parts = path.split('/').filter(p => p);
-        if (parts[0] === 'home' && parts.length > 1 && parts[1] !== user.email!.split('@')[0]) {
+        if (parts[0] === 'home' && parts.length &gt; 1 && parts[1] !== user.email!.split('@')[0]) {
             return false;
         }
 
@@ -348,19 +386,21 @@ export const useCommand = (user: User | null | undefined) => {
         setIsProcessing(false);
         return getHelpOutput(true, isRoot);
       case 'neofetch':
+        warlockTaunt = await triggerWarlock(`neofetch`, 1);
         setIsProcessing(false);
-        return getNeofetchOutput(user, isRoot);
+        return getNeofetchOutput(user, isRoot) + (warlockTaunt || '');
       
       case 'ls': {
         const targetPath = args[0] ? resolvePath(cwd, args[0]) : cwd;
         if (!hasPermission(targetPath)) {
+            warlockTaunt = await triggerWarlock(`Denied ls on ${targetPath}`, 5);
             setIsProcessing(false);
-            return `ls: cannot open directory '${args[0] || '.'}': Permission denied`;
+            return `ls: cannot open directory '${args[0] || '.'}': Permission denied` + (warlockTaunt || '');
         }
         const node = getNodeFromPath(targetPath);
         if (node && node.type === 'directory') {
           setIsProcessing(false);
-          return Object.keys(node.children).map(key => {
+          return Object.keys(node.children).map(key =&gt; {
             return node.children[key].type === 'directory' ? `${key}/` : key;
           }).join('\n');
         }
@@ -383,8 +423,9 @@ export const useCommand = (user: User | null | undefined) => {
         }
         const newPath = resolvePath(cwd, targetArg);
         if (!hasPermission(newPath)) {
+            warlockTaunt = await triggerWarlock(`Denied cd to ${newPath}`, 5);
             setIsProcessing(false);
-            return `cd: ${targetArg}: Permission denied`;
+            return `cd: ${targetArg}: Permission denied` + (warlockTaunt || '');
         }
         const node = getNodeFromPath(newPath);
         if (node && node.type === 'directory') {
@@ -404,13 +445,19 @@ export const useCommand = (user: User | null | undefined) => {
         }
         const targetPath = resolvePath(cwd, targetFile);
         if (!hasPermission(targetPath)) {
+          warlockTaunt = await triggerWarlock(`Denied cat on ${targetPath}`, 5);
           setIsProcessing(false);
-          return `cat: ${targetFile}: Permission denied`;
+          return `cat: ${targetFile}: Permission denied` + (warlockTaunt || '');
         }
         const node = getNodeFromPath(targetPath);
         if (node && node.type === 'file') {
+          if (targetPath.includes('auth.log') || targetPath.includes('shadow.bak')) {
+              warlockTaunt = await triggerWarlock(`cat on sensitive file ${targetFile}`, 15);
+          } else {
+              warlockTaunt = await triggerWarlock(`cat on ${targetFile}`, 2);
+          }
           setIsProcessing(false);
-          return getDynamicContent(node.content);
+          return getDynamicContent(node.content) + (warlockTaunt || '');
         }
         setIsProcessing(false);
         return `cat: ${targetFile}: No such file or directory`;
@@ -424,8 +471,9 @@ export const useCommand = (user: User | null | undefined) => {
         }
         const targetPath = resolvePath(cwd, targetFile);
         if (!hasPermission(targetPath, 'write')) {
+            warlockTaunt = await triggerWarlock(`Denied nano on ${targetPath}`, 5);
             setIsProcessing(false);
-            return `nano: cannot edit '${targetFile}': Permission denied`;
+            return `nano: cannot edit '${targetFile}': Permission denied` + (warlockTaunt || '');
         }
 
         const node = getNodeFromPath(targetPath);
@@ -442,17 +490,18 @@ export const useCommand = (user: User | null | undefined) => {
 
         setIsProcessing(false);
         return (
-            <NanoEditor
+            &lt;NanoEditor
                 filename={targetPath}
                 initialContent={initialContent}
-                onSave={(newContent) => {
+                onSave={(newContent) =&gt; {
                     updateNodeInFilesystem(targetPath, newContent);
                     setEditingFile(null);
+                    triggerWarlock(`Saved file ${targetPath}`, 10);
                 }}
-                onExit={() => {
+                onExit={() =&gt; {
                     setEditingFile(null);
                 }}
-            />
+            /&gt;
         );
       }
       
@@ -465,10 +514,10 @@ export const useCommand = (user: User | null | undefined) => {
             const imagePrompt = imagePromptMatch[1];
             setIsProcessing(false);
             return (
-                <ImageDisplay 
+                &lt;ImageDisplay 
                     prompt={imagePrompt} 
-                    onFinished={() => { /* Potentially re-enable prompt here if needed */}} 
-                />
+                    onFinished={() =&gt; { /* Potentially re-enable prompt here if needed */}} 
+                /&gt;
             );
         }
 
@@ -479,12 +528,13 @@ export const useCommand = (user: User | null | undefined) => {
           return 'db: missing query. Usage: db "your natural language query"';
         }
         try {
+          warlockTaunt = await triggerWarlock(`DB query: ${dbQuery}`, 10);
           const queryInstruction = await databaseQuery({ query: dbQuery });
           
           let whereClauses;
 
           if (queryInstruction.where) {
-            whereClauses = queryInstruction.where.map(w => where(w[0], w[1] as WhereFilterOp, w[2]));
+            whereClauses = queryInstruction.where.map(w =&gt; where(w[0], w[1] as WhereFilterOp, w[2]));
           } else {
             whereClauses = [];
           }
@@ -494,12 +544,12 @@ export const useCommand = (user: User | null | undefined) => {
           const querySnapshot = await getDocs(q);
           if (querySnapshot.empty) {
             setIsProcessing(false);
-            return "No documents found.";
+            return "No documents found." + (warlockTaunt || '');
           }
           
-          const results = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          const results = querySnapshot.docs.map(doc =&gt; ({ id: doc.id, ...doc.data() }));
           setIsProcessing(false);
-          return JSON.stringify(results, null, 2);
+          return JSON.stringify(results, null, 2) + (warlockTaunt || '');
 
         } catch (error) {
           console.error('Database query failed:', error);
@@ -522,12 +572,10 @@ export const useCommand = (user: User | null | undefined) => {
         const articles = Object.keys(newsDir.children).sort();
         const subCmd = args[0];
         
-        // --- FIX START ---
-        // 1. Prioritize reading by number
         const articleNum = parseInt(subCmd, 10);
         if (!isNaN(articleNum)) {
             const articleIndex = articleNum - 1;
-            if (articleIndex >= 0 && articleIndex < articles.length) {
+            if (articleIndex &gt;= 0 && articleIndex &lt; articles.length) {
                 const articleName = articles[articleIndex];
                 const articleNode = newsDir.children[articleName];
                 if (articleNode.type === 'file') {
@@ -540,7 +588,6 @@ export const useCommand = (user: User | null | undefined) => {
             }
         }
         
-        // 2. Handle root-only commands
         if (isRoot) {
             if (subCmd === 'add') {
                 const newsAddMatch = command.match(/^news\s+add\s+"([^"]+)"/);
@@ -560,21 +607,21 @@ export const useCommand = (user: User | null | undefined) => {
                 setEditingFile({ path: newFilePath, content: `TITLE: ${title}\nDATE: ${new Date().toISOString().split('T')[0]}\n\n` });
                 setIsProcessing(false);
                 return (
-                    <NanoEditor
+                    &lt;NanoEditor
                         filename={newFilePath}
                         initialContent={`TITLE: ${title}\nDATE: ${new Date().toISOString().split('T')[0]}\n\n`}
-                        onSave={(newContent) => {
+                        onSave={(newContent) =&gt; {
                             updateNodeInFilesystem(newFilePath, newContent);
                             setEditingFile(null);
                         }}
-                        onExit={() => setEditingFile(null)}
-                    />
+                        onExit={() =&gt; setEditingFile(null)}
+                    /&gt;
                 );
             }
 
             if (subCmd === 'edit') {
                 const editIndex = parseInt(args[1], 10) - 1;
-                if (isNaN(editIndex) || editIndex < 0 || editIndex >= articles.length) {
+                if (isNaN(editIndex) || editIndex &lt; 0 || editIndex &gt;= articles.length) {
                     setIsProcessing(false);
                     return `news: invalid article number for editing: ${args[1]}`;
                 }
@@ -587,22 +634,22 @@ export const useCommand = (user: User | null | undefined) => {
                     setEditingFile({ path: articlePath, content: content });
                     setIsProcessing(false);
                      return (
-                        <NanoEditor
+                        &lt;NanoEditor
                             filename={articlePath}
                             initialContent={content}
-                            onSave={(newContent) => {
+                            onSave={(newContent) =&gt; {
                                 updateNodeInFilesystem(articlePath, newContent);
                                 setEditingFile(null);
                             }}
-                            onExit={() => setEditingFile(null)}
-                        />
+                            onExit={() =&gt; setEditingFile(null)}
+                        /&gt;
                     );
                 }
             }
 
             if (subCmd === 'del') {
                  const delIndex = parseInt(args[1], 10) - 1;
-                 if (isNaN(delIndex) || delIndex < 0 || delIndex >= articles.length) {
+                 if (isNaN(delIndex) || delIndex &lt; 0 || delIndex &gt;= articles.length) {
                     setIsProcessing(false);
                     return `news: invalid article number for deletion: ${args[1]}`;
                  }
@@ -611,7 +658,7 @@ export const useCommand = (user: User | null | undefined) => {
                  
                  setConfirmation({
                      message: `Are you sure you want to delete "${articleName}"?`,
-                     onConfirm: async () => {
+                     onConfirm: async () =&gt; {
                          const success = removeNodeFromFilesystem(articlePath);
                          return success ? `Article "${articleName}" deleted.` : "Failed to delete article.";
                      },
@@ -621,10 +668,9 @@ export const useCommand = (user: User | null | undefined) => {
             }
         }
         
-        // 3. Default action: list articles if no args or invalid args
         if (!subCmd) {
           let output = "Available News:\n";
-          articles.forEach((article, index) => {
+          articles.forEach((article, index) =&gt; {
             const node = newsDir.children[article];
             let title = article.replace(/-/g, ' ').replace('.txt', ''); // Fallback title
             if (node.type === 'file') {
@@ -636,16 +682,143 @@ export const useCommand = (user: User | null | undefined) => {
             }
             output += `[${index + 1}] ${title}\n`;
           });
-          output += "\nType 'news <number>' to read an article.";
+          output += "\nType 'news &lt;number&gt;' to read an article.";
           setIsProcessing(false);
           return output;
         }
 
-        // 4. Handle invalid subcommands
         setIsProcessing(false);
         return `news: invalid command: ${subCmd}. Type 'news' to see available articles.`;
-        // --- FIX END ---
       }
+      
+        case 'crack': {
+            const [wordlistFile, hash] = args;
+            if (!wordlistFile || !hash) {
+                setIsProcessing(false);
+                return "Usage: crack &lt;wordlist_file&gt; &lt;hash&gt;";
+            }
+            const wordlistPath = resolvePath(cwd, wordlistFile);
+            if (!hasPermission(wordlistPath)) {
+                setIsProcessing(false);
+                return `crack: cannot open file '${wordlistFile}': Permission denied`;
+            }
+            
+            const wordlist = getWordlist();
+            if (!wordlist) {
+                 setIsProcessing(false);
+                 return `crack: wordlist file not found at default location.`;
+            }
+            
+            warlockTaunt = await triggerWarlock(`Brute-force attempt with hash ${hash}`, 25);
+            for (const password of wordlist) {
+                if (md5(password) === hash) {
+                    setIsProcessing(false);
+                    return `Password found: ${password}` + (warlockTaunt || '');
+                }
+            }
+            setIsProcessing(false);
+            return "Password not found in wordlist." + (warlockTaunt || '');
+        }
+
+        case 'conceal': {
+            const targetFile = args[0];
+            const messageMatch = command.match(/conceal\s+\S+\s+"([^"]+)"/);
+            if (!targetFile || !messageMatch) {
+                setIsProcessing(false);
+                return 'Usage: conceal &lt;file&gt; "your secret message"';
+            }
+            const message = messageMatch[1];
+            const targetPath = resolvePath(cwd, targetFile);
+
+            if (!hasPermission(targetPath, 'write')) {
+                setIsProcessing(false);
+                return `conceal: cannot write to '${targetFile}': Permission denied`;
+            }
+
+            const node = getNodeFromPath(targetPath);
+            if (!node || node.type !== 'file' || !getDynamicContent(node.content).startsWith('data:image')) {
+                setIsProcessing(false);
+                return `conceal: '${targetFile}' is not a valid image file.`;
+            }
+
+            try {
+                warlockTaunt = await triggerWarlock(`Steganography attempt on ${targetFile}`, 20);
+                const result = await concealMessage({ imageDataUri: getDynamicContent(node.content), message });
+                updateNodeInFilesystem(targetPath, result.newImageDataUri);
+                setIsProcessing(false);
+                return `Message concealed in ${targetFile}.` + (warlockTaunt || '');
+            } catch (error: any) {
+                setIsProcessing(false);
+                return `Error: ${error.message}`;
+            }
+        }
+
+        case 'reveal': {
+            const targetFile = args[0];
+            if (!targetFile) {
+                setIsProcessing(false);
+                return 'Usage: reveal &lt;file&gt;';
+            }
+            const targetPath = resolvePath(cwd, targetFile);
+            if (!hasPermission(targetPath)) {
+                setIsProcessing(false);
+                return `reveal: cannot read '${targetFile}': Permission denied`;
+            }
+
+            const node = getNodeFromPath(targetPath);
+             if (!node || node.type !== 'file' || !getDynamicContent(node.content).startsWith('data:image')) {
+                setIsProcessing(false);
+                return `reveal: '${targetFile}' is not a valid image file.`;
+            }
+            
+            try {
+                warlockTaunt = await triggerWarlock(`Steganography reveal on ${targetFile}`, 20);
+                const result = await revealMessage({ imageDataUri: getDynamicContent(node.content) });
+                setIsProcessing(false);
+                return `Revealed message: ${result.revealedMessage}` + (warlockTaunt || '');
+            } catch (error: any) {
+                 setIsProcessing(false);
+                return `Error: ${error.message}`;
+            }
+        }
+        
+        case 'osint': {
+            const target = args[0];
+            if (!target) {
+                setIsProcessing(false);
+                return 'Usage: osint &lt;target_email_or_username&gt;';
+            }
+            try {
+                warlockTaunt = await triggerWarlock(`OSINT on ${target}`, 15);
+                const result = await investigateTarget({ target });
+                osintReportCache = result.report; // Cache the report
+                setIsProcessing(false);
+                return result.report + (warlockTaunt || '');
+            } catch (error: any) {
+                setIsProcessing(false);
+                return `Error: ${error.message}`;
+            }
+        }
+
+        case 'craft_phish': {
+            const targetEmail = args[0];
+            const topicMatch = command.match(/--topic\s+"([^"]+)"/);
+            if (!targetEmail || !topicMatch) {
+                setIsProcessing(false);
+                return 'Usage: craft_phish &lt;target_email&gt; --topic "subject"';
+            }
+            const topic = topicMatch[1];
+            try {
+                warlockTaunt = await triggerWarlock(`Phishing craft for ${targetEmail}`, 20);
+                const result = await craftPhish({ targetEmail, topic, context: osintReportCache });
+                setIsProcessing(false);
+                return result.phishingEmail + (warlockTaunt || '');
+            } catch (error: any) {
+                setIsProcessing(false);
+                return `Error: ${error.message}`;
+            }
+        }
+
 
       case 'su': {
         if (isRoot) {
@@ -653,13 +826,15 @@ export const useCommand = (user: User | null | undefined) => {
             return "Already root.";
         }
         if (user?.email !== ROOT_USER_EMAIL) {
+            warlockTaunt = await triggerWarlock(`Failed 'su' attempt`, 10);
             setIsProcessing(false);
-            return "su: Permission denied.";
+            return "su: Permission denied." + (warlockTaunt || '');
         }
         setIsRoot(true);
         setCwd('/root');
+        warlockTaunt = await triggerWarlock(`Root access granted`, 50);
         setIsProcessing(false);
-        return '';
+        return '' + (warlockTaunt || '');
       }
 
       case 'exit': {
@@ -694,9 +869,10 @@ export const useCommand = (user: User | null | undefined) => {
 
       default: {
         try {
+          warlockTaunt = await triggerWarlock(`Unrecognized command: ${cmd}`, 5);
           const result = await generateCommandHelp({ command: cmd });
           setIsProcessing(false);
-          return result.helpMessage;
+          return result.helpMessage + (warlockTaunt || '');
         } catch (error) {
           console.error('AI command help failed:', error);
           toast({
@@ -709,7 +885,7 @@ export const useCommand = (user: User | null | undefined) => {
         }
       }
     }
-  }, [authCommand, authStep, authCredentials, cwd, toast, user, resetAuth, isRoot, editingFile, confirmation]);
+  }, [authCommand, authStep, authCredentials, cwd, toast, user, resetAuth, isRoot, editingFile, confirmation, triggerWarlock]);
 
   return { 
     prompt, 
