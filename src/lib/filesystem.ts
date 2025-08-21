@@ -363,31 +363,26 @@ export const getDynamicContent = (content: string | (() => string)): string => {
 export const updateNodeInFilesystem = (path: string, newContent: string): boolean => {
     const parts = path.split('/').filter(p => p);
     let currentNode: FilesystemNode = currentFilesystem;
-    let parentNode: Directory | null = null;
-    let lastPart = '';
 
-    for (let i = 0; i < parts.length; i++) {
+    for (let i = 0; i < parts.length - 1; i++) {
         const part = parts[i];
-        if (currentNode.type === 'directory') {
-            parentNode = currentNode;
-            lastPart = part;
-            if (!currentNode.children[part]) {
-                // If we're at the last part, we can create the file.
-                if (i === parts.length - 1) {
-                    currentNode.children[part] = { type: 'file', content: newContent, path };
-                    return true;
-                } else {
-                    return false; // Cannot create file in a path that doesn't exist
-                }
-            }
+        if (currentNode.type === 'directory' && currentNode.children[part]) {
             currentNode = currentNode.children[part];
         } else {
-            return false; // Path goes through a file
+            // If a directory in the path doesn't exist, we can't create the file.
+            return false;
         }
     }
-    
-    if (currentNode.type === 'file') {
-        currentNode.content = newContent;
+
+    if (currentNode.type === 'directory') {
+        const filename = parts[parts.length - 1];
+        const existingNode = currentNode.children[filename];
+        if (existingNode && existingNode.type === 'directory') {
+            // Cannot overwrite a directory with a file
+            return false;
+        }
+        // Create or update the file
+        currentNode.children[filename] = { type: 'file', content: newContent, path };
         return true;
     }
     
@@ -416,5 +411,3 @@ export const removeNodeFromFilesystem = (path: string): boolean => {
 
     return false;
 };
-
-    
