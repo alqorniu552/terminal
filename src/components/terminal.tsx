@@ -39,7 +39,6 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
   const endOfHistoryRef = useRef<HTMLDivElement>(null);
   
   const focusInput = useCallback(() => {
-    // Only focus on non-mobile devices to prevent virtual keyboard issues
     if (typeof window !== 'undefined' && window.innerWidth > 768 && !editingFile) {
       inputRef.current?.focus();
     }
@@ -66,7 +65,6 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
   
   useEffect(() => {
     loadWelcomeMessage();
-  // user object is a dependency for getWelcomeMessage
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
@@ -87,7 +85,6 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     }
 
     const currentPrompt = prompt;
-    // For password step, we don't want to show the command in history
     const commandForHistory = authStep === 'password' || authStep === 'ssh_password' ? '******' : command;
 
     const newHistoryItem: HistoryItem = { 
@@ -103,11 +100,8 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
 
     const result = await processCommand(command);
     
-    // The useCommand hook now handles state for logout, so we just check for empty result.
     if (result === null) { 
         setIsTyping(false);
-        // This can happen on logout, where the user change effect handles the UI update.
-        // We find and remove the history item that had no output.
         setHistory(prev => prev.filter(h => h.id !== newHistoryItem.id));
         return;
     }
@@ -117,8 +111,6 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     ));
     
     const isCustomComponent = React.isValidElement(result);
-    // If we get a component or an empty string, we stop typing immediately.
-    // The Typewriter component will handle its own typing state.
     if (isCustomComponent || (typeof result === 'string' && result.length === 0)) {
         if (!editingFile) {
             setIsTyping(false);
@@ -136,7 +128,10 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
          <NanoEditor
             filename={editingFile.path}
             initialContent={editingFile.content}
-            onSave={saveFile}
+            onSave={(content) => {
+                saveFile(content);
+                exitEditor();
+            }}
             onExit={exitEditor}
         />
       )}
@@ -151,7 +146,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
               {item.prompt ? (
                 <div className="flex items-center">
                   <span className="text-accent">{item.prompt}</span>
-                  <span>{item.command}</span>
+                  <span className="whitespace-pre-wrap">{item.command}</span>
                 </div>
               ) : null}
               {item.output && (
@@ -169,7 +164,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
         <form onSubmit={handleCommandSubmit} className="flex items-center">
           <label htmlFor="command-input" className="flex-shrink-0 text-accent">{prompt}</label>
           <div className="flex-grow relative">
-            <span className="text-shadow-glow">{isPasswordStep ? command.replace(/./g, '*') : command}</span>
+            <span className="text-shadow-glow">{isPasswordStep ? '' : command}</span>
             <BlinkingCursor />
           </div>
            <input
@@ -193,5 +188,3 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     </div>
   );
 }
-
-    

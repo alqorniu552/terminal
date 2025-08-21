@@ -34,7 +34,7 @@ PEASS-NG - Privilege Escalation Awesome Scripts SUITE new generation
 
 [+] INTERESTING FILES
 Highly probable interesting files
-  - /var/backups/password.bak
+  - /var/backups/shadow.bak
     FLAG{P3A_55_15_4W3S0M3}
 `;
 }
@@ -141,11 +141,6 @@ const initialFilesystem: Directory = {
         path: '/root',
         children: {
             '.secret_root_file.txt': { type: 'file', path: '/root/.secret_root_file.txt', content: 'This is a secret file only accessible by root.' },
-            'shadow.bak': {
-                type: 'file',
-                path: '/root/shadow.bak',
-                content: 'root:5f4dcc3b5aa765d61d8327deb882cf99' // md5 for 'password'
-            },
         }
     },
     'tmp': {
@@ -194,7 +189,12 @@ const initialFilesystem: Directory = {
                     type: 'file',
                     path: '/var/backups/snapshot.tgz',
                     content: 'System backup archive. Contains a copy of user files.'
-                }
+                },
+                'shadow.bak': {
+                    type: 'file',
+                    path: '/var/backups/shadow.bak',
+                    content: 'root:5f4dcc3b5aa765d61d8327deb882cf99' // md5 for 'password'
+                },
             }
         },
         'log': {
@@ -699,6 +699,3 @@ export const restoreBackup = (userHomePath: string, host: string): boolean => {
 };
 
 export const network = currentNetwork;
-
-    
-    

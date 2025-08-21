@@ -237,21 +237,27 @@ export const useCommand = (user: User | null | undefined) => {
 
   const hasPermission = useCallback((path: string, operation: 'read' | 'write' = 'read'): boolean => {
     if (isRoot) return true;
-    if (!user) return false;
+    if (!user) return false; // Guest has no permissions
     
     const userHome = `/home/${user.email!.split('@')[0]}`;
+    
     if (operation === 'write') {
+      // Allow write only within their own home directory
       return path.startsWith(userHome);
     }
     
-    if (path.startsWith('/root')) return false;
+    // Read operation
+    if (path.startsWith(rootHome) && path !== rootHome) return false;
+    
     const parts = path.split('/').filter(p => p);
     if (parts[0] === 'home' && parts.length > 1 && parts[1] !== user.email!.split('@')[0]) {
+      // Deny reading other users' home directories
       return false;
     }
     
     return true;
   }, [isRoot, user]);
+
 
   const triggerWarlock = useCallback(async (action: string, awarenessIncrease: number): Promise<string | null> => {
     const newAwareness = Math.min(warlockAwareness + awarenessIncrease, 100);
@@ -319,14 +325,18 @@ export const useCommand = (user: User | null | undefined) => {
     setWarlockAwareness(0);
     if (user) {
       const userHome = `/home/${user.email!.split('@')[0]}`;
-      addNodeToFilesystem(userHome, { type: 'directory', children: {} }, currentHost);
-      addNodeToFilesystem(`${userHome}/.bashrc`, { type: 'file', content: '# User-specific aliases' }, currentHost);
+      // Ensure user home directory exists on registration/login
+      if (!getNodeFromPath(userHome, currentHost)) {
+          addNodeToFilesystem(userHome, { type: 'directory', children: {} }, currentHost);
+          addNodeToFilesystem(`${userHome}/.bashrc`, { type: 'file', content: '# User-specific aliases\n' }, currentHost);
+      }
       setCwd(userHome);
     } else {
       setCwd('/');
     }
     loadAliases();
   }, [user, resetAuth, loadAliases, currentHost]);
+
 
   const getWelcomeMessage = useCallback(() => {
     if (user) {
@@ -888,7 +898,7 @@ export const useCommand = (user: User | null | undefined) => {
         const commandDef = commands[cmd];
         if (commandDef) {
           if (commandDef.rootOnly && !isRoot) {
-            result = `${cmd}: command not found.`;
+            result = `${cmd}: command not found. (try 'su')`;
           } else {
             result = await commandDef.handler(args, command);
           }
@@ -898,7 +908,6 @@ export const useCommand = (user: User | null | undefined) => {
       }
     }
     
-    // Don't set processing to false if a confirmation is set up, or editor is opened
     if (!confirmation && !editingFile) {
       setIsProcessing(false);
     }
@@ -922,6 +931,3 @@ export const useCommand = (user: User | null | undefined) => {
     exitEditor,
   };
 };
-
-    
-    
