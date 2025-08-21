@@ -5,7 +5,6 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useCommand } from '@/hooks/use-command';
 import Typewriter from './typewriter';
 import { User } from 'firebase/auth';
-import NanoEditor from './nano-editor';
 
 interface HistoryItem {
   id: number;
@@ -21,28 +20,15 @@ const BlinkingCursor = () => (
 export default function Terminal({ user }: { user: User | null | undefined }) {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [command, setCommand] = useState('');
-  
-  const { 
-      prompt, 
-      processCommand, 
-      getWelcomeMessage,
-      authStep,
-      isProcessing,
-      editingFile,
-      saveFile,
-      exitEditor,
-  } = useCommand(user);
-
+  const { prompt, processCommand, getWelcomeMessage } = useCommand(user);
   const [isTyping, setIsTyping] = useState(true);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const endOfHistoryRef = useRef<HTMLDivElement>(null);
   
   const focusInput = useCallback(() => {
-    if (typeof window !== 'undefined' && window.innerWidth > 768 && !editingFile) {
-      inputRef.current?.focus();
-    }
-  }, [editingFile]);
+    inputRef.current?.focus();
+  }, []);
 
   useEffect(() => {
     focusInput();
@@ -52,7 +38,6 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
   }, [focusInput]);
 
   const loadWelcomeMessage = useCallback(() => {
-    setHistory([]);
     const welcomeHistory: HistoryItem = {
       id: 0,
       command: '',
@@ -64,6 +49,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
   }, [getWelcomeMessage]);
   
   useEffect(() => {
+    setHistory([]); 
     loadWelcomeMessage();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
@@ -76,28 +62,19 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
   
   const handleCommandSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (isTyping || isProcessing || editingFile) return;
+    if (isTyping) return;
 
     if (command.trim().toLowerCase() === 'clear') {
         setCommand('');
         loadWelcomeMessage();
         return;
     }
-    
-    // Don't do anything for logout command here, as it's handled by user state change
-    if (command.trim().toLowerCase() === 'logout') {
-        processCommand(command);
-        setCommand('');
-        return;
-    }
 
     const currentPrompt = prompt;
-    const isPasswordStep = authStep === 'password' || authStep === 'ssh_password';
-    const commandForHistory = isPasswordStep ? '******' : command;
-
+    
     const newHistoryItem: HistoryItem = { 
       id: Date.now(),
-      command: commandForHistory, 
+      command: command, 
       output: '',
       prompt: currentPrompt 
     };
@@ -120,24 +97,10 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     ));
   };
   
-  const showInput = !isTyping && !isProcessing && !editingFile;
-  const isPasswordStep = authStep === 'password' || authStep === 'ssh_password';
+  const showInput = !isTyping;
 
   return (
     <div className="h-full w-full p-2 md:p-4 font-code text-base md:text-lg text-primary overflow-y-auto" onClick={focusInput}>
-      
-      {editingFile && (
-         <NanoEditor
-            filename={editingFile.path}
-            initialContent={editingFile.content}
-            onSave={(content) => {
-                saveFile(content);
-                exitEditor();
-            }}
-            onExit={exitEditor}
-        />
-      )}
-
       <div className="text-shadow-glow">
         {history.map((item, index) => (
           <div key={item.id}>
@@ -166,13 +129,13 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
         <form onSubmit={handleCommandSubmit} className="flex items-center">
           <label htmlFor="command-input" className="flex-shrink-0 text-accent">{prompt}</label>
           <div className="flex-grow relative">
-            <span className="text-shadow-glow">{isPasswordStep ? '' : command}</span>
+            <span className="text-shadow-glow">{command}</span>
             <BlinkingCursor />
           </div>
            <input
                 ref={inputRef}
                 id="command-input"
-                type={isPasswordStep ? 'password' : 'text'}
+                type='text'
                 value={command}
                 onChange={(e) => setCommand(e.target.value)}
                 autoComplete="off"
@@ -182,7 +145,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
                 aria-label="command input"
                 onFocus={(e) => e.currentTarget.setSelectionRange(e.currentTarget.value.length, e.currentTarget.value.length)}
                 disabled={!showInput}
-                autoFocus={typeof window !== 'undefined' && window.innerWidth > 768}
+                autoFocus
             />
         </form>
       )}
@@ -190,5 +153,3 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     </div>
   );
 }
-
-      
