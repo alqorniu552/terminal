@@ -1,5 +1,4 @@
 
-
 export interface File {
   type: 'file';
   content: string | (() => string);
@@ -408,18 +407,53 @@ const initialNetwork: { [ip: string]: Machine } = {
     }
 };
 
-let currentNetwork = JSON.parse(JSON.stringify(initialNetwork));
+let network = JSON.parse(JSON.stringify(initialNetwork));
 let originalFileCache: { [path: string]: FilesystemNode } = {};
 
-export const getMachine = (ip: string): Machine | null => {
-    return currentNetwork[ip] || null;
+
+export const resolvePath = (cwd: string, path: string): string => {
+    if (path.startsWith('/')) {
+        const newParts = path.split('/').filter(p => p);
+        return '/' + newParts.join('/');
+    }
+
+    const parts = cwd.split('/').filter(p => p);
+    const newParts = path.split('/').filter(p => p);
+
+    for (const part of newParts) {
+        if (part === '.') continue;
+        if (part === '..') {
+            if (parts.length > 0) {
+                parts.pop();
+            }
+        } else {
+            parts.push(part);
+        }
+    }
+
+    const resolved = '/' + parts.join('/');
+    return resolved === '//' ? '/' : resolved;
+};
+
+
+export const getMachine = (ipOrHostname: string): Machine | null => {
+    if (network[ipOrHostname]) {
+        return network[ipOrHostname];
+    }
+    for (const ip in network) {
+        if (network[ip].hostname === ipOrHostname) {
+            return network[ip];
+        }
+    }
+    return null;
 }
 
 export const getNodeFromPath = (path: string, host: string): FilesystemNode | null => {
   const machine = getMachine(host);
   if (!machine) return null;
 
-  const parts = path.split('/').filter(p => p && p !== '~');
+  const resolvedPath = path === '/' ? '/' : resolvePath('/', path);
+  const parts = resolvedPath.split('/').filter(p => p);
   let currentNode: FilesystemNode = machine.filesystem;
 
   for (const part of parts) {
@@ -455,12 +489,14 @@ export const addNodeToFilesystem = (path: string, node: FilesystemNode, host: st
 
     let currentDir: FilesystemNode = machine.filesystem;
     for (const part of parts) {
-        if (currentDir.type === 'directory' && currentDir.children[part]) {
-            currentDir = currentDir.children[part];
-        } else if (currentDir.type === 'directory' && !currentDir.children[part]) {
+        const nextNode = currentDir.type === 'directory' ? currentDir.children[part] : undefined;
+        if (nextNode && nextNode.type === 'directory') {
+            currentDir = nextNode;
+        } else if (currentDir.type === 'directory' && !nextNode) {
             // Create intermediate directories if they don't exist
-            currentDir.children[part] = { type: 'directory', children: {} };
-            currentDir = currentDir.children[part];
+            const newDir: Directory = { type: 'directory', children: {} };
+            currentDir.children[part] = newDir;
+            currentDir = newDir;
         } else {
             return false; // Path segment is a file, cannot add node here
         }
@@ -698,4 +734,4 @@ export const restoreBackup = (userHomePath: string, host: string): boolean => {
     return true;
 };
 
-export const network = currentNetwork;
+    
