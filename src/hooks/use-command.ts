@@ -237,13 +237,12 @@ export const useCommand = (user: User | null | undefined) => {
 
   const hasPermission = useCallback((path: string, operation: 'read' | 'write' = 'read'): boolean => {
     if (isRoot) return true;
-    if (!user) return false; // Guest has no permissions
+    if (!user) return false;
     
-    const rootHome = '/root';
     const userHome = `/home/${user.email!.split('@')[0]}`;
+    const rootHome = '/root';
     
     if (operation === 'write') {
-      // Allow write only within their own home directory or /tmp
       return path.startsWith(userHome) || path.startsWith('/tmp');
     }
     
@@ -252,7 +251,6 @@ export const useCommand = (user: User | null | undefined) => {
     
     const parts = path.split('/').filter(p => p);
     if (parts[0] === 'home' && parts.length > 1 && parts[1] !== user.email!.split('@')[0]) {
-      // Deny reading other users' home directories
       return false;
     }
     
@@ -327,7 +325,6 @@ export const useCommand = (user: User | null | undefined) => {
     setWarlockAwareness(0);
     if (user) {
       const userHome = `/home/${user.email!.split('@')[0]}`;
-      // Ensure user home directory exists on registration/login
       if (!getNodeFromPath(userHome, currentHost)) {
           addNodeToFilesystem(userHome, { type: 'directory', children: {} }, currentHost);
           addNodeToFilesystem(`${userHome}/.bashrc`, { type: 'file', content: '# User-specific aliases\n' }, currentHost);
@@ -337,7 +334,7 @@ export const useCommand = (user: User | null | undefined) => {
       setCwd('/');
     }
     loadAliases();
-  }, [user, resetAuth, loadAliases, currentHost]);
+  }, [user, resetAuth, loadAliases]);
 
 
   const getWelcomeMessage = useCallback(() => {
@@ -719,7 +716,7 @@ export const useCommand = (user: User | null | undefined) => {
     }
     return 'Error: Could not determine network configuration.';
   };
-  const handleIfconfig = async (): Promise<string> => handleIp([], '');
+  const handleIfconfig = async (): Promise<string> => handleIp(['a'], '');
   const handleNmap = async (args: string[]): Promise<string> => {
     const targetIp = args[0];
     if (!targetIp) return 'Usage: nmap <target_ip>';
@@ -939,3 +936,5 @@ export const useCommand = (user: User | null | undefined) => {
     exitEditor,
   };
 };
+
+    
