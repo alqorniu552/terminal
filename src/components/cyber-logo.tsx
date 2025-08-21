@@ -19,8 +19,8 @@ const CyberLogo = () => {
         <pre className="relative glitch" data-text={logoText}>
           {logoText}
         </pre>
-        <div className="mt-2 text-2xl font-bold tracking-widest glitch" data-text="COMMAND">
-          COMMAND
+        <div className="mt-2 text-2xl font-bold tracking-widest glitch" data-text="CYBER">
+          CYBER
         </div>
       </div>
     );

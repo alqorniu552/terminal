@@ -5,10 +5,13 @@ import { useState, useCallback, useEffect } from 'react';
 import { useToast } from "@/hooks/use-toast";
 import { generateCommandHelp } from '@/ai/flows/generate-command-help';
 import { databaseQuery } from '@/ai/flows/database-query-flow';
-import { initialFilesystem as filesystem, Directory, FilesystemNode } from '@/lib/filesystem';
+import { initialFilesystem as filesystem, Directory, FilesystemNode, getDynamicContent } from '@/lib/filesystem';
 import { db, auth } from '@/lib/firebase';
 import { collection, query, where, getDocs, WhereFilterOp } from 'firebase/firestore';
 import { User, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
+import NanoEditor from '@/components/nano-editor';
+import ImageDisplay from '@/components/image-display';
+
 
 const ROOT_USER_EMAIL = 'admin@cyber.dev';
 
@@ -34,19 +37,21 @@ const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean) => {
     if (isLoggedIn) {
         let helpText = `
 Available commands:
-  help          - Show this help message.
-  ls [path]     - List directory contents.
-  cd [path]     - Change directory.
-  cat [file]    - Display file content.
-  neofetch      - Display system information.
-  db "[query]"  - Query the database using natural language.
-  clear         - Clear the terminal screen.
-  logout        - Log out from the application.
+  help                - Show this help message.
+  ls [path]           - List directory contents.
+  cd [path]           - Change directory.
+  cat [file]          - Display file content.
+  nano [file]         - Edit a file.
+  generate_image "[p]"- Generate an image from a prompt.
+  neofetch            - Display system information.
+  db "[query]"        - Query the database using natural language.
+  clear               - Clear the terminal screen.
+  logout              - Log out from the application.
 `;
         if (isRoot) {
-            helpText += `  exit          - Exit from root user session.\n`;
+            helpText += `  exit                - Exit from root user session.\n`;
         } else {
-            helpText += `  su            - Switch to root user (requires admin privileges).\n`;
+            helpText += `  su                  - Switch to root user (requires admin privileges).\n`;
         }
         helpText += `
 For unrecognized commands, AI will try to provide assistance.
@@ -97,6 +102,39 @@ const getNodeFromPath = (path: string): FilesystemNode | null => {
   return currentNode;
 };
 
+// Helper to update the filesystem in memory
+const updateNodeInFilesystem = (path: string, newContent: string) => {
+    const parts = path.split('/').filter(p => p);
+    let currentNode: FilesystemNode = filesystem;
+    let parentNode: Directory | null = null;
+    let lastPart = '';
+
+    for (const part of parts) {
+        if (currentNode.type === 'directory') {
+            parentNode = currentNode;
+            if (!currentNode.children[part]) {
+                 // If the file doesn't exist, create it.
+                 currentNode.children[part] = { type: 'file', content: newContent, path };
+                 return true;
+            }
+            currentNode = currentNode.children[part];
+            lastPart = part;
+        } else {
+            return false; // Path goes through a file
+        }
+    }
+    
+    if (currentNode.type === 'file') {
+        currentNode.content = newContent;
+        return true;
+    } else if (parentNode && lastPart) { // Create a new file in a directory
+        parentNode.children[lastPart] = { type: 'file', content: newContent, path };
+        return true;
+    }
+
+    return false;
+};
+
 export const useCommand = (user: User | null | undefined) => {
   const [cwd, setCwd] = useState('/');
   const [isRoot, setIsRoot] = useState(false);
@@ -106,6 +144,9 @@ export const useCommand = (user: User | null | undefined) => {
   const [authStep, setAuthStep] = useState<'email' | 'password' | null>(null);
   const [authCredentials, setAuthCredentials] = useState({ email: '', password: '' });
   const [isProcessing, setIsProcessing] = useState(false);
+
+  // State for Nano editor
+  const [editingFile, setEditingFile] = useState<{ path: string; content: string; } | null>(null);
 
   const getInitialPrompt = useCallback(() => {
     if (authStep === 'email') return 'Email: ';
@@ -158,6 +199,8 @@ export const useCommand = (user: User | null | undefined) => {
   }, [user]);
 
   const processCommand = useCallback(async (command: string): Promise<string | React.ReactNode> => {
+    if (editingFile) return ''; // Block commands while editing
+
     setIsProcessing(true);
     const [cmd, ...args] = command.trim().split(/\s+/);
     const isLoggedIn = !!user;
@@ -221,6 +264,10 @@ export const useCommand = (user: User | null | undefined) => {
     }
 
     const arg = args.join(' ');
+    
+    // Regex to extract prompt from generate_image command
+    const imagePromptMatch = command.match(/^generate_image\s+"([^"]+)"/);
+
 
     switch (cmd.toLowerCase()) {
       case 'help':
@@ -232,15 +279,15 @@ export const useCommand = (user: User | null | undefined) => {
       
       case 'ls': {
         const targetPath = arg ? resolvePath(cwd, arg) : cwd;
-        if (targetPath === '/root' && !isRoot) {
+        if (targetPath.startsWith('/root') && !isRoot) {
             setIsProcessing(false);
-            return `ls: cannot open directory '/root': Permission denied`;
+            return `ls: cannot open directory '${targetPath}': Permission denied`;
         }
         const node = getNodeFromPath(targetPath);
         if (node && node.type === 'directory') {
           setIsProcessing(false);
           return Object.keys(node.children).map(key => {
-            return node.children[key].type === 'directory' ? `${key}/` : key;
+            return node.children[key].type === 'directory' ? `\x1b[1;34m${key}/\x1b[0m` : key;
           }).join('\n');
         }
         setIsProcessing(false);
@@ -276,22 +323,72 @@ export const useCommand = (user: User | null | undefined) => {
           return 'cat: missing operand';
         }
         const targetPath = resolvePath(cwd, arg);
-        if (targetPath.startsWith('/root/') && !isRoot) {
+        if (targetPath.startsWith('/root') && !isRoot) {
           setIsProcessing(false);
           return `cat: ${arg}: Permission denied`;
         }
         const node = getNodeFromPath(targetPath);
         if (node && node.type === 'file') {
-            if (typeof node.content === 'function') {
-                setIsProcessing(false);
-                return node.content();
-            }
           setIsProcessing(false);
-          return node.content;
+          return getDynamicContent(node.content);
         }
         setIsProcessing(false);
         return `cat: ${arg}: No such file or directory`;
       }
+
+      case 'nano': {
+        if (!arg) {
+            setIsProcessing(false);
+            return "nano: missing file operand";
+        }
+        const targetPath = resolvePath(cwd, arg);
+        if (targetPath.startsWith('/root') && !isRoot) {
+            setIsProcessing(false);
+            return `nano: cannot edit '${arg}': Permission denied`;
+        }
+
+        const node = getNodeFromPath(targetPath);
+        let initialContent = '';
+        if (node) {
+            if (node.type === 'directory') {
+                setIsProcessing(false);
+                return `nano: ${arg}: is a directory`;
+            }
+            initialContent = getDynamicContent(node.content);
+        }
+        
+        setEditingFile({ path: targetPath, content: initialContent });
+
+        setIsProcessing(false);
+        return (
+            <NanoEditor
+                filename={targetPath}
+                initialContent={initialContent}
+                onSave={(newContent) => {
+                    updateNodeInFilesystem(targetPath, newContent);
+                    setEditingFile(null);
+                }}
+                onExit={() => {
+                    setEditingFile(null);
+                }}
+            />
+        );
+      }
+      
+      case 'generate_image': {
+            if (!imagePromptMatch || !imagePromptMatch[1]) {
+                setIsProcessing(false);
+                return 'Usage: generate_image "your image prompt"';
+            }
+            const imagePrompt = imagePromptMatch[1];
+            setIsProcessing(false);
+            return (
+                <ImageDisplay 
+                    prompt={imagePrompt} 
+                    onFinished={() => { /* Potentially re-enable prompt here if needed */}} 
+                />
+            );
+        }
 
       case 'db': {
         if (!arg) {
@@ -378,7 +475,7 @@ export const useCommand = (user: User | null | undefined) => {
         }
       }
     }
-  }, [authCommand, authStep, authCredentials, cwd, toast, user, resetAuth, isRoot, getWelcomeMessage]);
+  }, [authCommand, authStep, authCredentials, cwd, toast, user, resetAuth, isRoot, getWelcomeMessage, editingFile]);
 
   return { 
     prompt, 
@@ -386,6 +483,6 @@ export const useCommand = (user: User | null | undefined) => {
     getWelcomeMessage, 
     authStep,
     isProcessing,
+    editingFile,
  };
 };
-
