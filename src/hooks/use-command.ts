@@ -318,10 +318,6 @@ export const useCommand = (user: User | null | undefined) => {
 
     const fullArgString = command.trim().substring(cmd.length).trim();
     
-    // Regex to extract prompt from generate_image command and news add
-    const imagePromptMatch = command.match(/^generate_image\s+"([^"]+)"/);
-    const newsAddMatch = command.match(/^news\s+add\s+"([^"]+)"/);
-
     const hasPermission = (path: string, operation: 'read' | 'write' = 'read') => {
         if (isRoot) return true;
         if (!user) return false;
@@ -461,6 +457,7 @@ export const useCommand = (user: User | null | undefined) => {
       }
       
       case 'generate_image': {
+            const imagePromptMatch = command.match(/^generate_image\s+"([^"]+)"/);
             if (!imagePromptMatch || !imagePromptMatch[1]) {
                 setIsProcessing(false);
                 return 'Usage: generate_image "your image prompt"';
@@ -525,7 +522,8 @@ export const useCommand = (user: User | null | undefined) => {
         const articles = Object.keys(newsDir.children).sort();
         const subCmd = args[0];
         
-        // Handle reading article by number first
+        // --- FIX START ---
+        // 1. Prioritize reading by number
         const articleNum = parseInt(subCmd, 10);
         if (!isNaN(articleNum)) {
             const articleIndex = articleNum - 1;
@@ -542,9 +540,10 @@ export const useCommand = (user: User | null | undefined) => {
             }
         }
         
-        // Root-only commands
+        // 2. Handle root-only commands
         if (isRoot) {
             if (subCmd === 'add') {
+                const newsAddMatch = command.match(/^news\s+add\s+"([^"]+)"/);
                 if (!newsAddMatch || !newsAddMatch[1]) {
                     setIsProcessing(false);
                     return 'Usage: news add "Title of The Article"';
@@ -622,7 +621,7 @@ export const useCommand = (user: User | null | undefined) => {
             }
         }
         
-        // Default action: list articles if no valid subcommand is found or if it's not a root command
+        // 3. Default action: list articles if no args or invalid args
         if (!subCmd) {
           let output = "Available News:\n";
           articles.forEach((article, index) => {
@@ -642,8 +641,10 @@ export const useCommand = (user: User | null | undefined) => {
           return output;
         }
 
+        // 4. Handle invalid subcommands
         setIsProcessing(false);
         return `news: invalid command: ${subCmd}. Type 'news' to see available articles.`;
+        // --- FIX END ---
       }
 
       case 'su': {
