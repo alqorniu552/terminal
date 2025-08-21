@@ -96,26 +96,27 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
 
     setHistory(prev => [...prev, newHistoryItem]);
     setCommand('');
-    setIsTyping(true);
-
+    
+    // Only set typing if we expect text output
     const result = await processCommand(command);
     
-    if (result === null) { 
-        setIsTyping(false);
-        setHistory(prev => prev.filter(h => h.id !== newHistoryItem.id));
+    if (result === null) { // This handles nano or logout
+        setHistory(prev => prev.filter(h => h.id !== newHistoryItem.id)); // Remove the command from history for clean UI
         return;
+    }
+    
+    // For commands with output, start typing
+    if (typeof result === 'string' && result.length > 0) {
+        setIsTyping(true);
+    } else if (React.isValidElement(result)) {
+        setIsTyping(false); // Components handle their own loading state
+    } else {
+        setIsTyping(false); // No output, no typing
     }
     
     setHistory(prev => prev.map(h => 
         h.id === newHistoryItem.id ? { ...h, output: result } : h
     ));
-    
-    const isCustomComponent = React.isValidElement(result);
-    if (isCustomComponent || (typeof result === 'string' && result.length === 0)) {
-        if (!editingFile) {
-            setIsTyping(false);
-        }
-    }
   };
   
   const showInput = !isTyping && !isProcessing && !editingFile;
@@ -139,16 +140,16 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
       <div className="text-shadow-glow">
         {history.map((item, index) => (
           <div key={item.id}>
-            {index === 0 ? (
-                 <Typewriter text={item.output as string} onFinished={() => setIsTyping(false)} />
+            {index === 0 && typeof item.output === 'string' ? (
+                 <Typewriter text={item.output} onFinished={() => setIsTyping(false)} />
             ) : (
              <>
-              {item.prompt ? (
+              {item.prompt && (
                 <div className="flex items-center">
                   <span className="text-accent">{item.prompt}</span>
                   <span className="whitespace-pre-wrap">{item.command}</span>
                 </div>
-              ) : null}
+              )}
               {item.output && (
                   typeof item.output === 'string' && item.output.length > 0
                   ? <div className="whitespace-pre-wrap"><Typewriter text={item.output} onFinished={() => setIsTyping(false)} /></div>

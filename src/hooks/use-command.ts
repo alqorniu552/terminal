@@ -239,15 +239,16 @@ export const useCommand = (user: User | null | undefined) => {
     if (isRoot) return true;
     if (!user) return false; // Guest has no permissions
     
+    const rootHome = '/root';
     const userHome = `/home/${user.email!.split('@')[0]}`;
     
     if (operation === 'write') {
-      // Allow write only within their own home directory
-      return path.startsWith(userHome);
+      // Allow write only within their own home directory or /tmp
+      return path.startsWith(userHome) || path.startsWith('/tmp');
     }
     
     // Read operation
-    if (path.startsWith(rootHome) && path !== rootHome) return false;
+    if (path.startsWith(rootHome)) return false;
     
     const parts = path.split('/').filter(p => p);
     if (parts[0] === 'home' && parts.length > 1 && parts[1] !== user.email!.split('@')[0]) {
@@ -278,13 +279,14 @@ export const useCommand = (user: User | null | undefined) => {
 
   const exitEditor = useCallback(() => {
     setEditingFile(null);
-    setIsProcessing(false);
   }, []);
 
   const saveFile = useCallback((newContent: string) => {
     if (editingFile) {
       updateNodeInFilesystem(editingFile.path, newContent, currentHost);
-      editingFile.onSaveCallback?.();
+      if (editingFile.onSaveCallback) {
+        editingFile.onSaveCallback();
+      }
       triggerWarlock(`Saved file ${editingFile.path}`, 10);
       toast({ title: "File Saved", description: `Saved changes to ${editingFile.path}` });
     }
@@ -464,15 +466,18 @@ export const useCommand = (user: User | null | undefined) => {
     }
     const node = getNodeFromPath(targetPath, currentHost);
     if (node?.type === 'directory') return `nano: ${targetFile}: is a directory`;
+    
     const initialContent = node ? getDynamicContent(node.content) : '';
-    setEditingFile({ path: targetPath, content: initialContent, onSaveCallback: targetPath.endsWith('.bashrc') ? loadAliases : undefined });
-    setIsProcessing(true); // This will cause the terminal to render the editor.
-    return '';
+    setEditingFile({ 
+        path: targetPath, 
+        content: initialContent, 
+        onSaveCallback: targetPath.endsWith('.bashrc') ? loadAliases : undefined 
+    });
+    return null; // Null indicates to Terminal component to render Nano
   };
   const handleGenerateImage = async (_: string[], fullCommand: string): Promise<string | React.ReactNode> => {
     const match = fullCommand.match(/^generate_image\s+"([^"]+)"/);
     if (!match?.[1]) return 'Usage: generate_image "your image prompt"';
-    setIsProcessing(true);
     return <ImageDisplay prompt={match[1]} onFinished={() => setIsProcessing(false)} />;
   };
   const handleDb = async (_: string[], fullCommand: string): Promise<string> => {
@@ -535,8 +540,7 @@ export const useCommand = (user: User | null | undefined) => {
           const path = `/var/news/${filename}`;
           const content = `TITLE: ${title}\nDATE: ${new Date().toISOString().split('T')[0]}\n\n`;
           setEditingFile({ path, content });
-          setIsProcessing(true);
-          return '';
+          return null;
         }
         case 'edit': {
           const index = parseInt(args[1], 10) - 1;
@@ -545,8 +549,7 @@ export const useCommand = (user: User | null | undefined) => {
           const node = getNodeFromPath(path, currentHost);
           if (node?.type === 'file') {
             setEditingFile({ path, content: getDynamicContent(node.content) });
-            setIsProcessing(true);
-            return '';
+            return null;
           }
           break;
         }
@@ -772,7 +775,10 @@ export const useCommand = (user: User | null | undefined) => {
     }
     return '';
   };
-  const handleLogout = async (): Promise<string | null> => { await auth.signOut(); return null; };
+  const handleLogout = async (): Promise<string | null> => { 
+      await auth.signOut(); 
+      return null; 
+  };
   const handlePlan = async (_: string[], fullCommand: string): Promise<string> => {
     const match = fullCommand.match(/^plan\s+"([^"]+)"/);
     const objective = match ? match[1] : fullCommand.substring(5).trim();
@@ -845,6 +851,7 @@ export const useCommand = (user: User | null | undefined) => {
       } else if (authStep === 'email') {
         setAuthCredentials({ ...authCredentials, email: command.trim() });
         setAuthStep('password');
+        result = '';
       } else if (authStep === 'password') {
         const { email } = authCredentials;
         const password = command.trim();
@@ -882,6 +889,7 @@ export const useCommand = (user: User | null | undefined) => {
         if (cmd === 'login' || cmd === 'register') {
             setAuthCommand(cmd);
             setAuthStep('email');
+            result = '';
         } else if (cmd === 'help') {
             result = getHelpOutput(false, false);
         } else if (cmd !== '' && cmd !== 'clear') {
@@ -908,7 +916,7 @@ export const useCommand = (user: User | null | undefined) => {
       }
     }
     
-    if (!confirmation && !editingFile) {
+    if (!confirmation && !editingFile && authStep === null) {
       setIsProcessing(false);
     }
     
