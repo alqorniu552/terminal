@@ -44,12 +44,12 @@ Available commands:
   nano [file]         - Edit a file.
   generate_image "[p]"- Generate an image from a prompt.
   neofetch            - Display system information.
-  db "[query]"        - Query the database using natural language.
+  db "[query]"        - Query the database using natural language (e.g., "list all users").
   clear               - Clear the terminal screen.
   logout              - Log out from the application.
 `;
         if (isRoot) {
-            helpText += `  exit                - Exit from root user session.\n`;
+            helpText += `  exit                - Exit from root user session.\n\nRoot has elevated privileges and can access all user directories under /home.`;
         } else {
             helpText += `  su                  - Switch to root user (requires admin privileges).\n`;
         }
@@ -153,11 +153,20 @@ export const useCommand = (user: User | null | undefined) => {
     if (authStep === 'password') return 'Password: ';
     
     let path;
+    const userHome = `/home/${user?.email?.split('@')[0]}`;
+    
     if (isRoot) {
         path = cwd;
     } else {
-        path = cwd === '/' ? '~' : `~${cwd}`;
+        if (cwd === '/') path = '~';
+        else if (cwd.startsWith('/home') && user && cwd.includes(user.email!.split('@')[0])) {
+            path = `~${cwd.substring(userHome.length)}`;
+        } else {
+            path = `~${cwd}`;
+        }
+        if (path === '~') path = '~/';
     }
+
 
     const endChar = isRoot ? '#' : '$';
     const username = isRoot ? 'root' : user?.email?.split('@')[0] || 'guest';
@@ -184,7 +193,18 @@ export const useCommand = (user: User | null | undefined) => {
   useEffect(() => {
     resetAuth();
     setIsRoot(false);
-    setCwd('/');
+    // On login, set CWD to user's home directory if it exists, otherwise to root
+    if (user) {
+        const userHome = `/home/${user.email!.split('@')[0]}`;
+        const node = getNodeFromPath(userHome);
+        if (node && node.type === 'directory') {
+            setCwd(userHome);
+        } else {
+            setCwd('/');
+        }
+    } else {
+        setCwd('/');
+    }
   }, [user, resetAuth]);
 
 
@@ -268,6 +288,22 @@ export const useCommand = (user: User | null | undefined) => {
     // Regex to extract prompt from generate_image command
     const imagePromptMatch = command.match(/^generate_image\s+"([^"]+)"/);
 
+    const hasPermission = (path: string) => {
+        if (isRoot) return true;
+        if (!user) return false;
+        
+        // Non-root users can't access /root
+        if (path.startsWith('/root')) return false;
+
+        // Non-root users can only access their own home directory
+        const userHome = `/home/${user.email!.split('@')[0]}`;
+        if (path.startsWith('/home/') && path !== userHome && !path.startsWith(`${userHome}/`)) {
+            return false;
+        }
+
+        return true;
+    };
+
 
     switch (cmd.toLowerCase()) {
       case 'help':
@@ -279,15 +315,15 @@ export const useCommand = (user: User | null | undefined) => {
       
       case 'ls': {
         const targetPath = arg ? resolvePath(cwd, arg) : cwd;
-        if (targetPath.startsWith('/root') && !isRoot) {
+        if (!hasPermission(targetPath)) {
             setIsProcessing(false);
-            return `ls: cannot open directory '${targetPath}': Permission denied`;
+            return `ls: cannot open directory '${arg || '.'}': Permission denied`;
         }
         const node = getNodeFromPath(targetPath);
         if (node && node.type === 'directory') {
           setIsProcessing(false);
           return Object.keys(node.children).map(key => {
-            return node.children[key].type === 'directory' ? `\x1b[1;34m${key}/\x1b[0m` : key;
+            return node.children[key].type === 'directory' ? `${key}/` : key;
           }).join('\n');
         }
         setIsProcessing(false);
@@ -295,20 +331,24 @@ export const useCommand = (user: User | null | undefined) => {
       }
 
       case 'cd': {
+        const homeDir = isRoot ? '/root' : (user ? `/home/${user.email!.split('@')[0]}` : '/');
         if (!arg || arg === '~') {
-          // root user's home is /root, regular user's is /
-          const homeDir = isRoot ? '/root' : '/';
-          setCwd(homeDir);
+          const node = getNodeFromPath(homeDir);
+          if (node && node.type === 'directory') {
+              setCwd(homeDir);
+          } else {
+              setCwd('/'); // Fallback to root if home doesn't exist
+          }
           setIsProcessing(false);
           return '';
         }
         const newPath = resolvePath(cwd, arg);
+        if (!hasPermission(newPath)) {
+            setIsProcessing(false);
+            return `cd: ${arg}: Permission denied`;
+        }
         const node = getNodeFromPath(newPath);
         if (node && node.type === 'directory') {
-          if (newPath.startsWith('/root') && !isRoot) {
-            setIsProcessing(false);
-            return 'cd: permission denied: /root';
-          }
           setCwd(newPath);
           setIsProcessing(false);
           return '';
@@ -323,7 +363,7 @@ export const useCommand = (user: User | null | undefined) => {
           return 'cat: missing operand';
         }
         const targetPath = resolvePath(cwd, arg);
-        if (targetPath.startsWith('/root') && !isRoot) {
+        if (!hasPermission(targetPath)) {
           setIsProcessing(false);
           return `cat: ${arg}: Permission denied`;
         }
@@ -342,7 +382,7 @@ export const useCommand = (user: User | null | undefined) => {
             return "nano: missing file operand";
         }
         const targetPath = resolvePath(cwd, arg);
-        if (targetPath.startsWith('/root') && !isRoot) {
+        if (!hasPermission(targetPath)) {
             setIsProcessing(false);
             return `nano: cannot edit '${arg}': Permission denied`;
         }
@@ -398,7 +438,14 @@ export const useCommand = (user: User | null | undefined) => {
         try {
           const queryInstruction = await databaseQuery({ query: arg });
           
-          const whereClauses = queryInstruction.where.map(w => where(w[0], w[1] as WhereFilterOp, w[2]));
+          let whereClauses;
+
+          if (queryInstruction.where) {
+            whereClauses = queryInstruction.where.map(w => where(w[0], w[1] as WhereFilterOp, w[2]));
+          } else {
+            whereClauses = [];
+          }
+          
           const q = query(collection(db, queryInstruction.collection), ...whereClauses);
           
           const querySnapshot = await getDocs(q);
@@ -441,7 +488,10 @@ export const useCommand = (user: User | null | undefined) => {
       case 'exit': {
         if (isRoot) {
           setIsRoot(false);
-          setCwd('/');
+          // When exiting root, go back to user's home or /
+          const userHome = user ? `/home/${user.email!.split('@')[0]}` : '/';
+          const node = getNodeFromPath(userHome);
+          setCwd(node ? userHome : '/');
         }
         setIsProcessing(false);
         return '';
@@ -475,7 +525,7 @@ export const useCommand = (user: User | null | undefined) => {
         }
       }
     }
-  }, [authCommand, authStep, authCredentials, cwd, toast, user, resetAuth, isRoot, getWelcomeMessage, editingFile]);
+  }, [authCommand, authStep, authCredentials, cwd, toast, user, resetAuth, isRoot, editingFile]);
 
   return { 
     prompt, 

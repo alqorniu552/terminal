@@ -80,8 +80,8 @@ export const initialFilesystem: Directory = {
         type: 'directory',
         path: '/etc',
         children: {
-            'passwd': { type: 'file', path: '/etc/passwd', content: 'root:x:0:0:root:/root:/bin/bash\ndaemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin\nbin:x:2:2:bin:/bin:/usr/sbin/nologin\nuser:x:1000:1000:user:/home/user:/bin/bash\n' },
-            'group': { type: 'file', path: '/etc/group', content: 'root:x:0:\nbin:x:2:\nuser:x:1000:\n' },
+            'passwd': { type: 'file', path: '/etc/passwd', content: 'root:x:0:0:root:/root:/bin/bash\ndaemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin\nbin:x:2:2:bin:/bin:/usr/sbin/nologin\nuser1:x:1000:1000:user1:/home/user1:/bin/bash\nuser2:x:1001:1001:user2:/home/user2:/bin/bash\n' },
+            'group': { type: 'file', path: '/etc/group', content: 'root:x:0:\nbin:x:2:\nuser1:x:1000:\nuser2:x:1001:\n' },
             'hosts': { type: 'file', path: '/etc/hosts', content: '127.0.0.1\tlocalhost\n::1\tlocalhost\n' },
             'shadow.bak': {
                 type: 'file',
@@ -101,6 +101,27 @@ export const initialFilesystem: Directory = {
         type: 'directory',
         path: '/home',
         children: {
+            'user1': {
+                type: 'directory',
+                path: '/home/user1',
+                children: {
+                    'documents': {
+                        type: 'directory',
+                        path: '/home/user1/documents',
+                        children: {
+                            'notes.txt': { type: 'file', path: '/home/user1/documents/notes.txt', content: 'My secret project ideas...' }
+                        }
+                    },
+                    'main.py': { type: 'file', path: '/home/user1/main.py', content: 'print("Hello from user1")' }
+                }
+            },
+            'user2': {
+                type: 'directory',
+                path: '/home/user2',
+                children: {
+                    'config.json': { type: 'file', path: '/home/user2/config.json', content: '{ "theme": "dark" }' }
+                }
+            }
         }
     },
     'lib': {
