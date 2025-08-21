@@ -55,6 +55,7 @@ Available commands:
         }
         helpText += `
 For unrecognized commands, AI will try to provide assistance.
+Check out the latest articles in /var/news
 `;
         return helpText;
     }

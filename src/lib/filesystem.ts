@@ -275,6 +275,42 @@ Gobuster v3.1.0
                     }
                 }
             }
+        },
+         'news': {
+            type: 'directory',
+            path: '/var/news',
+            children: {
+                '01-quantum-threat.txt': {
+                    type: 'file',
+                    path: '/var/news/01-quantum-threat.txt',
+                    content: `DATE: 2024-05-21
+TITLE: The Quantum Threat is Real
+
+Experts warn that the age of quantum computing could shatter current encryption standards within the next decade. 
+Governments and corporations are in a frantic race to develop quantum-resistant cryptography before it's too late. 
+"It's not a matter of if, but when," stated one researcher. "The cryptographic apocalypse is on the horizon."`
+                },
+                '02-ai-defenses.txt': {
+                    type: 'file',
+                    path: '/var/news/02-ai-defenses.txt',
+                    content: `DATE: 2024-05-20
+TITLE: Next-Gen AI Defenses Deployed
+
+A new wave of AI-powered active defense systems are being deployed across major networks. These systems, like the infamous 'Warlock',
+don't just block attacks—they learn, adapt, and retaliate. Security analysts report that these AIs can trace back intrusions, 
+deploy countermeasures, and even launch targeted counter-strikes against attackers in real-time. The line between defender and aggressor is blurring.`
+                },
+                '03-zero-day-alert.txt': {
+                    type: 'file',
+                    path: '/var/news/03-zero-day-alert.txt',
+                    content: `DATE: 2024-05-19
+TITLE: CRITICAL: Zero-Day Exploit in "Omni-Core" Services
+
+A critical zero-day vulnerability has been discovered in the widely used "Omni-Core" server software. 
+The exploit allows for unauthenticated remote code execution. All system administrators are urged to patch immediately.
+The vulnerability, dubbed 'Ether-Leak', is being actively exploited in the wild by multiple threat actors. An emergency patch is expected, but no ETA has been provided.`
+                }
+            }
         }
       }
     },
