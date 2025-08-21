@@ -5,7 +5,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { useToast } from "@/hooks/use-toast";
 import { generateCommandHelp } from '@/ai/flows/generate-command-help';
 import { databaseQuery } from '@/ai/flows/database-query-flow';
-import { initialFilesystem, getDynamicContent, updateNodeInFilesystem, removeNodeFromFilesystem, getNodeFromPath } from '@/lib/filesystem';
+import { getNodeFromPath, getDynamicContent, updateNodeInFilesystem, removeNodeFromFilesystem } from '@/lib/filesystem';
 import { db, auth } from '@/lib/firebase';
 import { collection, query, where, getDocs, WhereFilterOp } from 'firebase/firestore';
 import { User, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
@@ -54,7 +54,7 @@ Available commands:
 Root-only news commands:
   news add "title"    - Create a new news article.
   news edit <number>  - Edit an existing news article.
-  news del <number>  - Delete a news article.
+  news del <number>   - Delete a news article.
   exit                - Exit from root user session.
 
 Root has elevated privileges and can access all user directories under /home.`;
@@ -289,7 +289,7 @@ export const useCommand = (user: User | null | undefined) => {
         if (path.startsWith('/root')) return false;
 
         const parts = path.split('/').filter(p => p);
-        if (parts[0] === 'home' && parts[1] && parts[1] !== user.email!.split('@')[0]) {
+        if (parts[0] === 'home' && parts.length > 1 && parts[1] !== user.email!.split('@')[0]) {
             return false;
         }
 
@@ -475,6 +475,22 @@ export const useCommand = (user: User | null | undefined) => {
         const articles = Object.keys(newsDir.children).sort();
         const subCmd = args[0];
 
+        // Check if reading an article by number first
+        const articleNum = parseInt(subCmd, 10);
+        if (!isNaN(articleNum)) {
+            const articleIndex = articleNum - 1;
+            if (articleIndex < 0 || articleIndex >= articles.length) {
+                setIsProcessing(false);
+                return `news: invalid article number: ${articleNum}`;
+            }
+            const articleName = articles[articleIndex];
+            const articleNode = newsDir.children[articleName];
+            if (articleNode.type === 'file') {
+                setIsProcessing(false);
+                return getDynamicContent(articleNode.content);
+            }
+        }
+        
         // Root-only commands
         if (isRoot) {
             if (subCmd === 'add') {
@@ -483,7 +499,7 @@ export const useCommand = (user: User | null | undefined) => {
                     return 'Usage: news add "Title of The Article"';
                 }
                 const title = newsAddMatch[1];
-                const filename = `${title.toLowerCase().replace(/\s+/g, '-')}.txt`;
+                const filename = `${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.txt`;
                 const newFilePath = `/var/news/${filename}`;
                 
                 if (getNodeFromPath(newFilePath)) {
@@ -507,12 +523,12 @@ export const useCommand = (user: User | null | undefined) => {
             }
 
             if (subCmd === 'edit') {
-                const articleIndex = parseInt(args[1], 10) - 1;
-                if (isNaN(articleIndex) || articleIndex < 0 || articleIndex >= articles.length) {
+                const editIndex = parseInt(args[1], 10) - 1;
+                if (isNaN(editIndex) || editIndex < 0 || editIndex >= articles.length) {
                     setIsProcessing(false);
                     return `news: invalid article number for editing: ${args[1]}`;
                 }
-                const articleName = articles[articleIndex];
+                const articleName = articles[editIndex];
                 const articlePath = `/var/news/${articleName}`;
                 const articleNode = getNodeFromPath(articlePath);
 
@@ -535,12 +551,12 @@ export const useCommand = (user: User | null | undefined) => {
             }
 
             if (subCmd === 'del') {
-                 const articleIndex = parseInt(args[1], 10) - 1;
-                 if (isNaN(articleIndex) || articleIndex < 0 || articleIndex >= articles.length) {
+                 const delIndex = parseInt(args[1], 10) - 1;
+                 if (isNaN(delIndex) || delIndex < 0 || delIndex >= articles.length) {
                     setIsProcessing(false);
                     return `news: invalid article number for deletion: ${args[1]}`;
                  }
-                 const articleName = articles[articleIndex];
+                 const articleName = articles[delIndex];
                  const articlePath = `/var/news/${articleName}`;
                  
                  setConfirmation({
@@ -555,36 +571,20 @@ export const useCommand = (user: User | null | undefined) => {
             }
         }
         
-        const isReadCmd = !isNaN(parseInt(subCmd, 10));
-
-        // Read commands for all users
+        // Default action: list articles if no valid subcommand is found
         if (!subCmd) {
           let output = "Available News:\n";
           articles.forEach((article, index) => {
-            output += `[${index + 1}] ${article}\n`;
+            const title = article.replace(/-/g, ' ').replace('.txt', '');
+            output += `[${index + 1}] ${title}\n`;
           });
           output += "\nType 'news <number>' to read an article.";
           setIsProcessing(false);
           return output;
         }
 
-        if (isReadCmd) {
-            const articleIndex = parseInt(subCmd, 10) - 1;
-            if (articleIndex < 0 || articleIndex >= articles.length) {
-              setIsProcessing(false);
-              return `news: invalid article number: ${subCmd}`;
-            }
-            
-            const articleName = articles[articleIndex];
-            const articleNode = newsDir.children[articleName];
-            if (articleNode.type === 'file') {
-              setIsProcessing(false);
-              return getDynamicContent(articleNode.content);
-            }
-        }
-        
         setIsProcessing(false);
-        return `news: invalid command or article number: ${subCmd}`;
+        return `news: invalid command: ${subCmd}. Type 'news' to see available articles.`;
       }
 
       case 'su': {
