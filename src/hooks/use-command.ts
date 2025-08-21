@@ -12,6 +12,7 @@ import { craftPhish } from '@/ai/flows/craft-phish-flow';
 import { generateWarlockTaunt } from '@/ai/flows/warlock-threat-flow';
 import { forgeTool } from '@/ai/flows/forge-tool-flow';
 import { analyzeImage } from '@/ai/flows/analyze-image-flow';
+import { generateAttackPlan } from '@/ai/flows/attack-planner-flow';
 import { 
     getNodeFromPath, 
     getDynamicContent, 
@@ -24,12 +25,10 @@ import {
     restoreBackup, 
     addNodeToFilesystem,
     getMachine,
-    network
 } from '@/lib/filesystem';
 import { db, auth } from '@/lib/firebase';
 import { collection, query, where, getDocs, WhereFilterOp } from 'firebase/firestore';
 import { User, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
-import NanoEditor from '@/components/nano-editor';
 import ImageDisplay from '@/components/image-display';
 import md5 from 'md5';
 
@@ -351,7 +350,7 @@ export const useCommand = (user: User | null | undefined) => {
         }
     }, [editingFile, triggerWarlock, toast, currentHost]);
 
-  const processCommand = useCallback(async (command: string): Promise<string | React.ReactNode> => {
+  const processCommand = useCallback(async (command: string): Promise<string | React.ReactNode | null> => {
     if (editingFile) return ''; // Block commands while editing
 
     setIsProcessing(true);
@@ -1098,7 +1097,7 @@ export const useCommand = (user: User | null | undefined) => {
                  setIsProcessing(false);
                 return 'Usage: nginx [-v | -t]';
             }
-            // Fall through to default if not installed
+            break; // Fall through to default if not installed
         }
         
         case 'restore_system': {
@@ -1241,8 +1240,8 @@ export const useCommand = (user: User | null | undefined) => {
       case 'logout': {
         await auth.signOut();
         setIsProcessing(false);
-        // User state change will trigger welcome message
-        return '';
+        // User state change will trigger welcome message, return null to signify no output
+        return null;
       }
       
       case 'clear':
@@ -1253,6 +1252,28 @@ export const useCommand = (user: User | null | undefined) => {
       case '':
         setIsProcessing(false);
         return '';
+        
+      case 'plan': {
+         const objective = fullArgString;
+         if(!objective) {
+            setIsProcessing(false);
+            return 'Usage: plan "[objective]"'
+         }
+         const node = getNodeFromPath(cwd, currentHost);
+         let availableFiles: string[] = [];
+         if(node?.type === 'directory') {
+            availableFiles = Object.keys(node.children);
+         }
+         
+         const result = await generateAttackPlan({target: currentHost, objective, availableFiles});
+         let planOutput = `Attack Plan Reasoning: ${result.reasoning}\n\n`;
+         planOutput += "Commands:\n";
+         result.plan.forEach((step, index) => {
+            planOutput += `${index + 1}. ${step.command} ${step.args.join(' ')}\n`;
+         });
+         setIsProcessing(false);
+         return planOutput;
+      }
 
       default: {
         try {

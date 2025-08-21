@@ -6,7 +6,6 @@ import { useCommand } from '@/hooks/use-command';
 import Typewriter from './typewriter';
 import { User } from 'firebase/auth';
 import NanoEditor from './nano-editor';
-import ImageDisplay from './image-display';
 
 interface HistoryItem {
   id: number;
@@ -89,7 +88,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
 
     const currentPrompt = prompt;
     // For password step, we don't want to show the command in history
-    const commandForHistory = authStep === 'password' ? '******' : command;
+    const commandForHistory = authStep === 'password' || authStep === 'ssh_password' ? '******' : command;
 
     const newHistoryItem: HistoryItem = { 
       id: Date.now(),
@@ -104,20 +103,22 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
 
     const result = await processCommand(command);
     
-    if (command.trim().toLowerCase() === 'logout' && !result) {
+    // The useCommand hook now handles state for logout, so we just check for empty result.
+    if (result === null) { 
         setIsTyping(false);
+        // This can happen on logout, where the user change effect handles the UI update.
+        // We find and remove the history item that had no output.
+        setHistory(prev => prev.filter(h => h.id !== newHistoryItem.id));
         return;
     }
     
-    if (result === '') {
-       if (!editingFile) setIsTyping(false);
-    }
-
     setHistory(prev => prev.map(h => 
         h.id === newHistoryItem.id ? { ...h, output: result } : h
     ));
     
     const isCustomComponent = React.isValidElement(result);
+    // If we get a component or an empty string, we stop typing immediately.
+    // The Typewriter component will handle its own typing state.
     if (isCustomComponent || (typeof result === 'string' && result.length === 0)) {
         if (!editingFile) {
             setIsTyping(false);
@@ -126,7 +127,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
   };
   
   const showInput = !isTyping && !isProcessing && !editingFile;
-  const isPasswordStep = authStep === 'password';
+  const isPasswordStep = authStep === 'password' || authStep === 'ssh_password';
 
   return (
     <div className="h-full w-full p-2 md:p-4 font-code text-base md:text-lg text-primary overflow-y-auto" onClick={focusInput}>
@@ -156,7 +157,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
               {item.output && (
                   typeof item.output === 'string' && item.output.length > 0
                   ? <div className="whitespace-pre-wrap"><Typewriter text={item.output} onFinished={() => setIsTyping(false)} /></div>
-                  : (React.isValidElement(item.output) && item.output.type !== NanoEditor) ? <div>{item.output}</div> : null
+                  : (React.isValidElement(item.output)) ? <div>{item.output}</div> : null
               )}
              </>
             )}
