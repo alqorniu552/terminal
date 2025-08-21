@@ -5,7 +5,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { useToast } from "@/hooks/use-toast";
 import { generateCommandHelp } from '@/ai/flows/generate-command-help';
 import { databaseQuery } from '@/ai/flows/database-query-flow';
-import { initialFilesystem as filesystem, Directory, FilesystemNode, getDynamicContent, updateNodeInFilesystem, removeNodeFromFilesystem } from '@/lib/filesystem';
+import { initialFilesystem, getDynamicContent, updateNodeInFilesystem, removeNodeFromFilesystem, getNodeFromPath } from '@/lib/filesystem';
 import { db, auth } from '@/lib/firebase';
 import { collection, query, where, getDocs, WhereFilterOp } from 'firebase/firestore';
 import { User, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
@@ -54,7 +54,7 @@ Available commands:
 Root-only news commands:
   news add "title"    - Create a new news article.
   news edit <number>  - Edit an existing news article.
-  news del <number>   - Delete a news article.
+  news del <number>  - Delete a news article.
   exit                - Exit from root user session.
 
 Root has elevated privileges and can access all user directories under /home.`;
@@ -94,20 +94,6 @@ const resolvePath = (cwd: string, path: string): string => {
     }
   }
   return '/' + parts.join('/');
-};
-
-const getNodeFromPath = (path: string): FilesystemNode | null => {
-  const parts = path.split('/').filter(p => p && p !== '~');
-  let currentNode: FilesystemNode = filesystem;
-
-  for (const part of parts) {
-    if (currentNode.type === 'directory' && currentNode.children[part]) {
-      currentNode = currentNode.children[part];
-    } else {
-      return null;
-    }
-  }
-  return currentNode;
 };
 
 export const useCommand = (user: User | null | undefined) => {
@@ -568,6 +554,8 @@ export const useCommand = (user: User | null | undefined) => {
                  return '';
             }
         }
+        
+        const isReadCmd = !isNaN(parseInt(subCmd, 10));
 
         // Read commands for all users
         if (!subCmd) {
@@ -580,21 +568,23 @@ export const useCommand = (user: User | null | undefined) => {
           return output;
         }
 
-        const articleIndex = parseInt(subCmd, 10) - 1;
-        if (isNaN(articleIndex) || articleIndex < 0 || articleIndex >= articles.length) {
-          setIsProcessing(false);
-          return `news: invalid article number or command: ${subCmd}`;
-        }
-        
-        const articleName = articles[articleIndex];
-        const articleNode = newsDir.children[articleName];
-        if (articleNode.type === 'file') {
-          setIsProcessing(false);
-          return getDynamicContent(articleNode.content);
+        if (isReadCmd) {
+            const articleIndex = parseInt(subCmd, 10) - 1;
+            if (articleIndex < 0 || articleIndex >= articles.length) {
+              setIsProcessing(false);
+              return `news: invalid article number: ${subCmd}`;
+            }
+            
+            const articleName = articles[articleIndex];
+            const articleNode = newsDir.children[articleName];
+            if (articleNode.type === 'file') {
+              setIsProcessing(false);
+              return getDynamicContent(articleNode.content);
+            }
         }
         
         setIsProcessing(false);
-        return "Could not read article.";
+        return `news: invalid command or article number: ${subCmd}`;
       }
 
       case 'su': {
@@ -618,7 +608,10 @@ export const useCommand = (user: User | null | undefined) => {
           const userHome = user ? `/home/${user.email!.split('@')[0]}` : '/';
           const node = getNodeFromPath(userHome);
           setCwd(node && node.type === 'directory' ? userHome : '/');
+          setIsProcessing(false);
+          return '';
         }
+        // If not root, logout is more appropriate. But for now, we do nothing.
         setIsProcessing(false);
         return '';
       }
@@ -626,9 +619,15 @@ export const useCommand = (user: User | null | undefined) => {
       case 'logout': {
         await auth.signOut();
         setIsProcessing(false);
+        // User state change will trigger welcome message
         return '';
       }
       
+      case 'clear':
+        // The component will handle this by clearing history. Return empty.
+        setIsProcessing(false);
+        return '';
+
       case '':
         setIsProcessing(false);
         return '';
