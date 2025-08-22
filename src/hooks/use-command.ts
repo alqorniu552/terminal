@@ -703,5 +703,3 @@ Awareness: ${warlockAwareness}%
       resetCommandState: () => dispatch({ type: 'RESET' }),
   };
 };
-
-    
