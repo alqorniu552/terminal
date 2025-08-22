@@ -171,7 +171,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
             onExit={handleEditorExit}
         />
     )}
-    <div className="h-full w-full p-2 md:p-4 font-code text-base md:text-lg text-primary overflow-y-auto" onClick={focusInput}>
+    <div className="h-full w-full p-2 md:p-4 font-code text-base md:text-lg text-primary overflow-y-scroll" onClick={focusInput}>
       <div className="text-shadow-glow">
         {history.map((item, index) => (
           <div key={item.id}>

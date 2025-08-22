@@ -109,31 +109,18 @@ const hasPermission = (path: string, type: 'read' | 'write' | 'execute', isRoot:
 
     const normalizedPath = resolvePath('/', path);
 
-    // Universal read access for guests and users
-    const universalReadWhitelist = [
-        '/',
-        '/etc',
-        '/var',
-        '/var/log',
-        '/var/articles',
-        '/bin',
-        '/lib',
-        '/tmp',
-        '/a.out',
-        '/secret.jpg',
-        '/welcome.txt',
-    ];
+    const universalReadWhitelist = ['/', '/etc', '/var', '/var/log', '/var/articles', '/bin', '/lib', '/tmp', '/a.out', '/secret.jpg', '/welcome.txt', '/root/mission_image.jpg'];
 
-    if (type === 'read' && universalReadWhitelist.some(p => normalizedPath.startsWith(p) || p === normalizedPath)) {
+    if (type === 'read' && universalReadWhitelist.some(p => p === normalizedPath || (p.endsWith('/') && normalizedPath.startsWith(p)))) {
         return true;
     }
     
-    // After checking universal access, if user is not logged in, deny everything else.
     if (!user) return false;
 
     const userHome = `/home/${user.email?.split('@')[0]}`;
 
-    const readWhitelist = [userHome];
+    // Define whitelists for logged-in users
+    const readWhitelist = [userHome, '/etc/shadow.bak'];
     const writeWhitelist = ['/tmp', userHome];
     const executeWhitelist = ['/bin/linpeas.sh'];
 
@@ -356,21 +343,24 @@ Awareness: ${warlockAwareness}%
                 return `ls: cannot access '${argString || '.'}': No such file or directory`;
             }
             case 'cd': {
-                const newPath = argString ? resolvePath(cwd, argString) : (user ? `/home/${user.email?.split('@')[0]}` : '/');
-                if (argString === '~') {
-                     const homePath = user ? `/home/${user.email?.split('@')[0]}` : '/';
-                     if (user && !getNodeFromPath(homePath)) {
-                        addNodeToFilesystem('/home', user.email!.split('@')[0], { type: 'directory', children: {} });
-                    }
-                    dispatch({ type: 'SET_CWD', payload: homePath });
-                    return '';
-                }
+                const homePath = user ? `/home/${user.email?.split('@')[0]}` : '/';
+                let newPath = argString;
 
+                if (!newPath || newPath === '~') {
+                    newPath = homePath;
+                } else {
+                    newPath = resolvePath(cwd, newPath);
+                }
+                
                 const node = getNodeFromPath(newPath);
+
                 if (node && node.type === 'directory') {
                     if (!hasPermission(newPath, 'read', isRoot, user)) {
                         if (user) await triggerWarlock(`denied cd to ${newPath}`, 2);
                         return `cd: permission denied: ${argString}`;
+                    }
+                    if (newPath === homePath && !getNodeFromPath(homePath) && user) {
+                         addNodeToFilesystem('/home', user.email!.split('@')[0], { type: 'directory', children: {} });
                     }
                     dispatch({ type: 'SET_CWD', payload: newPath });
                     return '';
