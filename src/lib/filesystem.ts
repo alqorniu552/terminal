@@ -35,14 +35,20 @@ const baseFilesystem: Directory = {
             'log': {
                 type: 'directory',
                 children: {
-                    'auth.log': { 
-                        type: 'file', 
+                    'auth.log': {
+                        type: 'file',
                         content: `Aug 22 10:10:01 server sshd[1234]: Accepted publickey for user from 192.168.1.10
 Aug 22 10:15:03 server sshd[1235]: Failed password for invalid user non_existent_user from 10.0.0.5 port 22
 Aug 22 10:15:04 server sshd[1235]: message repeated 2 times: [ Failed password for invalid user non_existent_user from 10.0.0.5 port 22]
 Aug 22 10:20:21 server CRON[1250]: (root) CMD (run-parts --report /etc/cron.hourly)
 FLAG{L0G_F0R3NS1CS_R0CKS}`
                     }
+                }
+            },
+            'articles': {
+                type: 'directory',
+                children: {
+                    'welcome.txt': { type: 'file', content: 'Welcome to all users. More articles will be posted here by the admin.' }
                 }
             }
         }

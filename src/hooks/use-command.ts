@@ -13,6 +13,7 @@ import { investigateTarget } from '@/ai/flows/osint-investigation-flow';
 import { craftPhish } from '@/ai/flows/craft-phish-flow';
 import { forgeTool } from '@/ai/flows/forge-tool-flow';
 import { analyzeImage } from '@/ai/flows/analyze-image-flow';
+import { writeArticle } from '@/ai/flows/write-article-flow';
 import { generateImage } from '@/ai/flows/generate-image-flow';
 import { generateVideo } from '@/ai/flows/generate-video-flow';
 import { animateImage } from '@/ai/flows/animate-image-flow';
@@ -81,6 +82,8 @@ function commandReducer(state: CommandState, action: Action): CommandState {
 }
 
 // Helper Functions
+const SUPERADMIN_EMAIL = 'root@command-center.com';
+
 const resolvePath = (cwd: string, path: string): string => {
   const newPath = new URL(path, `file://${cwd}/`).pathname;
   return newPath;
@@ -117,6 +120,7 @@ const hasPermission = (path: string, type: 'read' | 'write' | 'execute', isRoot:
         '/etc',
         '/var',
         '/var/log',
+        '/var/articles',
         '/bin',
         '/lib',
         '/tmp',
@@ -263,6 +267,13 @@ export const useCommand = (user: User | null | undefined, { setEditorState, setI
   exit          - Exit root shell.
     `;
         }
+        
+        if (user?.email === SUPERADMIN_EMAIL) {
+            baseCommands += `
+  write_article <filename> "[prompt]" - Write a new article for all users.
+    `;
+        }
+
 
         return `Available commands:${baseCommands}\nFor unrecognized commands, AI will try to provide assistance.`;
     }
@@ -611,7 +622,7 @@ Awareness: ${warlockAwareness}%
                 if (!hasPermission(targetPath, 'read', isRoot, user)) return 'reveal: Permission denied.';
 
                 const content = getDynamicContent(node);
-                if (!content || !content.startsWith('data:image')) return 'reveal: target is not an image file.';
+                if (typeof content !== 'string' || !content.startsWith('data:image')) return 'reveal: target is not an image file.';
                 
                 await triggerWarlock(`used steganography tool on ${targetPath}`, 15);
                 const { revealedMessage } = await revealMessage({ imageDataUri: content });
@@ -661,6 +672,21 @@ Awareness: ${warlockAwareness}%
                     addNodeToFilesystem(parentPath, filename, newFile);
                     return `Tool '${filename}' forged successfully.`;
                 }
+            }
+            case 'write_article': {
+                if (user?.email !== SUPERADMIN_EMAIL) {
+                    return `command not found: write_article`;
+                }
+                const [filename, ...promptParts] = args;
+                const prompt = promptParts.join(' ');
+                if(!filename || !prompt) return 'Usage: write_article <filename> "[prompt]"';
+
+                const { content } = await writeArticle({ topic: prompt });
+                const articlePath = `/var/articles`;
+                
+                addNodeToFilesystem(articlePath, filename, { type: 'file', content });
+                
+                return `Article '${filename}' has been published to ${articlePath}.`;
             }
             case 'animate': {
                 if (!argString) return 'Usage: animate <image_file>';
