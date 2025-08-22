@@ -36,7 +36,6 @@ Available commands:
   cd [path]     - Change directory.
   cat [file]    - Display file content.
   neofetch      - Display system information.
-  prompt [value]- Set a new prompt.
   db "[query]"  - Query the database using natural language.
   clear         - Clear the terminal screen.
   logout        - Log out from the application.
@@ -91,11 +90,12 @@ const getNodeFromPath = (path: string): FilesystemNode | null => {
 export const useCommand = (user: User | null | undefined) => {
   const [cwd, setCwd] = useState('/');
   const getInitialPrompt = useCallback(() => {
+    const path = cwd === '/' ? '~' : `~${cwd}`;
     if (user) {
-        return `${user.email?.split('@')[0]}@command-center:~$`;
+        return `${user.email?.split('@')[0]}@command-center:${path}$`;
     }
-    return 'guest@command-center:~$';
-  }, [user]);
+    return `guest@command-center:${path}$`;
+  }, [user, cwd]);
 
   const [prompt, setPrompt] = useState(getInitialPrompt());
   const { toast } = useToast();
@@ -103,10 +103,6 @@ export const useCommand = (user: User | null | undefined) => {
   useEffect(() => {
     setPrompt(getInitialPrompt());
   }, [user, getInitialPrompt]);
-
-  const resetPrompt = useCallback(() => {
-      setPrompt(getInitialPrompt());
-  }, [getInitialPrompt]);
 
   const getWelcomeMessage = useCallback(() => {
     if (user) {
@@ -169,15 +165,12 @@ export const useCommand = (user: User | null | undefined) => {
       case 'cd': {
         if (!arg || arg === '~') {
           setCwd('/');
-          setPrompt(`${user.email?.split('@')[0]}@command-center:~$`);
           return '';
         }
         const newPath = resolvePath(cwd, arg);
         const node = getNodeFromPath(newPath);
         if (node && node.type === 'directory') {
           setCwd(newPath);
-          const newPromptPath = newPath === '/' ? '~' : `~${newPath}`;
-          setPrompt(`${user.email?.split('@')[0]}@command-center:${newPromptPath}$`);
           return '';
         }
         return `cd: no such file or directory: ${arg}`;
@@ -229,6 +222,7 @@ export const useCommand = (user: User | null | undefined) => {
 
       case 'logout': {
         await auth.signOut();
+        setCwd('/');
         return 'Logged out successfully.';
       }
       
@@ -250,7 +244,7 @@ export const useCommand = (user: User | null | undefined) => {
         }
       }
     }
-  }, [cwd, toast, user, prompt]);
+  }, [cwd, toast, user]);
 
-  return { prompt, setPrompt, processCommand, resetPrompt, getWelcomeMessage };
+  return { prompt, processCommand, getWelcomeMessage };
 };
