@@ -24,6 +24,20 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
   const [isTyping, setIsTyping] = useState(true);
   const [editorState, setEditorState] = useState<{filename: string, content: string} | null>(null);
 
+  const endOfHistoryRef = useRef<HTMLDivElement>(null);
+
+  const loadWelcomeMessage = useCallback(() => {
+    const welcomeHistory: HistoryItem = {
+      id: 0,
+      command: '',
+      output: '', // Will be populated by getWelcomeMessage
+      prompt: '',
+    };
+    setHistory([welcomeHistory]);
+    setIsTyping(true);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const { 
     prompt, 
     processCommand, 
@@ -32,10 +46,9 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     resetCommandState,
     commandJustFinished,
     startProcessing,
-  } = useCommand(user, { setEditorState, setIsTyping });
+  } = useCommand(user, { setEditorState, setIsTyping, loadWelcomeMessage });
 
   const inputRef = useRef<HTMLInputElement>(null);
-  const endOfHistoryRef = useRef<HTMLDivElement>(null);
   
   const focusInput = useCallback(() => {
     if (!editorState) {
@@ -58,21 +71,14 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
     return () => window.removeEventListener('click', clickHandler);
   }, [focusInput]);
   
-
-  const loadWelcomeMessage = useCallback(() => {
-    const welcomeHistory: HistoryItem = {
-      id: 0,
-      command: '',
-      output: getWelcomeMessage(),
-      prompt: '',
-    };
-    setHistory([welcomeHistory]);
-    setIsTyping(true);
-  }, [getWelcomeMessage]);
-  
   useEffect(() => {
-    setHistory([]); 
-    loadWelcomeMessage();
+    setHistory(prev => {
+        const welcomeMessage = getWelcomeMessage();
+        if(prev.length > 0 && prev[0].id === 0) {
+            return [{...prev[0], output: welcomeMessage}];
+        }
+        return [{ id: 0, command: '', output: welcomeMessage, prompt: '' }];
+    });
     resetCommandState();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);

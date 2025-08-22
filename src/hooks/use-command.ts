@@ -82,6 +82,7 @@ function commandReducer(state: CommandState, action: Action): CommandState {
 const SUPERADMIN_EMAIL = 'root@command-center.com';
 
 const resolvePath = (cwd: string, path: string): string => {
+  if (path.startsWith('/')) return path;
   const newPath = new URL(path, `file://${cwd}/`).pathname;
   return newPath;
 };
@@ -110,8 +111,8 @@ const hasPermission = (path: string, type: 'read' | 'write' | 'execute', isRoot:
 
     const normalizedPath = resolvePath('/', path);
 
-    const universalReadWhitelist = ['/', '/etc/hosts', '/var/log/auth.log', '/var/articles', '/bin', '/lib', '/tmp'];
-    if (type === 'read' && universalReadWhitelist.some(p => normalizedPath.startsWith(p) && p === normalizedPath)) {
+    const universalReadWhitelist = ['/', '/etc/hosts', '/var/log/auth.log', '/var/articles', '/bin', '/lib', '/tmp', '/welcome.txt'];
+     if (type === 'read' && universalReadWhitelist.some(p => normalizedPath === p)) {
         return true;
     }
     
@@ -120,7 +121,7 @@ const hasPermission = (path: string, type: 'read' | 'write' | 'execute', isRoot:
     const userHome = `/home/${user.email?.split('@')[0]}`;
 
     // Define whitelists for logged-in users
-    const readWhitelist = [userHome, '/etc/shadow.bak', '/a.out', '/secret.jpg', '/welcome.txt', '/root/mission_image.jpg'];
+    const readWhitelist = [userHome, '/etc/shadow.bak', '/a.out', '/secret.jpg', '/root/mission_image.jpg'];
     const writeWhitelist = ['/tmp', userHome];
     const executeWhitelist = ['/bin/linpeas.sh'];
 
@@ -140,9 +141,10 @@ const hasPermission = (path: string, type: 'read' | 'write' | 'execute', isRoot:
 interface CommandHookProps {
     setEditorState: (state: {filename: string, content: string} | null) => void;
     setIsTyping: (isTyping: boolean) => void;
+    loadWelcomeMessage: () => void;
 }
 
-export const useCommand = (user: User | null | undefined, { setEditorState, setIsTyping }: CommandHookProps) => {
+export const useCommand = (user: User | null | undefined, { setEditorState, setIsTyping, loadWelcomeMessage }: CommandHookProps) => {
   const [state, dispatch] = useReducer(commandReducer, initialState);
   const { cwd, isRoot, warlockAwareness, isProcessing, commandJustFinished, confirmation } = state;
   const { toast } = useToast();
@@ -172,7 +174,7 @@ export const useCommand = (user: User | null | undefined, { setEditorState, setI
     const userIdentifier = isRoot ? 'root' : user?.email?.split('@')[0] || 'guest';
     const host = 'command-center';
     const terminator = isRoot ? '#' : '$';
-    return `${userIdentifier}@${host}:${path}${terminator}`;
+    return `${userIdentifier}@${host}:${path}${terminator} `;
   }, [cwd, isRoot, user]);
 
   const getWelcomeMessage = useCallback(() => {
@@ -241,9 +243,10 @@ export const useCommand = (user: User | null | undefined, { setEditorState, setI
     
 
   const processCommand = useCallback(async (command: string): Promise<string | React.ReactNode> => {
+    const [cmd, ...args] = command.trim().split(/\s+/);
+    const argString = args.join(' ');
+    
     try {
-        const [cmd, ...args] = command.trim().split(/\s+/);
-        
         if (confirmation) {
             if (cmd.toLowerCase() === 'y' || cmd.toLowerCase() === 'yes') {
                 const result = await confirmation.onConfirm();
@@ -254,37 +257,44 @@ export const useCommand = (user: User | null | undefined, { setEditorState, setI
                 return 'Operation cancelled.';
             }
         }
-        
-        // --- Auth Commands (Not logged in) ---
+
+        if (cmd.toLowerCase() === 'clear') {
+            loadWelcomeMessage();
+            return;
+        }
+
+        // --- Guest User Commands ---
         if (!user) {
             switch (cmd.toLowerCase()) {
                 case 'login': {
                     const [email, password] = args;
                     if (!email) return `Usage: login [email] [password]`;
-                    try {
-                        return await loginUser(email, password);
-                    } catch (error: any) {
-                        return `Error: ${error.message}`;
-                    }
+                    return await loginUser(email, password);
                 }
                 case 'register': {
                     const [email, password] = args;
                     if (!email) return `Usage: register [email] [password]`;
-                     try {
-                        return await registerUser(email, password);
-                    } catch (error: any) {
-                        return `Error: ${error.message}`;
+                    const result = await registerUser(email, password);
+                     if (result.success && result.username) {
+                        addNodeToFilesystem('/home', result.username, { type: 'directory', children: {} });
                     }
+                    return result.message;
                 }
-                 case 'help': return getHelpOutput(false, false);
-                 case '': return '';
-                 // Fallthrough for guest file access
+                case 'help':
+                    return getHelpOutput(false, false);
+                case '':
+                    return '';
+                case 'cat':
+                case 'ls':
+                case 'cd':
+                     // Allow basic filesystem navigation for guests, but restricted.
+                     break; 
+                default:
+                    return `Command '${cmd}' requires login. Please 'login' or 'register'.`;
             }
         }
-
-        // --- All Users (incl. Guests) Commands ---
-        const argString = args.join(' ');
-
+        
+        // --- Authenticated User Commands ---
         switch (cmd.toLowerCase()) {
             // Internal command to handle editor save
             case '__save_buffer__': {
@@ -302,7 +312,6 @@ export const useCommand = (user: User | null | undefined, { setEditorState, setI
             // Standard commands
             case 'help': return getHelpOutput(!!user, isRoot);
             case 'neofetch': {
-                if (!user) return `Command 'neofetch' requires login.`;
                 let uptime = 0;
                 if (typeof window !== 'undefined') {
                     uptime = Math.floor(performance.now() / 1000);
@@ -380,7 +389,6 @@ Awareness: ${warlockAwareness}%
 
             // Logged-in only commands start here
             case 'mkdir': {
-                if (!user) return `Command 'mkdir' requires login.`;
                 if (!argString) return 'mkdir: missing operand';
                 const newDirPath = resolvePath(cwd, argString);
                 const parentPath = getParentPath(newDirPath);
@@ -396,7 +404,6 @@ Awareness: ${warlockAwareness}%
                 return '';
             }
             case 'touch': {
-                if (!user) return `Command 'touch' requires login.`;
                 if (!argString) return 'touch: missing operand';
                 const newFilePath = resolvePath(cwd, argString);
                 const parentPath = getParentPath(newFilePath);
@@ -413,7 +420,6 @@ Awareness: ${warlockAwareness}%
                 return '';
             }
              case 'rm': {
-                if (!user) return `Command 'rm' requires login.`;
                 if (!argString) return 'rm: missing operand';
                 const targetPath = resolvePath(cwd, argString);
                 const node = getNodeFromPath(targetPath);
@@ -449,7 +455,6 @@ Awareness: ${warlockAwareness}%
                 return `rm: remove ${isDirectory ? 'directory' : 'file'} '${argString}'? (y/N)`;
             }
             case 'nano': {
-                if (!user) return `Command 'nano' requires login.`;
                 if (!argString) return 'nano: missing file operand';
                 const filePath = resolvePath(cwd, argString);
                  if (!hasPermission(getParentPath(filePath), 'write', isRoot, user)) {
@@ -472,7 +477,6 @@ Awareness: ${warlockAwareness}%
 
             // User management
             case 'logout': {
-                if (!user) return `You are not logged in.`;
                  try {
                     const result = await logoutUser();
                     dispatch({ type: 'SET_CWD', payload: '/' });
@@ -483,14 +487,13 @@ Awareness: ${warlockAwareness}%
                 }
             }
             case 'su': {
-                if (!user) return `Command 'su' requires login.`;
                 const targetUser = argString;
                 if (targetUser === 'root') {
                     if (isRoot) return 'Already root.';
                     dispatch({ type: 'SET_IS_ROOT', payload: true });
                     dispatch({ type: 'SET_CWD', payload: '/root' });
                     return '';
-                } else if(targetUser === user?.email?.split('@')[0]) {
+                } else if(user && targetUser === user?.email?.split('@')[0]) {
                      if (!isRoot) return 'Already logged in as this user.';
                      dispatch({ type: 'SET_IS_ROOT', payload: false });
                      const homePath = `/home/${user.email!.split('@')[0]}`;
@@ -501,7 +504,6 @@ Awareness: ${warlockAwareness}%
                 }
             }
             case 'exit': {
-                if (!user) return `Command 'exit' requires login.`;
                 if(isRoot) {
                     dispatch({ type: 'SET_IS_ROOT', payload: false });
                     const homePath = user ? `/home/${user.email?.split('@')[0]}` : '/';
@@ -513,7 +515,7 @@ Awareness: ${warlockAwareness}%
 
             // AI Commands
             case 'db': {
-                if (!user || !db) return `Command 'db' requires login and a configured database.`;
+                if (!db) return `Command 'db' requires login and a configured database.`;
                 if (!argString) return 'db: missing query. Usage: db "your natural language query"';
                 try {
                     const queryInstruction = await databaseQuery({ query: argString });
@@ -534,7 +536,6 @@ Awareness: ${warlockAwareness}%
                 }
             }
             case 'ask': {
-                if (!user) return `Command 'ask' requires login.`;
                 if (!argString) return 'Usage: ask "[question]"';
                 const node = getNodeFromPath(cwd);
                 const files = (node?.type === 'directory') ? Object.keys(node.children) : [];
@@ -542,7 +543,6 @@ Awareness: ${warlockAwareness}%
                 return answer;
             }
              case 'scan': {
-                if (!user) return `Command 'scan' requires login.`;
                 if (!argString) return 'Usage: scan <file>';
                 const targetPath = resolvePath(cwd, argString);
                 const node = getNodeFromPath(targetPath);
@@ -554,7 +554,6 @@ Awareness: ${warlockAwareness}%
                 return `Scan report for ${argString}:\n${report}`;
             }
              case 'crack': {
-                if (!user) return `Command 'crack' requires login.`;
                 if (!argString) return 'Usage: crack <file>';
                 const targetPath = resolvePath(cwd, argString);
                 const node = getNodeFromPath(targetPath);
@@ -592,7 +591,6 @@ Awareness: ${warlockAwareness}%
                 });
             }
              case 'reveal': {
-                if (!user) return `Command 'reveal' requires login.`;
                 if (!argString) return 'Usage: reveal <image_file>';
                 const targetPath = resolvePath(cwd, argString);
                 const node = getNodeFromPath(targetPath);
@@ -607,21 +605,18 @@ Awareness: ${warlockAwareness}%
                 return `Analysis complete. Result: ${revealedMessage}`;
             }
             case 'osint': {
-                if (!user) return `Command 'osint' requires login.`;
                 if (!argString) return 'Usage: osint <target>';
                 await triggerWarlock(`ran OSINT on ${argString}`, 8);
                 const { report } = await investigateTarget({ target: argString });
                 return `OSINT Report for ${argString}:\n${report}`;
             }
             case 'phish': {
-                if (!user) return `Command 'phish' requires login.`;
                 if (!argString) return 'Usage: phish <target_email>';
                 await triggerWarlock(`crafted phish for ${argString}`, 12);
                 const { phishingEmail } = await craftPhish({ targetEmail: argString, topic: 'Urgent Security Alert' });
                 return `--- CRAFTED PHISHING EMAIL ---\n${phishingEmail}`;
             }
             case 'analyze': {
-                 if (!user) return `Command 'analyze' requires login.`;
                  if (!argString) return 'Usage: analyze <image_url>';
                  try {
                      new URL(argString);
@@ -633,7 +628,6 @@ Awareness: ${warlockAwareness}%
                  return `--- FORENSIC IMAGE ANALYSIS ---\n${analysis}`;
             }
             case 'forge': {
-                if (!user) return `Command 'forge' requires login.`;
                 const [filename, ...promptParts] = args;
                 const prompt = promptParts.join(' ');
                 if(!filename || !prompt) return 'Usage: forge <filename> "[prompt]"';
@@ -671,7 +665,6 @@ Awareness: ${warlockAwareness}%
                 return `Article '${filename}' has been published to ${articlePath}.`;
             }
             case 'animate': {
-                if (!user) return `Command 'animate' requires login.`;
                 if (!argString) return 'Usage: animate <image_file>';
                 const targetPath = resolvePath(cwd, argString);
                 const node = getNodeFromPath(targetPath);
@@ -689,13 +682,11 @@ Awareness: ${warlockAwareness}%
                 });
             }
             case 'generate_image': {
-                 if (!user) return `Command 'generate_image' requires login.`;
                  if (!argString) return 'Usage: generate_image "[prompt]"';
                  await triggerWarlock(`generated an image`, 10);
                  return React.createElement(ImageDisplay, { prompt: argString, onFinished: () => dispatch({type: 'FINISH_PROCESSING'}) });
             }
              case 'generate_video': {
-                if (!user) return `Command 'generate_video' requires login.`;
                 if (!argString) return 'Usage: generate_video "[prompt]"';
                 await triggerWarlock(`generated a video`, 25);
                 return React.createElement(VideoDisplay, { prompt: argString, onFinished: () => dispatch({type: 'FINISH_PROCESSING'}) });
@@ -704,8 +695,8 @@ Awareness: ${warlockAwareness}%
             // Default
             case '': return '';
             default: {
-                if (user && hasPermission(`${cwd}/${cmd}`, 'execute', isRoot, user)) {
-                    const node = getNodeFromPath(`${cwd}/${cmd}`);
+                if (user && hasPermission(resolvePath(cwd, cmd), 'execute', isRoot, user)) {
+                    const node = getNodeFromPath(resolvePath(cwd, cmd));
                     if (node && node.type === 'file') {
                         await triggerWarlock(`executed ${cmd}`, 2);
                         return getDynamicContent(node);
@@ -718,6 +709,10 @@ Awareness: ${warlockAwareness}%
         }
     } catch (error: any) {
         console.error('Command processing failed:', error);
+        // Special handling for auth errors from the service
+        if (error.name === 'AuthError') {
+            return error.message;
+        }
         toast({
             variant: "destructive",
             title: "Command Execution Error",
@@ -730,7 +725,15 @@ Awareness: ${warlockAwareness}%
             dispatch({ type: 'FINISH_PROCESSING' });
          }
     }
-  }, [user, cwd, isRoot, toast, confirmation, warlockAwareness, triggerWarlock, setEditorState, setIsTyping, auth]);
+  }, [user, cwd, isRoot, toast, confirmation, warlockAwareness, triggerWarlock, setEditorState, setIsTyping, auth, loadWelcomeMessage]);
+
+  const startProcessing = useCallback(() => {
+    dispatch({ type: 'START_PROCESSING' });
+  }, []);
+
+  const resetCommandState = useCallback(() => {
+    dispatch({ type: 'RESET' });
+  }, []);
 
   return {
       prompt: getPrompt(),
@@ -738,9 +741,7 @@ Awareness: ${warlockAwareness}%
       getWelcomeMessage,
       isProcessing,
       commandJustFinished,
-      startProcessing: () => dispatch({ type: 'START_PROCESSING' }),
-      resetCommandState: () => dispatch({ type: 'RESET' }),
+      startProcessing,
+      resetCommandState,
   };
 };
-
-    
