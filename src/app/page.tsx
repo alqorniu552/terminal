@@ -6,6 +6,23 @@ import Terminal from '@/components/terminal';
 import CyberLogo from '@/components/cyber-logo';
 
 export default function TerminalPage() {
+  // Handle case where Firebase is not configured.
+  if (!auth) {
+    return (
+      <div className="flex h-screen w-full flex-col items-center justify-center bg-background p-4 font-code text-destructive">
+        <div className="max-w-lg rounded-md border border-destructive/50 bg-destructive/10 p-6 text-center">
+          <h2 className="text-xl font-bold">Firebase Not Configured</h2>
+          <p className="mt-2">
+            Firebase configuration is missing or incomplete. Please copy the `/.env.example` file to `/.env` and fill in your Firebase project details.
+          </p>
+          <p className="mt-4 text-xs text-destructive/80">
+            The application will not function correctly until Firebase is set up.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   const [user, loading, error] = useAuthState(auth);
 
   if (loading) {

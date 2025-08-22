@@ -78,7 +78,7 @@ npm install
 
 ### 3. Konfigurasi Variabel Lingkungan
 
-Aplikasi ini memerlukan kunci API untuk beberapa fitur AI-nya.
+Aplikasi ini memerlukan kunci API dan konfigurasi Firebase.
 
 - **Buat file `.env` Anda:**
   Salin file templat `.env.example` ke file baru bernama `.env`. File ini akan berisi kunci rahasia Anda dan tidak boleh dibagikan.
@@ -86,19 +86,33 @@ Aplikasi ini memerlukan kunci API untuk beberapa fitur AI-nya.
   cp .env.example .env
   ```
   
-- **Dapatkan Kunci API Gemini Anda:**
-  1.  Buka [Google AI Studio](https://aistudio.google.com/).
-  2.  Masuk dengan akun Google Anda.
-  3.  Klik tombol "**Get API key**".
-  4.  Buat kunci API di proyek Google Cloud yang baru atau yang sudah ada.
+- **Isi Variabel Lingkungan:**
+  Buka file `.env` yang baru Anda buat dengan editor teks. Anda perlu mengisi nilai-nilai berikut:
 
-- **Tambahkan kunci ke file `.env` Anda:**
-  Buka file `.env` yang baru Anda buat dan ganti `PASTE_YOUR_GEMINI_API_KEY_HERE` dengan kunci API Anda yang sebenarnya.
+  1.  **`GEMINI_API_KEY`**:
+      *   Buka [Google AI Studio](https://aistudio.google.com/).
+      *   Klik tombol "**Get API key**" dan buat kunci API baru.
+      *   Salin kunci tersebut ke dalam file `.env`.
 
+  2.  **Konfigurasi Firebase (`NEXT_PUBLIC_FIREBASE_*`)**:
+      *   Buka [Konsol Firebase](https://console.firebase.google.com/) dan pilih proyek Anda.
+      *   Klik ikon roda gigi (Pengaturan) di pojok kiri atas dan pilih **Project settings**.
+      *   Di tab **General**, gulir ke bawah ke bagian **Your apps**.
+      *   Pilih aplikasi web Anda atau buat yang baru.
+      *   Di bagian **Firebase SDK snippet**, pilih **Config**.
+      *   Anda akan melihat objek konfigurasi JavaScript. Salin nilai-nilai yang sesuai (apiKey, authDomain, projectId, dll.) ke variabel yang cocok di file `.env` Anda.
+
+  File `.env` Anda akan terlihat seperti ini setelah diisi:
   ```
-  GEMINI_API_KEY="KUNCI_API_ANDA_DI_SINI"
+  GEMINI_API_KEY="KUNCI_API_GEMINI_ANDA"
+
+  NEXT_PUBLIC_FIREBASE_API_KEY="AIza..."
+  NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN="proyek-anda.firebaseapp.com"
+  NEXT_PUBLIC_FIREBASE_PROJECT_ID="proyek-anda"
+  NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET="proyek-anda.appspot.com"
+  NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID="1234567890"
+  NEXT_PUBLIC_FIREBASE_APP_ID="1:1234567890:web:abcdef123456"
   ```
-  **Catatan:** File `firebase.ts` sudah berisi konfigurasi publik yang diperlukan. Anda tidak perlu memodifikasinya.
 
 ## Menjalankan Aplikasi
 

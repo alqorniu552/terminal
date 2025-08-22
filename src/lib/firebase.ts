@@ -1,22 +1,40 @@
 'use client';
-import { initializeApp, getApp, getApps } from 'firebase/app';
-import { getFirestore, collection, getDocs, writeBatch, doc } from 'firebase/firestore';
-import { getAuth } from 'firebase/auth';
+import { initializeApp, getApp, getApps, FirebaseApp } from 'firebase/app';
+import { getFirestore, Firestore } from 'firebase/firestore';
+import { getAuth, Auth } from 'firebase/auth';
 
 const firebaseConfig = {
-  projectId: 'command-center-op9s7',
-  appId: '1:305576831079:web:d2e7315bcbcca8e4d18cc2',
-  storageBucket: 'command-center-op9s7.firebasestorage.app',
-  apiKey: 'AIzaSyCM-TOEBiU75ic_2CSEfJnQ8PLCyGP_u30',
-  authDomain: 'command-center-op9s7.firebaseapp.com',
-  messagingSenderId: '305576831079',
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
-const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
-const db = getFirestore(app);
-const auth = getAuth(app);
+function getFirebaseApp(): FirebaseApp | null {
+    const allConfigPresent = Object.values(firebaseConfig).every(Boolean);
+    if (!allConfigPresent) {
+        if (typeof window !== 'undefined') {
+            console.error("Firebase configuration is missing. Please check your .env file.");
+        }
+        return null;
+    }
+    return getApps().length ? getApp() : initializeApp(firebaseConfig);
+}
 
+function getFirebaseAuth(): Auth | null {
+    const app = getFirebaseApp();
+    return app ? getAuth(app) : null;
+}
 
-// Seeding data should be done manually in the Firebase console or via a secure backend script, not on the client.
+function getFirebaseDb(): Firestore | null {
+    const app = getFirebaseApp();
+    return app ? getFirestore(app) : null;
+}
+
+const app = getFirebaseApp();
+const auth = getFirebaseAuth();
+const db = getFirebaseDb();
 
 export { app, db, auth };

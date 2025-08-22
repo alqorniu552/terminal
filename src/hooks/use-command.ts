@@ -129,7 +129,7 @@ const hasPermission = (path: string, type: 'read' | 'write' | 'execute', isRoot:
     ];
 
     if (type === 'read') {
-        const isPublic = universalReadWhitelist.some(p => normalizedPath.startsWith(p));
+        const isPublic = universalReadWhitelist.some(p => normalizedPath.startsWith(p) || p === normalizedPath);
         if (isPublic) return true;
     }
     
@@ -193,6 +193,9 @@ export const useCommand = (user: User | null | undefined, { setEditorState, setI
   }, [cwd, isRoot, user]);
 
   const getWelcomeMessage = useCallback(() => {
+    if (!auth) {
+        return "Firebase not configured. Please set up your .env file.";
+    }
     if (user) {
       return `Welcome, ${user.email}! Type 'help' for a list of commands.`;
     }
@@ -275,6 +278,7 @@ export const useCommand = (user: User | null | undefined, { setEditorState, setI
                 case 'login': {
                     const [email, password] = args;
                     if (!email || !password) return `Usage: login [email] [password]`;
+                    if (!auth) return "Auth service is not available.";
                     try {
                         await signInWithEmailAndPassword(auth, email, password);
                         return 'Login successful.';
@@ -285,6 +289,7 @@ export const useCommand = (user: User | null | undefined, { setEditorState, setI
                 case 'register': {
                     const [email, password] = args;
                     if (!email || !password) return `Usage: register [email] [password]`;
+                    if (!auth) return "Auth service is not available.";
                     try {
                         await createUserWithEmailAndPassword(auth, email, password);
                         return 'Registration successful.';
@@ -488,7 +493,7 @@ Awareness: ${warlockAwareness}%
 
             // User management
             case 'logout': {
-                if (!user) return `You are not logged in.`;
+                if (!user || !auth) return `You are not logged in.`;
                 await auth.signOut();
                 dispatch({ type: 'SET_CWD', payload: '/' });
                 dispatch({ type: 'SET_IS_ROOT', payload: false });
@@ -525,7 +530,7 @@ Awareness: ${warlockAwareness}%
 
             // AI Commands
             case 'db': {
-                if (!user) return `Command 'db' requires login.`;
+                if (!user || !db) return `Command 'db' requires login and a configured database.`;
                 if (!argString) return 'db: missing query. Usage: db "your natural language query"';
                 try {
                     const queryInstruction = await databaseQuery({ query: argString });
@@ -755,4 +760,5 @@ Awareness: ${warlockAwareness}%
   };
 };
 
+    
     
