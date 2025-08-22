@@ -112,7 +112,7 @@ const hasPermission = (path: string, type: 'read' | 'write' | 'execute', isRoot:
     const normalizedPath = resolvePath('/', path);
 
     const universalReadWhitelist = ['/', '/welcome.txt'];
-    if (type === 'read' && universalReadWhitelist.some(p => normalizedPath === p)) {
+    if (type === 'read' && universalReadWhitelist.includes(normalizedPath)) {
         return true;
     }
     
@@ -279,9 +279,9 @@ export const useCommand = (user: User | null | undefined, { setEditorState, setI
                     return getHelpOutput(false, false);
                 case 'clear':
                     loadWelcomeMessage();
-                    return; // No output, just clear the screen
+                    return;
                 case '':
-                    return ''; // Handle empty command
+                    return '';
                 default:
                     return `Command '${cmd}' requires login. Please 'login' or 'register'.`;
             }
@@ -741,5 +741,3 @@ Awareness: ${warlockAwareness}%
       resetCommandState,
   };
 };
-
-    
