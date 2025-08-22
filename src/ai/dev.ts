@@ -15,3 +15,4 @@ import '@/ai/flows/craft-phish-flow.ts';
 import '@/ai/flows/analyze-image-flow.ts';
 import '@/ai/flows/forge-tool-flow.ts';
 import '@/ai/flows/generate-image-flow.ts';
+import '@/ai/flows/generate-video-flow.ts';
