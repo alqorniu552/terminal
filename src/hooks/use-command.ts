@@ -112,11 +112,10 @@ const hasPermission = (path: string, type: 'read' | 'write' | 'execute', isRoot:
     if (isRoot) return true;
 
     const normalizedPath = resolvePath('/', path);
-    const userHome = user ? `/home/${user.email?.split('@')[0]}` : null;
 
-    const readWhitelist = [
+    // Universal read access for guests and users
+    const universalReadWhitelist = [
         '/',
-        '/home',
         '/etc',
         '/var',
         '/var/log',
@@ -129,49 +128,25 @@ const hasPermission = (path: string, type: 'read' | 'write' | 'execute', isRoot:
         '/welcome.txt',
     ];
 
-    if (userHome) {
-        readWhitelist.push(userHome);
+    if (type === 'read') {
+        const isPublic = universalReadWhitelist.some(p => normalizedPath.startsWith(p));
+        if (isPublic) return true;
     }
     
-    // Add all children of whitelisted directories for read access
-    const dynamicReadWhitelist = [...readWhitelist];
-    readWhitelist.forEach(p => {
-        const node = getNodeFromPath(p);
-        if (node && node.type === 'directory') {
-            Object.keys(node.children).forEach(child => {
-                dynamicReadWhitelist.push(`${p}/${child}`.replace('//', '/'));
-            });
-        }
-    });
-    // Add children of user's home directory
-    if (userHome) {
-        const homeNode = getNodeFromPath(userHome);
-        if (homeNode && homeNode.type === 'directory') {
-             Object.keys(homeNode.children).forEach(child => {
-                dynamicReadWhitelist.push(`${userHome}/${child}`);
-            });
-        }
-    }
+    // After checking universal access, if user is not logged in, deny everything else.
+    if (!user) return false;
 
+    const userHome = `/home/${user.email?.split('@')[0]}`;
 
-    const writeWhitelist = ['/tmp'];
-    if (userHome) {
-        writeWhitelist.push(userHome);
-         const homeNode = getNodeFromPath(userHome);
-        if (homeNode && homeNode.type === 'directory') {
-             Object.keys(homeNode.children).forEach(child => {
-                writeWhitelist.push(`${userHome}/${child}`);
-            });
-        }
-    }
-
+    const readWhitelist = [userHome];
+    const writeWhitelist = ['/tmp', userHome];
     const executeWhitelist = ['/bin/linpeas.sh'];
 
     switch (type) {
         case 'read':
-            return dynamicReadWhitelist.some(p => normalizedPath === p || normalizedPath.startsWith(p + '/'));
+            return readWhitelist.some(p => normalizedPath.startsWith(p));
         case 'write':
-            return writeWhitelist.some(p => normalizedPath === p || normalizedPath.startsWith(p + '/'));
+            return writeWhitelist.some(p => normalizedPath.startsWith(p));
         case 'execute':
             return executeWhitelist.includes(normalizedPath);
         default:
@@ -230,14 +205,14 @@ export const useCommand = (user: User | null | undefined, { setEditorState, setI
   ls [path]     - List directory contents.
   cd [path]     - Change directory.
   cat [file]    - Display file content.
-  neofetch      - Display system information.
-  db "[query]"  - Query the database using natural language.
   clear         - Clear the terminal screen.
-  ask "[query]" - Ask your AI sidekick for a cryptic hint.
     `;
     
         if (isLoggedIn) {
             baseCommands += `
+  neofetch      - Display system information.
+  db "[query]"  - Query the database using natural language.
+  ask "[query]" - Ask your AI sidekick for a cryptic hint.
   mkdir [dir]   - Create a directory.
   touch [file]  - Create an empty file.
   rm [file/dir] - Remove a file or directory.
@@ -282,8 +257,7 @@ export const useCommand = (user: User | null | undefined, { setEditorState, setI
   const processCommand = useCallback(async (command: string): Promise<string | React.ReactNode> => {
     try {
         const [cmd, ...args] = command.trim().split(/\s+/);
-        const isLoggedIn = !!user;
-
+        
         if (confirmation) {
             if (cmd.toLowerCase() === 'y' || cmd.toLowerCase() === 'yes') {
                 const result = await confirmation.onConfirm();
@@ -296,7 +270,7 @@ export const useCommand = (user: User | null | undefined, { setEditorState, setI
         }
         
         // --- Auth Commands (Not logged in) ---
-        if (!isLoggedIn) {
+        if (!user) {
             switch (cmd.toLowerCase()) {
                 case 'login': {
                     const [email, password] = args;
@@ -318,18 +292,19 @@ export const useCommand = (user: User | null | undefined, { setEditorState, setI
                         return `Error: ${error.message}`;
                     }
                 }
-                case 'help': return getHelpOutput(false, false);
-                case '': return '';
-                default: return `Command not found: ${cmd}. Please 'login' or 'register'.`;
+                 case 'help': return getHelpOutput(false, false);
+                 case '': return '';
+                 // Fallthrough for guest file access
             }
         }
 
-        // --- Logged In Commands ---
+        // --- All Users (incl. Guests) Commands ---
         const argString = args.join(' ');
 
         switch (cmd.toLowerCase()) {
             // Internal command to handle editor save
             case '__save_buffer__': {
+                if (!user) return `Permission denied.`;
                 const [filePath, encodedContent] = args;
                 const decodedContent = atob(encodedContent);
                 const fullPath = resolvePath(cwd, filePath);
@@ -341,8 +316,9 @@ export const useCommand = (user: User | null | undefined, { setEditorState, setI
             }
 
             // Standard commands
-            case 'help': return getHelpOutput(true, isRoot);
+            case 'help': return getHelpOutput(!!user, isRoot);
             case 'neofetch': {
+                if (!user) return `Command 'neofetch' requires login.`;
                 let uptime = 0;
                 if (typeof window !== 'undefined') {
                     uptime = Math.floor(performance.now() / 1000);
@@ -366,12 +342,12 @@ Awareness: ${warlockAwareness}%
             case 'ls': {
                 const targetPath = argString ? resolvePath(cwd, argString) : cwd;
                 if (!hasPermission(targetPath, 'read', isRoot, user)) {
-                     await triggerWarlock(`denied ls on ${targetPath}`, 2);
+                     if (user) await triggerWarlock(`denied ls on ${targetPath}`, 2);
                     return `ls: cannot access '${argString || '.'}': Permission denied`;
                 }
                 const node = getNodeFromPath(targetPath);
                 if (node && node.type === 'directory') {
-                     await triggerWarlock(`ls on ${targetPath}`, 0.5);
+                     if (user) await triggerWarlock(`ls on ${targetPath}`, 0.5);
                     return Object.keys(node.children).map(key => {
                         return node.children[key].type === 'directory' ? `\x1b[1;34m${key}/\x1b[0m` : key;
                     }).join('\n');
@@ -379,19 +355,20 @@ Awareness: ${warlockAwareness}%
                 return `ls: cannot access '${argString || '.'}': No such file or directory`;
             }
             case 'cd': {
-                if (!argString || argString === '~') {
-                    const homePath = user ? `/home/${user.email?.split('@')[0]}` : '/';
-                     if (!getNodeFromPath(homePath)) {
+                const newPath = argString ? resolvePath(cwd, argString) : (user ? `/home/${user.email?.split('@')[0]}` : '/');
+                if (argString === '~') {
+                     const homePath = user ? `/home/${user.email?.split('@')[0]}` : '/';
+                     if (user && !getNodeFromPath(homePath)) {
                         addNodeToFilesystem('/home', user.email!.split('@')[0], { type: 'directory', children: {} });
                     }
                     dispatch({ type: 'SET_CWD', payload: homePath });
                     return '';
                 }
-                const newPath = resolvePath(cwd, argString);
+
                 const node = getNodeFromPath(newPath);
                 if (node && node.type === 'directory') {
                     if (!hasPermission(newPath, 'read', isRoot, user)) {
-                        await triggerWarlock(`denied cd to ${newPath}`, 2);
+                        if (user) await triggerWarlock(`denied cd to ${newPath}`, 2);
                         return `cd: permission denied: ${argString}`;
                     }
                     dispatch({ type: 'SET_CWD', payload: newPath });
@@ -403,12 +380,12 @@ Awareness: ${warlockAwareness}%
                 if (!argString) return 'cat: missing operand';
                 const targetPath = resolvePath(cwd, argString);
                  if (!hasPermission(targetPath, 'read', isRoot, user)) {
-                    await triggerWarlock(`denied cat on ${targetPath}`, 3);
+                    if (user) await triggerWarlock(`denied cat on ${targetPath}`, 3);
                     return `cat: ${argString}: Permission denied`;
                 }
                 const node = getNodeFromPath(targetPath);
                 if (node && node.type === 'file') {
-                    await triggerWarlock(`cat ${targetPath}`, 1);
+                    if (user) await triggerWarlock(`cat ${targetPath}`, 1);
                     return getDynamicContent(node);
                 }
                 if (node && node.type === 'directory') {
@@ -416,7 +393,10 @@ Awareness: ${warlockAwareness}%
                 }
                 return `cat: ${argString}: No such file or directory`;
             }
+
+            // Logged-in only commands start here
             case 'mkdir': {
+                if (!user) return `Command 'mkdir' requires login.`;
                 if (!argString) return 'mkdir: missing operand';
                 const newDirPath = resolvePath(cwd, argString);
                 const parentPath = getParentPath(newDirPath);
@@ -432,7 +412,8 @@ Awareness: ${warlockAwareness}%
                 return '';
             }
             case 'touch': {
-                 if (!argString) return 'touch: missing operand';
+                if (!user) return `Command 'touch' requires login.`;
+                if (!argString) return 'touch: missing operand';
                 const newFilePath = resolvePath(cwd, argString);
                 const parentPath = getParentPath(newFilePath);
                 if (!hasPermission(parentPath, 'write', isRoot, user)) {
@@ -448,6 +429,7 @@ Awareness: ${warlockAwareness}%
                 return '';
             }
              case 'rm': {
+                if (!user) return `Command 'rm' requires login.`;
                 if (!argString) return 'rm: missing operand';
                 const targetPath = resolvePath(cwd, argString);
                 const node = getNodeFromPath(targetPath);
@@ -483,6 +465,7 @@ Awareness: ${warlockAwareness}%
                 return `rm: remove ${isDirectory ? 'directory' : 'file'} '${argString}'? (y/N)`;
             }
             case 'nano': {
+                if (!user) return `Command 'nano' requires login.`;
                 if (!argString) return 'nano: missing file operand';
                 const filePath = resolvePath(cwd, argString);
                  if (!hasPermission(getParentPath(filePath), 'write', isRoot, user)) {
@@ -505,12 +488,14 @@ Awareness: ${warlockAwareness}%
 
             // User management
             case 'logout': {
+                if (!user) return `You are not logged in.`;
                 await auth.signOut();
                 dispatch({ type: 'SET_CWD', payload: '/' });
                 dispatch({ type: 'SET_IS_ROOT', payload: false });
                 return 'Logged out successfully.';
             }
             case 'su': {
+                if (!user) return `Command 'su' requires login.`;
                 const targetUser = argString;
                 if (targetUser === 'root') {
                     if (isRoot) return 'Already root.';
@@ -528,6 +513,7 @@ Awareness: ${warlockAwareness}%
                 }
             }
             case 'exit': {
+                if (!user) return `Command 'exit' requires login.`;
                 if(isRoot) {
                     dispatch({ type: 'SET_IS_ROOT', payload: false });
                     const homePath = user ? `/home/${user.email?.split('@')[0]}` : '/';
@@ -537,9 +523,9 @@ Awareness: ${warlockAwareness}%
                 return `command not found: exit`;
             }
 
-
             // AI Commands
             case 'db': {
+                if (!user) return `Command 'db' requires login.`;
                 if (!argString) return 'db: missing query. Usage: db "your natural language query"';
                 try {
                     const queryInstruction = await databaseQuery({ query: argString });
@@ -560,6 +546,7 @@ Awareness: ${warlockAwareness}%
                 }
             }
             case 'ask': {
+                if (!user) return `Command 'ask' requires login.`;
                 if (!argString) return 'Usage: ask "[question]"';
                 const node = getNodeFromPath(cwd);
                 const files = (node?.type === 'directory') ? Object.keys(node.children) : [];
@@ -567,6 +554,7 @@ Awareness: ${warlockAwareness}%
                 return answer;
             }
              case 'scan': {
+                if (!user) return `Command 'scan' requires login.`;
                 if (!argString) return 'Usage: scan <file>';
                 const targetPath = resolvePath(cwd, argString);
                 const node = getNodeFromPath(targetPath);
@@ -578,6 +566,7 @@ Awareness: ${warlockAwareness}%
                 return `Scan report for ${argString}:\n${report}`;
             }
              case 'crack': {
+                if (!user) return `Command 'crack' requires login.`;
                 if (!argString) return 'Usage: crack <file>';
                 const targetPath = resolvePath(cwd, argString);
                 const node = getNodeFromPath(targetPath);
@@ -615,6 +604,7 @@ Awareness: ${warlockAwareness}%
                 });
             }
              case 'reveal': {
+                if (!user) return `Command 'reveal' requires login.`;
                 if (!argString) return 'Usage: reveal <image_file>';
                 const targetPath = resolvePath(cwd, argString);
                 const node = getNodeFromPath(targetPath);
@@ -629,18 +619,21 @@ Awareness: ${warlockAwareness}%
                 return `Analysis complete. Result: ${revealedMessage}`;
             }
             case 'osint': {
+                if (!user) return `Command 'osint' requires login.`;
                 if (!argString) return 'Usage: osint <target>';
                 await triggerWarlock(`ran OSINT on ${argString}`, 8);
                 const { report } = await investigateTarget({ target: argString });
                 return `OSINT Report for ${argString}:\n${report}`;
             }
             case 'phish': {
+                if (!user) return `Command 'phish' requires login.`;
                 if (!argString) return 'Usage: phish <target_email>';
                 await triggerWarlock(`crafted phish for ${argString}`, 12);
                 const { phishingEmail } = await craftPhish({ targetEmail: argString, topic: 'Urgent Security Alert' });
                 return `--- CRAFTED PHISHING EMAIL ---\n${phishingEmail}`;
             }
             case 'analyze': {
+                 if (!user) return `Command 'analyze' requires login.`;
                  if (!argString) return 'Usage: analyze <image_url>';
                  try {
                      new URL(argString);
@@ -652,6 +645,7 @@ Awareness: ${warlockAwareness}%
                  return `--- FORENSIC IMAGE ANALYSIS ---\n${analysis}`;
             }
             case 'forge': {
+                if (!user) return `Command 'forge' requires login.`;
                 const [filename, ...promptParts] = args;
                 const prompt = promptParts.join(' ');
                 if(!filename || !prompt) return 'Usage: forge <filename> "[prompt]"';
@@ -689,6 +683,7 @@ Awareness: ${warlockAwareness}%
                 return `Article '${filename}' has been published to ${articlePath}.`;
             }
             case 'animate': {
+                if (!user) return `Command 'animate' requires login.`;
                 if (!argString) return 'Usage: animate <image_file>';
                 const targetPath = resolvePath(cwd, argString);
                 const node = getNodeFromPath(targetPath);
@@ -706,11 +701,13 @@ Awareness: ${warlockAwareness}%
                 });
             }
             case 'generate_image': {
+                 if (!user) return `Command 'generate_image' requires login.`;
                  if (!argString) return 'Usage: generate_image "[prompt]"';
                  await triggerWarlock(`generated an image`, 10);
                  return React.createElement(ImageDisplay, { prompt: argString, onFinished: () => dispatch({type: 'FINISH_PROCESSING'}) });
             }
              case 'generate_video': {
+                if (!user) return `Command 'generate_video' requires login.`;
                 if (!argString) return 'Usage: generate_video "[prompt]"';
                 await triggerWarlock(`generated a video`, 25);
                 return React.createElement(VideoDisplay, { prompt: argString, onFinished: () => dispatch({type: 'FINISH_PROCESSING'}) });
@@ -719,19 +716,16 @@ Awareness: ${warlockAwareness}%
             // Default
             case '': return '';
             default: {
-                if (!hasPermission(`${cwd}/${cmd}`, 'execute', isRoot, user)) {
-                    await triggerWarlock(`failed command: ${cmd}`, 1);
-                    const result = await generateCommandHelp({ command: cmd, args: args });
-                    return result.helpMessage;
+                if (user && hasPermission(`${cwd}/${cmd}`, 'execute', isRoot, user)) {
+                    const node = getNodeFromPath(`${cwd}/${cmd}`);
+                    if (node && node.type === 'file') {
+                        await triggerWarlock(`executed ${cmd}`, 2);
+                        return getDynamicContent(node);
+                    }
                 }
-                // It's an executable file
-                const node = getNodeFromPath(`${cwd}/${cmd}`);
-                if (node && node.type === 'file') {
-                    await triggerWarlock(`executed ${cmd}`, 2);
-                    return getDynamicContent(node);
-                }
-                 const result = await generateCommandHelp({ command: cmd, args: args });
-                 return result.helpMessage;
+                if (user) await triggerWarlock(`failed command: ${cmd}`, 1);
+                const result = await generateCommandHelp({ command: cmd, args: args });
+                return result.helpMessage;
             }
         }
     } catch (error: any) {
@@ -760,3 +754,5 @@ Awareness: ${warlockAwareness}%
       resetCommandState: () => dispatch({ type: 'RESET' }),
   };
 };
+
+    
