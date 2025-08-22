@@ -111,8 +111,8 @@ const hasPermission = (path: string, type: 'read' | 'write' | 'execute', isRoot:
 
     const normalizedPath = resolvePath('/', path);
 
-    const universalReadWhitelist = ['/', '/etc/hosts', '/var/log/auth.log', '/var/articles', '/bin', '/lib', '/tmp', '/welcome.txt'];
-     if (type === 'read' && universalReadWhitelist.some(p => normalizedPath === p)) {
+    const universalReadWhitelist = ['/', '/welcome.txt'];
+    if (type === 'read' && universalReadWhitelist.some(p => normalizedPath === p)) {
         return true;
     }
     
@@ -121,7 +121,7 @@ const hasPermission = (path: string, type: 'read' | 'write' | 'execute', isRoot:
     const userHome = `/home/${user.email?.split('@')[0]}`;
 
     // Define whitelists for logged-in users
-    const readWhitelist = [userHome, '/etc/shadow.bak', '/a.out', '/secret.jpg', '/root/mission_image.jpg'];
+    const readWhitelist = [userHome, '/var/log/auth.log', '/var/articles', '/bin', '/lib', '/tmp', '/etc/hosts', '/etc/shadow.bak', '/a.out', '/secret.jpg', '/root/mission_image.jpg'];
     const writeWhitelist = ['/tmp', userHome];
     const executeWhitelist = ['/bin/linpeas.sh'];
 
@@ -190,14 +190,14 @@ export const useCommand = (user: User | null | undefined, { setEditorState, setI
   const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean) => {
         let baseCommands = `
   help          - Show this help message.
-  ls [path]     - List directory contents.
-  cd [path]     - Change directory.
-  cat [file]    - Display file content.
   clear         - Clear the terminal screen.
     `;
     
         if (isLoggedIn) {
             baseCommands += `
+  ls [path]     - List directory contents.
+  cd [path]     - Change directory.
+  cat [file]    - Display file content.
   neofetch      - Display system information.
   db "[query]"  - Query the database using natural language.
   ask "[query]" - Ask your AI sidekick for a cryptic hint.
@@ -258,11 +258,6 @@ export const useCommand = (user: User | null | undefined, { setEditorState, setI
             }
         }
 
-        if (cmd.toLowerCase() === 'clear') {
-            loadWelcomeMessage();
-            return;
-        }
-
         // --- Guest User Commands ---
         if (!user) {
             switch (cmd.toLowerCase()) {
@@ -282,13 +277,11 @@ export const useCommand = (user: User | null | undefined, { setEditorState, setI
                 }
                 case 'help':
                     return getHelpOutput(false, false);
+                case 'clear':
+                    loadWelcomeMessage();
+                    return; // No output, just clear the screen
                 case '':
-                    return '';
-                case 'cat':
-                case 'ls':
-                case 'cd':
-                     // Allow basic filesystem navigation for guests, but restricted.
-                     break; 
+                    return ''; // Handle empty command
                 default:
                     return `Command '${cmd}' requires login. Please 'login' or 'register'.`;
             }
@@ -311,6 +304,9 @@ export const useCommand = (user: User | null | undefined, { setEditorState, setI
 
             // Standard commands
             case 'help': return getHelpOutput(!!user, isRoot);
+            case 'clear':
+                loadWelcomeMessage();
+                return;
             case 'neofetch': {
                 let uptime = 0;
                 if (typeof window !== 'undefined') {
@@ -745,3 +741,5 @@ Awareness: ${warlockAwareness}%
       resetCommandState,
   };
 };
+
+    
