@@ -15,9 +15,6 @@ const firebaseConfig = {
 function getFirebaseApp(): FirebaseApp | null {
     const allConfigPresent = Object.values(firebaseConfig).every(Boolean);
     if (!allConfigPresent) {
-        if (typeof window !== 'undefined') {
-            console.error("Firebase configuration is missing. Please check your .env file.");
-        }
         return null;
     }
     return getApps().length ? getApp() : initializeApp(firebaseConfig);
