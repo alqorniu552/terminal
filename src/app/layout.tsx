@@ -42,7 +42,7 @@ export default function RootLayout({
   return (
     <html lang="en" className={`dark h-full ${sourceCodePro.variable}`}>
       <head />
-      <body className="h-full font-code antialiased">
+      <body className="h-full font-code antialiased" suppressHydrationWarning={true}>
         {children}
         <Toaster />
       </body>
