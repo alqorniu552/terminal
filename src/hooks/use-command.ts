@@ -109,9 +109,8 @@ const hasPermission = (path: string, type: 'read' | 'write' | 'execute', isRoot:
 
     const normalizedPath = resolvePath('/', path);
 
-    const universalReadWhitelist = ['/', '/etc', '/var', '/var/log', '/var/articles', '/bin', '/lib', '/tmp', '/a.out', '/secret.jpg', '/welcome.txt', '/root/mission_image.jpg'];
-
-    if (type === 'read' && universalReadWhitelist.some(p => p === normalizedPath || (p.endsWith('/') && normalizedPath.startsWith(p)))) {
+    const universalReadWhitelist = ['/', '/etc', '/var', '/var/log', '/var/articles', '/bin', '/lib', '/tmp'];
+    if (type === 'read' && universalReadWhitelist.some(p => normalizedPath.startsWith(p))) {
         return true;
     }
     
@@ -120,7 +119,7 @@ const hasPermission = (path: string, type: 'read' | 'write' | 'execute', isRoot:
     const userHome = `/home/${user.email?.split('@')[0]}`;
 
     // Define whitelists for logged-in users
-    const readWhitelist = [userHome, '/etc/shadow.bak'];
+    const readWhitelist = [userHome, '/etc/shadow.bak', '/a.out', '/secret.jpg', '/welcome.txt', '/root/mission_image.jpg'];
     const writeWhitelist = ['/tmp', userHome];
     const executeWhitelist = ['/bin/linpeas.sh'];
 
@@ -274,8 +273,12 @@ export const useCommand = (user: User | null | undefined, { setEditorState, setI
                     if (!email || !password) return `Usage: register [email] [password]`;
                     if (!auth) return "Auth service is not available.";
                     try {
-                        await createUserWithEmailAndPassword(auth, email, password);
-                        return 'Registration successful.';
+                        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+                        const username = userCredential.user.email?.split('@')[0];
+                        if (username) {
+                            addNodeToFilesystem('/home', username, { type: 'directory', children: {} });
+                        }
+                        return 'Registration successful. You are now logged in.';
                     } catch (error: any) {
                         return `Error: ${error.message}`;
                     }
@@ -358,9 +361,6 @@ Awareness: ${warlockAwareness}%
                     if (!hasPermission(newPath, 'read', isRoot, user)) {
                         if (user) await triggerWarlock(`denied cd to ${newPath}`, 2);
                         return `cd: permission denied: ${argString}`;
-                    }
-                    if (newPath === homePath && !getNodeFromPath(homePath) && user) {
-                         addNodeToFilesystem('/home', user.email!.split('@')[0], { type: 'directory', children: {} });
                     }
                     dispatch({ type: 'SET_CWD', payload: newPath });
                     return '';
@@ -745,3 +745,5 @@ Awareness: ${warlockAwareness}%
       resetCommandState: () => dispatch({ type: 'RESET' }),
   };
 };
+
+    
