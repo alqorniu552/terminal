@@ -611,7 +611,7 @@ Awareness: ${warlockAwareness}%
                 if (!hasPermission(targetPath, 'read', isRoot, user)) return 'reveal: Permission denied.';
 
                 const content = getDynamicContent(node);
-                if (!content.startsWith('data:image')) return 'reveal: target is not an image file.';
+                if (!content || !content.startsWith('data:image')) return 'reveal: target is not an image file.';
                 
                 await triggerWarlock(`used steganography tool on ${targetPath}`, 15);
                 const { revealedMessage } = await revealMessage({ imageDataUri: content });
@@ -670,7 +670,7 @@ Awareness: ${warlockAwareness}%
                 if (!hasPermission(targetPath, 'read', isRoot, user)) return 'animate: Permission denied.';
 
                 const content = getDynamicContent(node);
-                if (!content.startsWith('data:image')) return 'animate: target is not an image file.';
+                if (typeof content !== 'string' || !content.startsWith('data:image')) return 'animate: target is not an image file.';
                 
                 await triggerWarlock(`animated an image file ${targetPath}`, 20);
                 return React.createElement(AnimationDisplay, {
