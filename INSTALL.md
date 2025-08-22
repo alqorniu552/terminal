@@ -140,9 +140,68 @@ Perintah ini memulai layanan Genkit dan akan memuat ulang secara otomatis setiap
 
 **Anda sekarang siap!** Buka browser Anda ke `http://localhost:9002` untuk mulai menggunakan Command Center.
 
-## Menjalankan di Latar Belakang (Opsional)
+## Menjalankan di Latar Belakang dengan PM2 (Direkomendasikan)
 
-Jika Anda perlu menjalankan server pengembangan untuk waktu yang lama dan ingin server tetap berjalan bahkan setelah Anda menutup terminal, Anda dapat menggunakan `nohup` (no hang up).
+Untuk menjalankan aplikasi secara terus-menerus di latar belakang, sangat disarankan untuk menggunakan **PM2**, manajer proses tingkat produksi untuk aplikasi Node.js.
+
+### 1. Instal PM2
+
+Instal PM2 secara global menggunakan npm.
+
+```bash
+npm install pm2 -g
+```
+
+### 2. Mulai Aplikasi dengan PM2
+
+Gunakan PM2 untuk memulai dan memberi nama pada setiap proses. Ini memungkinkan Anda untuk mengelolanya dengan mudah nanti.
+
+- **Mulai server Next.js:**
+  ```bash
+  pm2 start npm --name "command-center-web" -- run dev
+  ```
+
+- **Mulai backend Genkit AI:**
+  ```bash
+  pm2 start npm --name "command-center-genkit" -- run genkit:watch
+  ```
+
+### 3. Mengelola Proses dengan PM2
+
+Berikut adalah beberapa perintah PM2 yang berguna:
+
+- **Melihat status semua proses:**
+  ```bash
+  pm2 list
+  ```
+
+- **Memantau log dari proses tertentu:**
+  ```bash
+  # Tampilkan log untuk server web
+  pm2 logs command-center-web
+
+  # Tampilkan log untuk backend Genkit
+  pm2 logs command-center-genkit
+  ```
+
+- **Menghentikan proses:**
+  ```bash
+  pm2 stop command-center-web
+  ```
+
+- **Memulai ulang proses:**
+  ```bash
+  pm2 restart command-center-web
+  ```
+
+- **Menghapus proses dari daftar PM2:**
+  ```bash
+  pm2 delete command-center-web
+  ```
+
+## Menjalankan di Latar Belakang (Alternatif dengan `nohup`)
+
+Jika Anda tidak ingin menggunakan PM2, Anda dapat menggunakan `nohup` (no hang up) bawaan Linux.
 
 ### 1. Mulai Server di Latar Belakang
 
