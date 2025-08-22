@@ -7,42 +7,8 @@ import { generateCommandHelp } from '@/ai/flows/generate-command-help';
 import { databaseQuery } from '@/ai/flows/database-query-flow';
 import { filesystem, Directory, FilesystemNode } from '@/lib/filesystem';
 import { db, auth } from '@/lib/firebase';
-import { collection, query, where, getDocs, WhereFilterOp, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/firestore';
-import { User } from 'firebase/auth';
-
-const resolvePath = (cwd: string, path: string): string => {
-  if (path.startsWith('/')) {
-    const newParts = path.split('/').filter(p => p);
-    return '/' + newParts.join('/');
-  }
-
-  const parts = cwd === '/' ? [] : cwd.split('/').filter(p => p);
-  const newParts = path.split('/').filter(p => p);
-
-  for (const part of newParts) {
-    if (part === '.') continue;
-    if (part === '..') {
-      parts.pop();
-    } else {
-      parts.push(part);
-    }
-  }
-  return '/' + parts.join('/');
-};
-
-const getNodeFromPath = (path: string): FilesystemNode | null => {
-  const parts = path.split('/').filter(p => p && p !== '~');
-  let currentNode: FilesystemNode = filesystem;
-
-  for (const part of parts) {
-    if (currentNode.type === 'directory' && currentNode.children[part]) {
-      currentNode = currentNode.children[part];
-    } else {
-      return null;
-    }
-  }
-  return currentNode;
-};
+import { collection, query, where, getDocs, WhereFilterOp } from 'firebase/firestore';
+import { User, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 
 const getNeofetchOutput = (user: User | null | undefined) => {
     let uptime = 0;
@@ -87,6 +53,41 @@ Available commands:
   clear         - Clear the terminal screen.
 `;
 }
+
+
+const resolvePath = (cwd: string, path: string): string => {
+  if (path.startsWith('/')) {
+    const newParts = path.split('/').filter(p => p);
+    return '/' + newParts.join('/');
+  }
+
+  const parts = cwd === '/' ? [] : cwd.split('/').filter(p => p);
+  const newParts = path.split('/').filter(p => p);
+
+  for (const part of newParts) {
+    if (part === '.') continue;
+    if (part === '..') {
+      parts.pop();
+    } else {
+      parts.push(part);
+    }
+  }
+  return '/' + parts.join('/');
+};
+
+const getNodeFromPath = (path: string): FilesystemNode | null => {
+  const parts = path.split('/').filter(p => p && p !== '~');
+  let currentNode: FilesystemNode = filesystem;
+
+  for (const part of parts) {
+    if (currentNode.type === 'directory' && currentNode.children[part]) {
+      currentNode = currentNode.children[part];
+    } else {
+      return null;
+    }
+  }
+  return currentNode;
+};
 
 export const useCommand = (user: User | null | undefined) => {
   const [cwd, setCwd] = useState('/');

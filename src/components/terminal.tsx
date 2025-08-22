@@ -81,14 +81,13 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
 
     setHistory(prev => [...prev, newHistoryItem]);
     setCommand('');
+    setIsTyping(true);
     
     const result = await processCommand(command);
     
     const hasOutput = (result && typeof result === 'string' && result.length > 0) || React.isValidElement(result);
 
-    if (hasOutput) {
-       setIsTyping(true);
-    } else {
+    if (!hasOutput) {
        setIsTyping(false); 
     }
     
@@ -117,7 +116,7 @@ export default function Terminal({ user }: { user: User | null | undefined }) {
               {item.output && (
                   typeof item.output === 'string' && item.output.length > 0
                   ? <div className="whitespace-pre-wrap"><Typewriter text={item.output} onFinished={() => setIsTyping(false)} /></div>
-                  : (React.isValidElement(item.output)) ? <div>{item.output}</div> : null
+                  : (React.isValidElement(item.output)) ? <div onFocusCapture={ () => setIsTyping(false) }>{item.output}</div> : null
               )}
              </>
             )}
