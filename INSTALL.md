@@ -1,4 +1,3 @@
-
 # Panduan Instalasi untuk Ubuntu 22.04
 
 Dokumen ini memberikan langkah-langkah terperinci untuk menyiapkan dan menjalankan aplikasi Command Center pada sistem Ubuntu 22.04.
@@ -81,8 +80,11 @@ npm install
 
 Aplikasi ini memerlukan kunci API untuk beberapa fitur AI-nya.
 
-- **Buat file `.env`:**
-  Buat salinan `firebase.ts` untuk `apiKey`, lalu buat file `.env` untuk `GEMINI_API_KEY`
+- **Buat file `.env` Anda:**
+  Salin file templat `.env.example` ke file baru bernama `.env`. File ini akan berisi kunci rahasia Anda dan tidak boleh dibagikan.
+  ```bash
+  cp .env.example .env
+  ```
   
 - **Dapatkan Kunci API Gemini Anda:**
   1.  Buka [Google AI Studio](https://aistudio.google.com/).
@@ -91,10 +93,10 @@ Aplikasi ini memerlukan kunci API untuk beberapa fitur AI-nya.
   4.  Buat kunci API di proyek Google Cloud yang baru atau yang sudah ada.
 
 - **Tambahkan kunci ke file `.env` Anda:**
-  Buka file `.env` dan tambahkan kunci API Anda seperti ini:
+  Buka file `.env` yang baru Anda buat dan ganti `PASTE_YOUR_GEMINI_API_KEY_HERE` dengan kunci API Anda yang sebenarnya.
 
   ```
-  GEMINI_API_KEY=KUNCI_API_ANDA_DI_SINI
+  GEMINI_API_KEY="KUNCI_API_ANDA_DI_SINI"
   ```
   **Catatan:** File `firebase.ts` sudah berisi konfigurasi publik yang diperlukan. Anda tidak perlu memodifikasinya.
 
