@@ -6,7 +6,6 @@ import Terminal from '@/components/terminal';
 import CyberLogo from '@/components/cyber-logo';
 
 export default function TerminalPage() {
-  // Handle case where Firebase is not configured.
   if (!auth) {
     return (
       <div className="flex h-screen w-full flex-col items-center justify-center bg-background p-4 font-code text-destructive">

@@ -128,9 +128,8 @@ const hasPermission = (path: string, type: 'read' | 'write' | 'execute', isRoot:
         '/welcome.txt',
     ];
 
-    if (type === 'read') {
-        const isPublic = universalReadWhitelist.some(p => normalizedPath.startsWith(p) || p === normalizedPath);
-        if (isPublic) return true;
+    if (type === 'read' && universalReadWhitelist.some(p => normalizedPath.startsWith(p) || p === normalizedPath)) {
+        return true;
     }
     
     // After checking universal access, if user is not logged in, deny everything else.
