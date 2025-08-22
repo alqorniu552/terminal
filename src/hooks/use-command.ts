@@ -75,18 +75,8 @@ function commandReducer(state: CommandState, action: Action): CommandState {
 
 // Helper Functions
 const resolvePath = (cwd: string, path: string): string => {
-    if (path.startsWith('/')) {
-        return '/' + path.split('/').filter(p => p).join('/');
-    }
-    const parts = cwd === '/' ? [] : cwd.split('/').filter(p => p);
-    path.split('/').forEach(part => {
-        if (part === '..') {
-            parts.pop();
-        } else if (part !== '.' && part !== '') {
-            parts.push(part);
-        }
-    });
-    return '/' + parts.join('/');
+  const newPath = new URL(path, `file://${cwd}/`).pathname;
+  return newPath;
 };
 
 const getNodeFromPath = (path: string): FilesystemNode | null => {
@@ -111,31 +101,71 @@ const getParentPath = (path: string) => {
 const hasPermission = (path: string, type: 'read' | 'write' | 'execute', isRoot: boolean, user: User | null | undefined): boolean => {
     if (isRoot) return true;
 
-    const userHome = user ? `/home/${user.email?.split('@')[0]}` : '/home/guest';
+    const normalizedPath = resolvePath('/', path);
+    const userHome = user ? `/home/${user.email?.split('@')[0]}` : null;
 
-    if (type === 'read') {
-        // Deny reading other users' home directories
-        if (path.startsWith('/home/') && path !== userHome && !path.startsWith(userHome + '/')) {
-             // Exception: allow reading /home itself
-            if (path === '/home') return true;
-            return false;
+    const readWhitelist = [
+        '/',
+        '/home',
+        '/etc',
+        '/var',
+        '/var/log',
+        '/bin',
+        '/lib',
+        '/tmp',
+        '/a.out',
+        '/secret.jpg',
+        '/welcome.txt',
+    ];
+
+    if (userHome) {
+        readWhitelist.push(userHome);
+    }
+    
+    // Add all children of whitelisted directories for read access
+    const dynamicReadWhitelist = [...readWhitelist];
+    readWhitelist.forEach(p => {
+        const node = getNodeFromPath(p);
+        if (node && node.type === 'directory') {
+            Object.keys(node.children).forEach(child => {
+                dynamicReadWhitelist.push(`${p}/${child}`.replace('//', '/'));
+            });
         }
-        // Deny reading root dir
-        if (path.startsWith('/root')) return false;
-
-        return true;
+    });
+    // Add children of user's home directory
+    if (userHome) {
+        const homeNode = getNodeFromPath(userHome);
+        if (homeNode && homeNode.type === 'directory') {
+             Object.keys(homeNode.children).forEach(child => {
+                dynamicReadWhitelist.push(`${userHome}/${child}`);
+            });
+        }
     }
-    
-    if (type === 'write' || type === 'execute') {
-        if (path.startsWith(userHome) || path.startsWith('/tmp')) return true;
-        
-        // Allow executing certain scripts in /bin
-        if (type === 'execute' && path.startsWith('/bin/')) return true;
 
-        return false;
+
+    const writeWhitelist = ['/tmp'];
+    if (userHome) {
+        writeWhitelist.push(userHome);
+         const homeNode = getNodeFromPath(userHome);
+        if (homeNode && homeNode.type === 'directory') {
+             Object.keys(homeNode.children).forEach(child => {
+                writeWhitelist.push(`${userHome}/${child}`);
+            });
+        }
     }
-    
-    return false;
+
+    const executeWhitelist = ['/bin/linpeas.sh'];
+
+    switch (type) {
+        case 'read':
+            return dynamicReadWhitelist.some(p => normalizedPath === p || normalizedPath.startsWith(p + '/'));
+        case 'write':
+            return writeWhitelist.some(p => normalizedPath === p || normalizedPath.startsWith(p + '/'));
+        case 'execute':
+            return executeWhitelist.includes(normalizedPath);
+        default:
+            return false;
+    }
 };
 
 // Hook
@@ -330,7 +360,11 @@ Awareness: ${warlockAwareness}%
             }
             case 'cd': {
                 if (!argString || argString === '~') {
-                    dispatch({ type: 'SET_CWD', payload: '/' });
+                    const homePath = user ? `/home/${user.email?.split('@')[0]}` : '/';
+                     if (!getNodeFromPath(homePath)) {
+                        addNodeToFilesystem('/home', user.email!.split('@')[0], { type: 'directory', children: {} });
+                    }
+                    dispatch({ type: 'SET_CWD', payload: homePath });
                     return '';
                 }
                 const newPath = resolvePath(cwd, argString);
@@ -356,6 +390,9 @@ Awareness: ${warlockAwareness}%
                 if (node && node.type === 'file') {
                     await triggerWarlock(`cat ${targetPath}`, 1);
                     return getDynamicContent(node);
+                }
+                if (node && node.type === 'directory') {
+                    return `cat: ${argString}: Is a directory`;
                 }
                 return `cat: ${argString}: No such file or directory`;
             }
@@ -398,6 +435,7 @@ Awareness: ${warlockAwareness}%
                     return `rm: cannot remove '${argString}': No such file or directory`;
                 }
                 if (!hasPermission(targetPath, 'write', isRoot, user)) {
+                    await triggerWarlock(`denied rm on ${targetPath}`, 5);
                     return `rm: cannot remove '${argString}': Permission denied`;
                 }
 
@@ -409,40 +447,25 @@ Awareness: ${warlockAwareness}%
 
                 const isDirectory = node.type === 'directory';
                 const hasChildren = isDirectory && Object.keys(node.children).length > 0;
-                
-                if (isDirectory && hasChildren) {
-                    dispatch({
-                        type: 'SET_CONFIRMATION',
-                        payload: {
-                            message: `rm: descend into directory '${argString}'? (y/N)`,
-                            onConfirm: async () => {
-                                dispatch({
-                                    type: 'SET_CONFIRMATION',
-                                    payload: {
-                                        message: `rm: remove all entries from directory '${argString}'? (y/N)`,
-                                        onConfirm
-                                    }
-                                });
-                                return '';
-                            }
-                        }
-                    });
-                     return `rm: descend into directory '${argString}'? (y/N)`;
-                } else {
-                     dispatch({
-                        type: 'SET_CONFIRMATION',
-                        payload: {
-                            message: `rm: remove ${isDirectory ? 'directory' : 'file'} '${argString}'? (y/N)`,
-                            onConfirm
-                        }
-                    });
-                    return `rm: remove ${isDirectory ? 'directory' : 'file'} '${argString}'? (y/N)`;
+                const isRecursive = args.includes('-r') || args.includes('-R');
+
+                if (isDirectory && hasChildren && !isRecursive) {
+                    return `rm: cannot remove '${argString}': Is a directory. Use -r to remove recursively.`;
                 }
+                
+                dispatch({
+                    type: 'SET_CONFIRMATION',
+                    payload: {
+                        message: `rm: remove ${isDirectory ? 'directory' : 'file'} '${argString}'? (y/N)`,
+                        onConfirm
+                    }
+                });
+                return `rm: remove ${isDirectory ? 'directory' : 'file'} '${argString}'? (y/N)`;
             }
             case 'nano': {
                 if (!argString) return 'nano: missing file operand';
                 const filePath = resolvePath(cwd, argString);
-                 if (!hasPermission(filePath, 'read', isRoot, user) && !hasPermission(getParentPath(filePath), 'write', isRoot, user)) {
+                 if (!hasPermission(getParentPath(filePath), 'write', isRoot, user)) {
                     return `nano: Permission denied: ${argString}`;
                 }
                 const node = getNodeFromPath(filePath);
@@ -450,6 +473,9 @@ Awareness: ${warlockAwareness}%
                 if (node) {
                     if (node.type === 'directory') {
                         return `nano: ${argString}: Is a directory`;
+                    }
+                     if (!hasPermission(filePath, 'read', isRoot, user)) {
+                        return `nano: Permission denied: ${argString}`;
                     }
                     content = getDynamicContent(node);
                 }
@@ -474,7 +500,8 @@ Awareness: ${warlockAwareness}%
                 } else if(targetUser === user?.email?.split('@')[0]) {
                      if (!isRoot) return 'Already logged in as this user.';
                      dispatch({ type: 'SET_IS_ROOT', payload: false });
-                     dispatch({ type: 'SET_CWD', payload: '/' });
+                     const homePath = `/home/${user.email!.split('@')[0]}`;
+                     dispatch({ type: 'SET_CWD', payload: homePath });
                      return '';
                 } else {
                     return `su: user ${targetUser} does not exist`;
@@ -483,7 +510,8 @@ Awareness: ${warlockAwareness}%
             case 'exit': {
                 if(isRoot) {
                     dispatch({ type: 'SET_IS_ROOT', payload: false });
-                    dispatch({ type: 'SET_CWD', payload: '/' });
+                    const homePath = user ? `/home/${user.email?.split('@')[0]}` : '/';
+                    dispatch({ type: 'SET_CWD', payload: homePath });
                     return 'exit';
                 }
                 return `command not found: exit`;
@@ -634,9 +662,19 @@ Awareness: ${warlockAwareness}%
             // Default
             case '': return '';
             default: {
-                await triggerWarlock(`failed command: ${cmd}`, 1);
-                const result = await generateCommandHelp({ command: cmd, args: args });
-                return result.helpMessage;
+                if (!hasPermission(`${cwd}/${cmd}`, 'execute', isRoot, user)) {
+                    await triggerWarlock(`failed command: ${cmd}`, 1);
+                    const result = await generateCommandHelp({ command: cmd, args: args });
+                    return result.helpMessage;
+                }
+                // It's an executable file
+                const node = getNodeFromPath(`${cwd}/${cmd}`);
+                if (node && node.type === 'file') {
+                    await triggerWarlock(`executed ${cmd}`, 2);
+                    return getDynamicContent(node);
+                }
+                 const result = await generateCommandHelp({ command: cmd, args: args });
+                 return result.helpMessage;
             }
         }
     } catch (error: any) {
@@ -665,3 +703,5 @@ Awareness: ${warlockAwareness}%
       resetCommandState: () => dispatch({ type: 'RESET' }),
   };
 };
+
+    
