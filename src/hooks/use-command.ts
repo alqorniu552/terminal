@@ -22,8 +22,9 @@ import AnimationDisplay from '@/components/animation-display';
 import { filesystem, Directory, FilesystemNode, File, getDynamicContent, updateNodeInFilesystem, removeNodeFromFilesystem, addNodeToFilesystem, getWordlist } from '@/lib/filesystem';
 import { db, getAuthInstance } from '@/lib/firebase';
 import { collection, query, where, getDocs, WhereFilterOp } from 'firebase/firestore';
-import { User, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
+import { User } from 'firebase/auth';
 import md5 from 'md5';
+import { loginUser, registerUser, logoutUser } from '@/services/auth';
 
 // State Management
 interface CommandState {
@@ -109,8 +110,8 @@ const hasPermission = (path: string, type: 'read' | 'write' | 'execute', isRoot:
 
     const normalizedPath = resolvePath('/', path);
 
-    const universalReadWhitelist = ['/', '/etc', '/var', '/var/log', '/var/articles', '/bin', '/lib', '/tmp'];
-    if (type === 'read' && universalReadWhitelist.some(p => normalizedPath.startsWith(p))) {
+    const universalReadWhitelist = ['/', '/etc/hosts', '/var/log/auth.log', '/var/articles', '/bin', '/lib', '/tmp'];
+    if (type === 'read' && universalReadWhitelist.some(p => normalizedPath.startsWith(p) && p === normalizedPath)) {
         return true;
     }
     
@@ -259,26 +260,18 @@ export const useCommand = (user: User | null | undefined, { setEditorState, setI
             switch (cmd.toLowerCase()) {
                 case 'login': {
                     const [email, password] = args;
-                    if (!email || !password) return `Usage: login [email] [password]`;
-                    if (!auth) return "Auth service is not available.";
+                    if (!email) return `Usage: login [email] [password]`;
                     try {
-                        await signInWithEmailAndPassword(auth, email, password);
-                        return 'Login successful.';
+                        return await loginUser(email, password);
                     } catch (error: any) {
                         return `Error: ${error.message}`;
                     }
                 }
                 case 'register': {
                     const [email, password] = args;
-                    if (!email || !password) return `Usage: register [email] [password]`;
-                    if (!auth) return "Auth service is not available.";
-                    try {
-                        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-                        const username = userCredential.user.email?.split('@')[0];
-                        if (username) {
-                            addNodeToFilesystem('/home', username, { type: 'directory', children: {} });
-                        }
-                        return 'Registration successful. You are now logged in.';
+                    if (!email) return `Usage: register [email] [password]`;
+                     try {
+                        return await registerUser(email, password);
                     } catch (error: any) {
                         return `Error: ${error.message}`;
                     }
@@ -479,11 +472,15 @@ Awareness: ${warlockAwareness}%
 
             // User management
             case 'logout': {
-                if (!user || !auth) return `You are not logged in.`;
-                await auth.signOut();
-                dispatch({ type: 'SET_CWD', payload: '/' });
-                dispatch({ type: 'SET_IS_ROOT', payload: false });
-                return 'Logged out successfully.';
+                if (!user) return `You are not logged in.`;
+                 try {
+                    const result = await logoutUser();
+                    dispatch({ type: 'SET_CWD', payload: '/' });
+                    dispatch({ type: 'SET_IS_ROOT', payload: false });
+                    return result;
+                } catch (error: any) {
+                    return `Error: ${error.message}`;
+                }
             }
             case 'su': {
                 if (!user) return `Command 'su' requires login.`;
