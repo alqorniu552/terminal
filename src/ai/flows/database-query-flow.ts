@@ -35,8 +35,6 @@ const prompt = ai.definePrompt({
   
   User query: "{{{query}}}"
   
-  Today is ${new Date().toDateString()}.
-  
   You must provide a collection and where clauses. The where clauses must be an array of tuples, where each tuple is [field, operator, value].
   `,
 });
