@@ -10,9 +10,9 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        body: ['Source Code Pro', 'monospace'],
-        headline: ['Source Code Pro', 'monospace'],
-        code: ['Source Code Pro', 'monospace'],
+        body: ['var(--font-source-code-pro)', 'monospace'],
+        headline: ['var(--font-source-code-pro)', 'monospace'],
+        code: ['var(--font-source-code-pro)', 'monospace'],
       },
       colors: {
         background: 'hsl(var(--background))',
