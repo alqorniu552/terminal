@@ -11,21 +11,18 @@ type TypewriterProps = {
 
 const Typewriter = ({ text, speed = 10, onFinished, className }: TypewriterProps) => {
   const [displayedText, setDisplayedText] = useState('');
-  const [currentIndex, setCurrentIndex] = useState(0);
+  const [isMounted, setIsMounted] = useState(false);
 
   useEffect(() => {
-    if (text === null || text === undefined) return;
-    setDisplayedText('');
-    setCurrentIndex(0);
-  }, [text]);
+    setIsMounted(true);
+  }, []);
 
   useEffect(() => {
-    if (text === null || text === undefined) return;
-    
-    if (currentIndex < text.length) {
+    if (!isMounted || text === null || text === undefined) return;
+
+    if (displayedText.length < text.length) {
       const timeoutId = setTimeout(() => {
-        setDisplayedText((prev) => prev + text[currentIndex]);
-        setCurrentIndex((prev) => prev + 1);
+        setDisplayedText(text.substring(0, displayedText.length + 1));
       }, speed);
 
       return () => clearTimeout(timeoutId);
@@ -33,9 +30,11 @@ const Typewriter = ({ text, speed = 10, onFinished, className }: TypewriterProps
       const finishTimeout = setTimeout(onFinished, 100);
       return () => clearTimeout(finishTimeout);
     }
-  }, [currentIndex, text, speed, onFinished]);
+  }, [displayedText, text, speed, onFinished, isMounted]);
 
-  return <div className={className} dangerouslySetInnerHTML={{ __html: displayedText.replace(/\n/g, '<br/>') }} />;
+  const displayText = isMounted ? displayedText : text;
+
+  return <div className={className} dangerouslySetInnerHTML={{ __html: displayText.replace(/\n/g, '<br/>') }} />;
 };
 
 export default Typewriter;
