@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useCallback, useEffect, useReducer } from 'react';
@@ -14,8 +15,11 @@ import { forgeTool } from '@/ai/flows/forge-tool-flow';
 import { analyzeImage } from '@/ai/flows/analyze-image-flow';
 import { generateImage } from '@/ai/flows/generate-image-flow';
 import { generateVideo } from '@/ai/flows/generate-video-flow';
+import { animateImage } from '@/ai/flows/animate-image-flow';
+
 import ImageDisplay from '@/components/image-display';
 import VideoDisplay from '@/components/video-display';
+import AnimationDisplay from '@/components/animation-display';
 
 
 import { filesystem, Directory, FilesystemNode, File, getDynamicContent, updateNodeInFilesystem, removeNodeFromFilesystem, addNodeToFilesystem, getWordlist } from '@/lib/filesystem';
@@ -241,6 +245,7 @@ export const useCommand = (user: User | null | undefined, { setEditorState, setI
   phish <email> - Craft a phishing email for a target.
   forge <tool> "[prompt]" - Generate a tool with AI.
   analyze <url> - Analyze an image from a URL for clues.
+  animate <img_file> - Animate a static image file using AI.
   generate_image "[prompt]" - Generate an image with AI.
   generate_video "[prompt]" - Generate a video with AI.
   logout        - Log out from the application.
@@ -657,6 +662,23 @@ Awareness: ${warlockAwareness}%
                     return `Tool '${filename}' forged successfully.`;
                 }
             }
+            case 'animate': {
+                if (!argString) return 'Usage: animate <image_file>';
+                const targetPath = resolvePath(cwd, argString);
+                const node = getNodeFromPath(targetPath);
+                if (!node || node.type !== 'file') return 'animate: target is not a valid file.';
+                if (!hasPermission(targetPath, 'read', isRoot, user)) return 'animate: Permission denied.';
+
+                const content = getDynamicContent(node);
+                if (!content.startsWith('data:image')) return 'animate: target is not an image file.';
+                
+                await triggerWarlock(`animated an image file ${targetPath}`, 20);
+                return React.createElement(AnimationDisplay, {
+                    imageDataUri: content,
+                    filename: argString,
+                    onFinished: () => dispatch({ type: 'FINISH_PROCESSING' })
+                });
+            }
             case 'generate_image': {
                  if (!argString) return 'Usage: generate_image "[prompt]"';
                  await triggerWarlock(`generated an image`, 10);
@@ -696,7 +718,7 @@ Awareness: ${warlockAwareness}%
         return `Error: Command failed to execute.`;
     } finally {
         // For commands that don't return a component that handles its own state.
-         if (!command.startsWith('generate_image') && !command.startsWith('generate_video')) {
+         if (!command.startsWith('generate_image') && !command.startsWith('generate_video') && !command.startsWith('animate')) {
             dispatch({ type: 'FINISH_PROCESSING' });
          }
     }

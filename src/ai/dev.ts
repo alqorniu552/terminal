@@ -16,3 +16,4 @@ import '@/ai/flows/analyze-image-flow.ts';
 import '@/ai/flows/forge-tool-flow.ts';
 import '@/ai/flows/generate-image-flow.ts';
 import '@/ai/flows/generate-video-flow.ts';
+import '@/ai/flows/animate-image-flow.ts';
