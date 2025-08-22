@@ -123,3 +123,56 @@ npm run genkit:watch
 Perintah ini memulai layanan Genkit dan akan memuat ulang secara otomatis setiap kali Anda membuat perubahan pada file *flow* AI.
 
 **Anda sekarang siap!** Buka browser Anda ke `http://localhost:9002` untuk mulai menggunakan Command Center.
+
+## Menjalankan di Latar Belakang (Opsional)
+
+Jika Anda perlu menjalankan server pengembangan untuk waktu yang lama dan ingin server tetap berjalan bahkan setelah Anda menutup terminal, Anda dapat menggunakan `nohup` (no hang up).
+
+### 1. Mulai Server di Latar Belakang
+
+- **Untuk server Next.js:**
+  ```bash
+  nohup npm run dev > next-dev.log 2>&1 &
+  ```
+
+- **Untuk backend Genkit AI:**
+  ```bash
+  nohup npm run genkit:watch > genkit-watch.log 2>&1 &
+  ```
+
+Perintah-perintah ini akan:
+- `nohup`: Membuat perintah kebal terhadap sinyal hangup.
+- `> ...log`: Mengalihkan output standar ke file log.
+- `2>&1`: Mengalihkan kesalahan standar ke file log yang sama.
+- `&`: Menjalankan perintah di latar belakang.
+
+Anda akan melihat ID proses (PID) dari setiap perintah. Catat PID ini jika Anda perlu menghentikan proses nanti.
+
+### 2. Memeriksa Log
+
+Anda dapat memantau output server dengan melihat file log:
+
+```bash
+tail -f next-dev.log
+tail -f genkit-watch.log
+```
+Gunakan `Ctrl+C` untuk berhenti melihat log.
+
+### 3. Menghentikan Server Latar Belakang
+
+Untuk menghentikan server, Anda perlu menggunakan PID yang Anda catat sebelumnya. Jika Anda tidak memilikinya, Anda dapat menemukannya:
+
+```bash
+# Temukan PID untuk proses Node.js yang berjalan di port 9002 (Next.js)
+ps aux | grep '9002'
+
+# Temukan PID untuk proses Genkit
+ps aux | grep 'genkit:watch'
+```
+
+Setelah Anda memiliki PID, gunakan perintah `kill`:
+
+```bash
+kill PID_ANDA_DI_SINI
+```
+Misalnya, `kill 12345`.
