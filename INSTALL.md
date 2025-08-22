@@ -25,17 +25,17 @@ Menggunakan NVM adalah cara yang direkomendasikan untuk menginstal Node.js dan n
   ```
 
 - **Instal NVM:**
+  Jalankan skrip instalasi dari repositori resmi NVM.
   ```bash
   curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
   ```
+  Skrip ini akan secara otomatis memodifikasi file `~/.bashrc` Anda untuk memuat NVM saat startup.
 
-- **Muat NVM ke sesi shell Anda saat ini:**
+- **Muat ulang konfigurasi shell Anda:**
+  Tutup dan buka kembali terminal Anda, atau jalankan perintah berikut untuk menerapkan perubahan tanpa harus keluar.
   ```bash
-  export NVM_DIR="$HOME/.nvm"
-  [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-  [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+  source ~/.bashrc
   ```
-  Anda mungkin perlu menutup dan membuka kembali terminal Anda agar perubahan ini berlaku.
 
 - **Instal versi LTS (Long-Term Support) dari Node.js:**
   ```bash
