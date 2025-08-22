@@ -14,17 +14,13 @@ import { craftPhish } from '@/ai/flows/craft-phish-flow';
 import { forgeTool } from '@/ai/flows/forge-tool-flow';
 import { analyzeImage } from '@/ai/flows/analyze-image-flow';
 import { writeArticle } from '@/ai/flows/write-article-flow';
-import { generateImage } from '@/ai/flows/generate-image-flow';
-import { generateVideo } from '@/ai/flows/generate-video-flow';
-import { animateImage } from '@/ai/flows/animate-image-flow';
 
 import ImageDisplay from '@/components/image-display';
 import VideoDisplay from '@/components/video-display';
 import AnimationDisplay from '@/components/animation-display';
 
-
 import { filesystem, Directory, FilesystemNode, File, getDynamicContent, updateNodeInFilesystem, removeNodeFromFilesystem, addNodeToFilesystem, getWordlist } from '@/lib/filesystem';
-import { db, auth } from '@/lib/firebase';
+import { db, getAuthInstance } from '@/lib/firebase';
 import { collection, query, where, getDocs, WhereFilterOp } from 'firebase/firestore';
 import { User, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import md5 from 'md5';
@@ -163,6 +159,7 @@ export const useCommand = (user: User | null | undefined, { setEditorState, setI
   const [state, dispatch] = useReducer(commandReducer, initialState);
   const { cwd, isRoot, warlockAwareness, isProcessing, commandJustFinished, confirmation } = state;
   const { toast } = useToast();
+  const auth = getAuthInstance();
 
   useEffect(() => {
     // Reset state on user change
@@ -199,7 +196,7 @@ export const useCommand = (user: User | null | undefined, { setEditorState, setI
       return `Welcome, ${user.email}! Type 'help' for a list of commands.`;
     }
     return `Welcome to Command Center! Please 'login' or 'register' to continue.`;
-  }, [user]);
+  }, [user, auth]);
 
   const getHelpOutput = (isLoggedIn: boolean, isRoot: boolean) => {
         let baseCommands = `
@@ -746,7 +743,7 @@ Awareness: ${warlockAwareness}%
             dispatch({ type: 'FINISH_PROCESSING' });
          }
     }
-  }, [user, cwd, isRoot, toast, confirmation, warlockAwareness, triggerWarlock, setEditorState, setIsTyping]);
+  }, [user, cwd, isRoot, toast, confirmation, warlockAwareness, triggerWarlock, setEditorState, setIsTyping, auth]);
 
   return {
       prompt: getPrompt(),
@@ -758,6 +755,3 @@ Awareness: ${warlockAwareness}%
       resetCommandState: () => dispatch({ type: 'RESET' }),
   };
 };
-
-    
-    

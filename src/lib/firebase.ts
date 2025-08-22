@@ -12,18 +12,49 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
-function getFirebaseApp(): FirebaseApp | null {
-    const allConfigPresent = Object.values(firebaseConfig).every(Boolean);
+let app: FirebaseApp | null = null;
+let auth: Auth | null = null;
+let db: Firestore | null = null;
 
-    if (!allConfigPresent) {
-        return null;
+function initializeFirebase() {
+    if (typeof window === 'undefined' || app) {
+        return;
     }
 
-    return getApps().length ? getApp() : initializeApp(firebaseConfig);
+    const allConfigPresent = Object.values(firebaseConfig).every(Boolean);
+    if (!allConfigPresent) {
+        return;
+    }
+
+    if (getApps().length === 0) {
+        try {
+            app = initializeApp(firebaseConfig);
+            auth = getAuth(app);
+            db = getFirestore(app);
+        } catch (e) {
+            console.error("Firebase initialization error:", e);
+            app = null;
+            auth = null;
+            db = null;
+        }
+    } else {
+        app = getApp();
+        auth = getAuth(app);
+        db = getFirestore(app);
+    }
 }
 
-const app = getFirebaseApp();
-const auth = app ? getAuth(app) : null;
-const db = app ? getFirestore(app) : null;
+initializeFirebase();
+
+// Getter functions to ensure consumers get the initialized instances
+export function getAuthInstance(): Auth | null {
+    if (!auth) initializeFirebase();
+    return auth;
+}
+
+export function getDbInstance(): Firestore | null {
+    if (!db) initializeFirebase();
+    return db;
+}
 
 export { app, db, auth };
