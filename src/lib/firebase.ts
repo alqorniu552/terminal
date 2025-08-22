@@ -12,26 +12,16 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
-function getFirebaseApp(): FirebaseApp | null {
-    const allConfigPresent = Object.values(firebaseConfig).every(Boolean);
-    if (!allConfigPresent) {
-        return null;
-    }
-    return getApps().length ? getApp() : initializeApp(firebaseConfig);
-}
+let app: FirebaseApp | null = null;
+let auth: Auth | null = null;
+let db: Firestore | null = null;
 
-function getFirebaseAuth(): Auth | null {
-    const app = getFirebaseApp();
-    return app ? getAuth(app) : null;
-}
+const allConfigPresent = Object.values(firebaseConfig).every(Boolean);
 
-function getFirebaseDb(): Firestore | null {
-    const app = getFirebaseApp();
-    return app ? getFirestore(app) : null;
+if (allConfigPresent) {
+    app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+    auth = getAuth(app);
+    db = getFirestore(app);
 }
-
-const app = getFirebaseApp();
-const auth = getFirebaseAuth();
-const db = getFirebaseDb();
 
 export { app, db, auth };
